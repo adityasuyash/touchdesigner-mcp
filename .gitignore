@@ -1,0 +1,15 @@
+# TouchDesigner
+*.toe
+*.toe.dir/
+Backup/
+CrashAutoSave.*
+
+# Videos (keep mp4s local only)
+*.mp4
+
+# macOS
+.DS_Store
+
+# Claude Code local state (keep .claude/skills/ tracked)
+.claude/settings.local.json
+.claude/projects/

@@ -1,0 +1,36 @@
+digraph network {
+    rankdir=LR;
+    subgraph cluster_TOP {
+        label="TOP";
+        glsl_main [label="glsl_main\nglsl/TOP\n960x540\nvec0name = uTime\nvec0valuex := me.time.seconds"];
+        out [label="out\nnull/TOP\n960x540"];
+        fb_seed [label="fb_seed\nglsl/TOP\n960x540\nvec0name = uTime\nvec0valuex := me.time.seconds"];
+        fb_comp [label="fb_comp\ncomp/TOP\n960x540\noperand = screen"];
+        fb_hsv [label="fb_hsv\nhsvadj/TOP\n960x540\nhueoffset := me.time.seconds * 0.8\nsaturationmult = 1.2\nvaluemult = 0.94"];
+        fb_level [label="fb_level\nlevel/TOP\n960x540\nbrightness1 = 0.94\ngamma1 = 1.1\ncontrast = 1.4"];
+        fb_out [label="fb_out\nnull/TOP\n960x540"];
+        fb_transform [label="fb_transform\ntransform/TOP\n960x540\nrotate := me.time.seconds * 1.5\nsx = 0.992\n+2 more"];
+        fb_feedback [label="fb_feedback\nfeedback/TOP\n960x540"];
+        pf_glsl [label="pf_glsl\nglsl/TOP\n960x540\nvec0name = uParams\nvec0valuex := op('pf_merge')['wave1']\nvec0valuey := op('pf_merge')['wave2']\nvec0valuez := op('pf_merge')['drift']\n+1 more"];
+        pf_out [label="pf_out\nnull/TOP\n960x540"];
+    }
+    subgraph cluster_CHOP {
+        label="CHOP";
+        pf_lfo1 [label="pf_lfo1\nlfo/CHOP\nwave1\nfrequency = 0.15"];
+        pf_lfo2 [label="pf_lfo2\nlfo/CHOP\nwave2\nfrequency = 0.23"];
+        pf_noise_chop [label="pf_noise_chop\nnoise/CHOP\ndrift\nperiod = 8.0\nrough = 0.4"];
+        pf_merge [label="pf_merge\nmerge/CHOP\nwave1, wave2, drift"];
+    }
+    glsl_main -> out;
+    fb_seed -> fb_comp;
+    fb_transform -> fb_comp;
+    fb_comp -> fb_hsv;
+    fb_hsv -> fb_level;
+    fb_level -> fb_out;
+    fb_level -> fb_feedback [label="feedback"];
+    fb_feedback -> fb_transform;
+    pf_lfo1 -> pf_merge;
+    pf_lfo2 -> pf_merge;
+    pf_noise_chop -> pf_merge;
+    pf_glsl -> pf_out;
+}
