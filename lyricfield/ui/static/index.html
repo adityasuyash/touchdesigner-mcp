@@ -417,6 +417,13 @@ $('#btnPreviewStyle').onclick = () => {
     body:JSON.stringify({at, seconds:4})}).then(poll).catch(showErr);
 };
 
+$('#key').onchange = () => {
+  const v = $('#key').value.trim();
+  if (!v) return;
+  api('/api/key', {method:'POST', body:JSON.stringify({api_key:v})})
+    .then(() => { $('#key').value = ''; refreshKey(); }).catch(showErr);
+};
+
 const refreshKey = () => api('/api/key').then(r => {
   $('#keystate').textContent = r.stored ? 'saved' : 'not set';
   $('#keynote').textContent = r.stored

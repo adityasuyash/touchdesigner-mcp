@@ -30,6 +30,7 @@ from pathlib import Path
 from .cues import Cue, CueTable
 
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
+USER_AGENT = "lyricfield/0.1 (+https://github.com/adityasuyash/touchdesigner-mcp)"
 DEFAULT_MODEL = "whisper-large-v3"
 MAX_UPLOAD_MB = 24          # Groq rejects larger; we downconvert below this
 
@@ -152,6 +153,11 @@ def transcribe_words(audio: str | Path, key: str | None = None,
             headers={
                 "Authorization": f"Bearer {api_key(key)}",
                 "Content-Type": ctype,
+                # Cloudflare fronts the Groq API and rejects urllib's default
+                # User-Agent outright, as 403 "error code: 1010" -- which reads
+                # exactly like a rejected key and sends you hunting the wrong
+                # bug. Identify the client honestly and it passes.
+                "User-Agent": USER_AGENT,
             },
             method="POST",
         )
