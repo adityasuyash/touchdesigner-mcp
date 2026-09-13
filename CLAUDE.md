@@ -85,11 +85,29 @@ lyricfield/
   sync.py        push repo -> TD, pull cue tables out
   render.py      capture, container validation, stem muxing, stills
   ui/            control UI (python -m lyricfield.ui.server -> :8765)
+  preflight.py   assert what a render leans on, and repair it
   types/         the video types, one package each
-    lyric_grid/  params.py, field.py, build.py
+    lyric_grid/  the song's words, lit on cue     (family: lyric)
+    pulse_grid/  the beat as light, no words      (family: beatsync)
+tests/           pytest; `python -m pytest` with TouchDesigner shut
 ```
 
 Run the UI and work from there; every stage also has a CLI entry point.
+
+### Tests
+
+`pip install -r requirements-dev.txt && python -m pytest`. The default run needs
+no TouchDesigner and no network; tests that need ffmpeg are marked and skipped
+when it is absent. Media fixtures are synthesised by ffmpeg rather than checked
+in, because a generated fixture has a ground truth a real recording cannot give:
+a 120 BPM click train must measure 120, black must read 16.0 in limited-range
+luma, and a video that flashes at known times must correlate with those and not
+with others.
+
+The meta-tests in `tests/test_meta.py` are the ones worth keeping green above
+all: they close whole classes -- every tunable bounded, every control target in
+range, no module defining the same top-level name twice -- rather than one
+instance each. Two live bugs were found by writing them.
 
 ### Adding a video type
 

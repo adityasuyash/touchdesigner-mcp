@@ -14,7 +14,16 @@ from pathlib import Path
 import pytest
 
 from lyricfield import types as types_mod
-from lyricfield.types.lyric_grid import params as P
+
+# Every registered type, not just the first one written. A meta-test that only
+# covers one type stops being a meta-test the moment a second one exists.
+TYPES = list(types_mod.list_types())
+TYPE_IDS = [vt.slug for vt in TYPES]
+
+
+def _params_module(vt):
+    import importlib
+    return importlib.import_module(f"lyricfield.types.{vt.slug}.params")
 
 REPO = Path(__file__).resolve().parents[1]
 PACKAGE = REPO / "lyricfield"
@@ -44,112 +53,132 @@ def test_no_duplicate_top_level_definitions(path: Path):
 
 # ------------------------------------------------------------------- tunables
 
-def _declared_fields():
+def _declared_fields(vt):
     """Every tunable a type declares, as {name: default}."""
     out = {}
-    for section in P.Params().__dataclass_fields__:
-        obj = getattr(P.Params(), section)
-        for name, value in vars(obj).items():
+    p = vt.default_params()
+    for section in p.__dataclass_fields__:
+        for name, value in vars(getattr(p, section)).items():
             out[name] = value
     return out
 
 
-def test_every_tunable_has_a_range():
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_every_tunable_has_a_range(vt):
     """A tunable with no declared bounds gets invented ones in the UI.
 
     The fallback rescaled the maximum from whatever the current value happened
-    to be, so a slider never settled in the same place twice and a minimum of
-    zero put `offset` out of reach below zero.
+    to be, so a slider never settled in the same place twice, and clamped every
+    minimum to zero, putting `offset` out of reach below zero.
     """
-    numeric = {k: v for k, v in _declared_fields().items()
+    ranges = vt.ranges()
+    numeric = {k: v for k, v in _declared_fields(vt).items()
                if isinstance(v, (int, float)) and not isinstance(v, bool)}
-    missing = sorted(set(numeric) - set(P.RANGES))
-    assert not missing, f"declared but unbounded: {missing}"
+    missing = sorted(set(numeric) - set(ranges))
+    assert not missing, f"{vt.slug} declares these unbounded: {missing}"
 
 
-def test_no_range_without_a_tunable():
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_no_range_without_a_tunable(vt):
     """The reverse: a range for a parameter that no longer exists is a lie."""
-    stray = sorted(set(P.RANGES) - set(_declared_fields()))
-    assert not stray, f"RANGES names parameters that do not exist: {stray}"
+    stray = sorted(set(vt.ranges()) - set(_declared_fields(vt)))
+    assert not stray, f"{vt.slug} bounds parameters that do not exist: {stray}"
 
 
-def test_defaults_sit_inside_their_ranges():
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_defaults_sit_inside_their_ranges(vt):
+    ranges = vt.ranges()
     bad = []
-    for name, value in _declared_fields().items():
-        if name not in P.RANGES or not isinstance(value, (int, float)):
+    for name, value in _declared_fields(vt).items():
+        if name not in ranges or not isinstance(value, (int, float)):
             continue
-        lo, hi, _step = P.RANGES[name]
+        lo, hi, _step = ranges[name]
         if not (lo <= value <= hi):
             bad.append(f"{name}={value} outside ({lo}, {hi})")
-    assert not bad, bad
+    assert not bad, f"{vt.slug}: {bad}"
 
 
-def test_ranges_are_ordered():
-    bad = [f"{k}: {lo} !< {hi}" for k, (lo, hi, _s) in P.RANGES.items() if lo >= hi]
-    assert not bad, bad
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_ranges_are_ordered(vt):
+    bad = [f"{k}: {lo} !< {hi}" for k, (lo, hi, _s) in vt.ranges().items() if lo >= hi]
+    assert not bad, f"{vt.slug}: {bad}"
 
 
 # ------------------------------------------------------------------- controls
 
-def test_control_leads_are_their_own_targets():
-    for c in P.CONTROLS:
-        assert c.lead in c.targets, f"{c.key}: lead {c.lead} is not one of its targets"
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_control_leads_are_their_own_targets(vt):
+    P = _params_module(vt)
+    for c in getattr(P, "CONTROLS", ()):
+        assert c.lead in c.targets, f"{vt.slug}/{c.key}: lead is not a target"
 
 
-def test_control_targets_resolve_and_stay_in_range():
-    p = P.Params()
-    bad = []
-    for c in P.CONTROLS:
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_control_targets_resolve_and_stay_in_range(vt):
+    P = _params_module(vt)
+    p, ranges, bad = vt.default_params(), vt.ranges(), []
+    for c in getattr(P, "CONTROLS", ()):
         for path, (a, b) in c.targets.items():
             section, name = path.split(".")
             if not hasattr(getattr(p, section, object()), name):
                 bad.append(f"{c.key}: {path} does not exist")
                 continue
-            if name not in P.RANGES:
+            if name not in ranges:
                 bad.append(f"{c.key}: {path} has no declared range")
                 continue
-            lo, hi, _ = P.RANGES[name]
+            lo, hi, _ = ranges[name]
             # a..b may be inverted on purpose (a duration where more is calmer)
             if not (lo <= min(a, b) and max(a, b) <= hi):
                 bad.append(f"{c.key}: {path} spans ({a}, {b}) outside ({lo}, {hi})")
-    assert not bad, bad
+    assert not bad, f"{vt.slug}: {bad}"
 
 
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
 @pytest.mark.parametrize("value", [0.0, 0.25, 0.5, 0.75, 1.0])
-def test_any_control_position_leaves_a_valid_config(value):
+def test_any_control_position_leaves_a_valid_config(vt, value):
     """`reconcile` promises that after it, `validate()` has nothing to say."""
-    for c in P.CONTROLS:
-        p = P.Params()
+    P = _params_module(vt)
+    for c in getattr(P, "CONTROLS", ()):
+        p = vt.default_params()
         P.apply_control(p, c.key, value)
-        assert p.validate() == [], f"{c.key}={value} produced {p.validate()}"
+        assert p.validate() == [], f"{vt.slug}/{c.key}={value}: {p.validate()}"
 
 
-def test_controls_compose_without_producing_an_invalid_config():
-    """Moving several controls is the normal case, and they interact --
-    brightness and glow stack at the output, and they belong to two controls."""
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_controls_compose_without_producing_an_invalid_config(vt):
+    """Moving several controls at once is the normal case, and they interact."""
     import itertools
-    steps = [0.0, 0.5, 1.0]
-    for combo in itertools.product(steps, repeat=3):
-        p = P.Params()
-        for key, v in zip(("brightness", "glow", "beat"), combo):
+    P = _params_module(vt)
+    keys = [c.key for c in getattr(P, "CONTROLS", ())][:3]
+    if not keys:
+        pytest.skip(f"{vt.slug} declares no controls")
+    for combo in itertools.product([0.0, 0.5, 1.0], repeat=len(keys)):
+        p = vt.default_params()
+        for key, v in zip(keys, combo):
             P.apply_control(p, key, v)
-        assert p.validate() == [], f"{combo} produced {p.validate()}"
+        assert p.validate() == [], f"{vt.slug} {combo}: {p.validate()}"
 
 
-def test_reconcile_is_idempotent():
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_reconcile_is_idempotent(vt):
     import copy
-    for c in P.CONTROLS:
-        p = P.Params()
+    P = _params_module(vt)
+    for c in getattr(P, "CONTROLS", ()):
+        p = vt.default_params()
         P.apply_control(p, c.key, 1.0)
         P.reconcile(p)
         once = copy.deepcopy(p)
         P.reconcile(p)
-        assert p == once, f"reconcile moved again after {c.key}"
+        assert p == once, f"{vt.slug}: reconcile moved again after {c.key}"
 
 
-def test_unknown_control_is_refused():
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_unknown_control_is_refused(vt):
+    P = _params_module(vt)
+    if not getattr(P, "CONTROLS", ()):
+        pytest.skip(f"{vt.slug} declares no controls")
     with pytest.raises(KeyError):
-        P.apply_control(P.Params(), "nonsense", 0.5)
+        P.apply_control(vt.default_params(), "nonsense", 0.5)
 
 
 # ---------------------------------------------------------------- type registry

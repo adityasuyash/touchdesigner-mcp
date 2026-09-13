@@ -197,6 +197,27 @@ def wait_for_container(path: Path, timeout: float = 900.0,
     return False
 
 
+def mux_audio(video: Path, out: Path, source: Path,
+              duration: float, start: float = 0.0) -> None:
+    """Attach one audio file to the picture, seeked to the same moment.
+
+    For a video type that needs no stem separation there is nothing to mix --
+    the song's own mix is the audio. Without this branch such a type shipped a
+    **silent** MP4, because the only muxer required both a vocal and an
+    instrumental and quietly fell through to copying the picture alone.
+    """
+    seek = ["-ss", f"{start:.3f}"] if start else []
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+         "-i", str(video), *seek, "-i", str(source),
+         "-map", "0:v:0", "-map", "1:a:0",
+         "-t", f"{duration:.3f}",
+         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+         "-movflags", "+faststart", "-shortest", str(out)],
+        check=True,
+    )
+
+
 def mux_stems(video: Path, out: Path, vocals: Path, instrumental: Path,
               duration: float, start: float = 0.0) -> None:
     """Replace TD's drifting audio with the real stem mix, copying the video.
@@ -219,6 +240,7 @@ def mux_stems(video: Path, out: Path, vocals: Path, instrumental: Path,
 def render(client: TDClient, out_path: str | Path, duration: float,
            vocals: str | Path | None = None,
            instrumental: str | Path | None = None,
+           source: str | Path | None = None,
            fps: int = 30, pad: float = 2.5,
            top: str = OUT_TOP,
            should_stop=None, start: float = 0.0,
@@ -265,11 +287,20 @@ def render(client: TDClient, out_path: str | Path, duration: float,
             "stopped and any partial output renamed; re-render when ready."
         )
 
+    # TouchDesigner's own recorded audio drifts, so it is always discarded and
+    # the real audio attached here. Which audio depends on what this video type
+    # asked ingest for: a type that needs no separation has no stems, and used
+    # to end up with a silent file.
     if vocals and instrumental:
         say("muxing stem audio")
         mux_stems(raw, out_path, Path(vocals), Path(instrumental), duration, start)
         raw.unlink(missing_ok=True)
+    elif source:
+        say("muxing the source mix")
+        mux_audio(raw, out_path, Path(source), duration, start)
+        raw.unlink(missing_ok=True)
     else:
+        say("no audio to attach; the file will be silent")
         raw.replace(out_path)
 
     info = _ffprobe(out_path) or {}

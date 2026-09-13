@@ -265,8 +265,10 @@ def _push(ctx: Ctx, say) -> dict:
     problems = cfg.validate()
     if problems:
         raise ValueError("config is not valid: " + "; ".join(problems))
-    done = attempt(
-        lambda: sync.push_all(ctx.client, cfg, CueTable.load(ws.cues_path)), say)
+    # A type that needs no lyrics gets no cue table: pushing one would leave
+    # another renderer's words in the project for this one to ignore.
+    table = CueTable.load(ws.cues_path) if cfg.video_type.needs_lyrics else None
+    done = attempt(lambda: sync.push_all(ctx.client, cfg, table), say)
     return {"pushed": done}
 
 
@@ -351,6 +353,7 @@ def _preview(ctx: Ctx, say) -> dict:
         ctx.client, out, seconds,
         vocals=cfg.track.vocals or None,
         instrumental=cfg.track.instrumental or None,
+        source=cfg.track.source or None,
         should_stop=ctx.should_stop, start=start,
         progress=say), say, tries=2)
     return {"path": str(res.path), "duration": res.duration, "start": start,

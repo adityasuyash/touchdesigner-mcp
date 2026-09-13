@@ -169,7 +169,13 @@ def prepare(track: str | Path,
     out.lines = len(table.lines)
 
     cfg.save(config_path)
-    out.problems = table.problems(res.duration) + cfg.validate()
+    # Cue problems only matter to a type that draws cues. A beatsync renderer
+    # legitimately has no words, and reporting "cue table is empty" for one is
+    # a false alarm that withholds the verified marker from a perfectly good
+    # render.
+    out.problems = list(cfg.validate())
+    if CUES in needs:
+        out.problems = table.problems(res.duration) + out.problems
 
     # Did transcription drop any lines? Compare the cue table against the stem
     # itself: sustained singing with no word cued against it means words were

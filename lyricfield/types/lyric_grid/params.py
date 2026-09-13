@@ -379,8 +379,19 @@ def reconcile(params: "Params") -> None:
     refuse the edit, settle it: the invariants here are exactly the ones
     `validate()` reports, so after this it has nothing to say.
     """
-    lk, b = params.look, params.beat
+    reconcile_look(params.look)
+    b = params.beat
+    b.spark_peak = min(b.spark_peak, params.look.ceil)
 
+
+def reconcile_look(lk: "Look") -> None:
+    """The rules that belong to the shared `Look` section alone.
+
+    Separate from `reconcile` because more than one video type uses `Look` --
+    they share the network and its glow chain -- but not every type has a
+    `beat` section. Folding both into one function meant the beatsync type's
+    reconcile reached for a section it does not have.
+    """
     # Brightness and glow stack at the output; 0.99 measured there once, which
     # is how this check came to exist. Glow yields first, because the ceiling is
     # the more deliberate of the two -- but glow cannot go below zero, so a
@@ -395,7 +406,6 @@ def reconcile(params: "Params") -> None:
     # After the ceiling settles, everything bounded by it follows.
     lk.level_max = min(lk.level_max, lk.ceil)
     lk.level_min = min(lk.level_min, lk.level_max - 0.02)
-    b.spark_peak = min(b.spark_peak, lk.ceil)
     lk.glow_radius_lfo = min(lk.glow_radius_lfo, lk.glow_radius)
 
 
