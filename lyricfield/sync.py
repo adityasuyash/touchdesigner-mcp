@@ -15,14 +15,14 @@ from pathlib import Path
 
 from .config import Config
 from .cues import CueTable
-from .td_client import TDClient, TDError
+from .td_client import TDClient, TDError, TDUnavailable
 
 HERE = Path(__file__).parent
-FIELD_SCRIPT = HERE / "td" / "field_callbacks.py"
 
 # Operator names inside the TD project. These match the network as it was built
 # live, rather than renaming operators TD is actively cooking.
 ROOT = "/project1"
+SERVER_COMP = "td_mcp_server"
 SCRIPT_TOP = f"{ROOT}/v7_script"
 CALLBACKS = f"{ROOT}/v7_script_callbacks"
 PARAMS_DAT = f"{ROOT}/params"          # created on first push
@@ -59,11 +59,28 @@ def push_params(client: TDClient, cfg: Config) -> None:
         body.append(f"    {_py_repr(k)}: {_py_repr(v)},")
     body.append("}")
     client.write(PARAMS_DAT, "\n".join(body))
+    _seed_cue_offset(client, p.get("offset", 0.0))
 
 
-def push_field(client: TDClient) -> None:
-    """Push the field script into the Script TOP's callbacks DAT."""
-    client.write(CALLBACKS, FIELD_SCRIPT.read_text(encoding="utf-8"))
+def _seed_cue_offset(client: TDClient, offset) -> None:
+    """Mirror `cueing.offset` onto the Script TOP's custom parameter.
+
+    The field script reads the custom par, because it is the knob you reach for
+    while watching playback. Pushing the config has to move it too, or the value
+    in the config file is the one thing on screen that is not true.
+    """
+    try:
+        client.call("set", path=SCRIPT_TOP, params={"Cueoffset": float(offset)})
+    except TDError:
+        pass                        # network built without the par yet
+
+
+def push_field(client: TDClient, cfg: Config) -> None:
+    """Push the active video type's field script into the Script TOP's callbacks DAT."""
+    src = cfg.video_type.field_source()
+    if src is None:
+        return                      # a type with no in-TD code is legitimate
+    client.write(CALLBACKS, src)
 
 
 def push_cues(client: TDClient, table: CueTable) -> None:
@@ -113,11 +130,19 @@ def quiesce(client: TDClient) -> None:
 
 
 def resume(client: TDClient) -> None:
+    """Undo `quiesce`: un-bypass the Script TOP *and* restart playback.
+
+    Leaving playback stopped is not harmless. A render finalizes on a
+    `delayFrames` timer, which only advances while the timeline runs, so a
+    quiesce that is never resumed strands the next render and leaves
+    `_mcp_movieout` in the network with its frames on disk.
+    """
     client.run(
         "def main():\n"
         f"    sc = op({SCRIPT_TOP!r})\n"
         "    if sc is not None:\n"
         "        sc.bypass = False\n"
+        "    me.time.play = 1\n"
         "    return 'resumed'\n"
         "print(main())"
     )
@@ -139,12 +164,176 @@ def save_project(client: TDClient, timeout: float = 420.0) -> str:
         if client.wait_until_ready(seconds=timeout):
             return "saved (TD stalled during write, then recovered)"
         raise
+    finally:
+        # quiesce() stopped playback and bypassed the field; without this the
+        # project is left visually dead until something else happens to park it.
+        try:
+            resume(client)
+        except Exception:
+            pass
+
+
+def project_path(client: TDClient) -> str:
+    """The .toe TouchDesigner currently has open."""
+    return client.run(
+        "def main():\n"
+        "    import os\n"
+        "    return os.path.join(project.folder, project.name)\n"
+        "print(main())"
+    ).strip()
+
+
+TOE_TOOLS = Path("/Applications/TouchDesigner.app/Contents/MacOS")
+
+
+def _toeexpand() -> Path | None:
+    """TouchDesigner's .toe/.tox expander, if this install has it."""
+    for cand in (TOE_TOOLS / "toeexpand",
+                 Path("/opt/TouchDesigner/bin/toeexpand"),
+                 Path("C:/Program Files/Derivative/TouchDesigner/bin/toeexpand.exe")):
+        if cand.exists():
+            return cand
+    return None
+
+
+def has_server(path: str | Path) -> bool:
+    """Does this .toe contain an MCP server component?
+
+    Checked before every load, because loading a project without one takes the
+    server down with the old project and never brings it back -- there is then
+    no way to drive TouchDesigner at all, by any means.
+
+    A .toe is compressed, so the operator name is not findable in the raw bytes.
+    TouchDesigner ships `toeexpand`, which unpacks a project into a directory and
+    writes a table of contents listing every operator; reading that answers the
+    question in about a fifth of a second without opening the file in TD.
+    """
+    import subprocess
+    import tempfile
+
+    path = Path(path)
+    if not path.exists():
+        return False
+    exe = _toeexpand()
+    if exe is None:
+        return False            # cannot prove it is safe, so do not claim it is
+    with tempfile.TemporaryDirectory() as tmp:
+        local = Path(tmp) / path.name
+        try:
+            local.write_bytes(path.read_bytes())
+            subprocess.run([str(exe), local.name], cwd=tmp,
+                           capture_output=True, timeout=120)
+            toc = local.with_suffix(".toe.toc")
+            if not toc.exists():
+                return False
+            return SERVER_COMP in toc.read_text(errors="replace")
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+
+def save_project_as(client: TDClient, path: str | Path,
+                    timeout: float = 420.0) -> str:
+    """Save the open project to a new path; TouchDesigner continues in the new file.
+
+    Tolerates the stall: TD routinely stops answering mid-save for minutes and
+    then completes normally, so a timeout here is a wait, not a failure.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    quiesce(client)
+    try:
+        client.run(f"project.save({str(path)!r})\nprint(project.name)",
+                   timeout=timeout)
+    except Exception:
+        if not client.wait_until_ready(seconds=timeout):
+            raise
+    finally:
+        try:
+            resume(client)
+        except Exception:
+            pass
+    if not path.exists():
+        raise TDError(f"TouchDesigner reported saving but {path} does not exist")
+    return project_path(client)
+
+
+def load_project(client: TDClient, path: str | Path, timeout: float = 420.0) -> str:
+    """Open a project and wait for the MCP server to come back with it.
+
+    Refuses to load a file that has no server rather than losing control of
+    TouchDesigner; that failure is unrecoverable without a human.
+    """
+    path = Path(path)
+    if not path.exists():
+        raise TDError(f"no such project: {path}")
+    if not has_server(path):
+        raise TDError(
+            f"{path} has no {SERVER_COMP} component. Loading it would take the "
+            "MCP server down with no way to bring it back."
+        )
+    try:
+        client.run(f"project.load({str(path)!r})\nprint('loading')", timeout=30.0)
+    except Exception:
+        pass                    # the server goes down mid-call; that is expected
+    if not client.wait_until_ready(seconds=timeout):
+        raise TDUnavailable(f"TouchDesigner did not come back after loading {path}")
+    return project_path(client)
+
+
+def set_timeline_length(client: TDClient, seconds: float,
+                        exact: bool = False) -> dict:
+    """Make the timeline at least `seconds` long, or exactly that long.
+
+    Growing is the safe default: shrinking would cut a longer song that is
+    already loaded. TouchDesigner loops silently at the end of the timeline, so
+    a project shorter than its track renders the wrong thing with no error.
+
+    `exact=True` is for the one caller that knows the authoritative length --
+    provisioning, which has the song's measured duration in hand. Without it a
+    timeline can only ever ratchet upwards: a project that inherited a wrong
+    length, or one left stretched by an earlier song, stays that way forever.
+
+    **`end` is not enough.** The timeline also has a play range -- `rangestart`
+    to `rangeend` -- and with `rangelimit` at "loop" the playhead simply cannot
+    leave it. Inherited from the 90s benchmark song, `rangeend` sat at frame
+    5433 while `end` was 16074, so on a 264s track:
+
+      * setting the frame past 5433 silently snapped back (`+= 100` moved,
+        `= 10332` did not, which is what made this visible at all);
+      * the preview seek to 2:45 wrapped round to about 1:20 and rendered a
+        part of the song nobody asked for, with words that did not match the
+        moment -- reported, reasonably, as "the lyrics are not glowing".
+
+    Nothing errors in either case. Both have to be set.
+    """
+    out = client.run(
+        "def main():\n"
+        f"    want = int({float(seconds)!r} * me.time.rate) + 1\n"
+        "    t = op('/local/time') or me.time\n"
+        "    before = (t.end, t.par.rangeend.eval())\n"
+        f"    exact = {bool(exact)!r}\n"
+        "    if exact or t.end < want:\n"
+        "        t.end = want\n"
+        "    if t.par.rangestart.eval() > 1:\n"
+        "        t.par.rangestart = 1\n"
+        "    if exact or t.par.rangeend.eval() < t.end:\n"
+        "        t.par.rangeend = t.end\n"
+        "    return repr({'rate': t.rate, 'was_end': before[0],\n"
+        "                 'was_range_end': before[1], 'now': t.end,\n"
+        "                 'range_end': t.par.rangeend.eval(),\n"
+        "                 'seconds': round(t.end / t.rate, 1)})\n"
+        "print(main())"
+    ).strip()
+    try:
+        return eval(out)
+    except Exception:
+        return {"raw": out}
 
 
 def push_all(client: TDClient, cfg: Config, table: CueTable | None = None) -> list[str]:
     done: list[str] = []
-    push_params(client, cfg); done.append("params")
-    push_field(client); done.append("field script")
+    push_params(client, cfg); done.append(f"params ({cfg.type})")
+    push_field(client, cfg); done.append("field script")
     if table is not None:
         push_cues(client, table); done.append(f"{len(table.cues)} cues")
     reset_field_state(client); done.append("state reset")

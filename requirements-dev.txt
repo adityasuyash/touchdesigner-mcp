@@ -1,0 +1,5 @@
+# Development only. The runtime set in requirements.txt is deliberately small;
+# nothing here is needed to render a video.
+-r requirements.txt
+pytest>=8.0
+httpx>=0.27        # for FastAPI's TestClient

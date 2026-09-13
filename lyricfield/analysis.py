@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import subprocess
 from dataclasses import dataclass, field
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -66,13 +67,36 @@ class Analysis:
         }
 
 
+class AudioUnreadable(RuntimeError):
+    """A file that should hold audio could not be decoded.
+
+    Raised rather than returning silence, because silence is indistinguishable
+    from a real quiet passage: an empty decode yields duration 0, which sends
+    the renderer to its fallback defaults and produces a plausible video of the
+    wrong thing. A moved or renamed stem has to be loud.
+    """
+
+
+def _decode_error(path, proc) -> "AudioUnreadable":
+    why = (proc.stderr or b"").decode("utf-8", "replace").strip().splitlines()
+    hint = why[-1] if why else "ffmpeg gave no reason"
+    if not Path(path).exists():
+        hint = "the file does not exist"
+    return AudioUnreadable(f"could not read audio from {path}: {hint}")
+
+
 def probe_duration(path: str | Path) -> float:
     out = subprocess.run(
         ["ffprobe", "-v", "error", "-show_entries", "format=duration",
          "-of", "default=nw=1:nk=1", str(path)],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
     )
-    return float(out.stdout.strip())
+    if out.returncode != 0:
+        raise _decode_error(path, out)
+    try:
+        return float(out.stdout.decode().strip())
+    except ValueError as e:
+        raise _decode_error(path, out) from e
 
 
 def decode_mono(path: str | Path, sr: int = SR) -> np.ndarray:
@@ -81,8 +105,10 @@ def decode_mono(path: str | Path, sr: int = SR) -> np.ndarray:
     proc = subprocess.run(
         ["ffmpeg", "-v", "error", "-i", str(path),
          "-ac", "1", "-ar", str(sr), "-f", "f32le", "-"],
-        capture_output=True, check=True,
+        capture_output=True,
     )
+    if proc.returncode != 0:
+        raise _decode_error(path, proc)
     return np.frombuffer(proc.stdout, dtype=np.float32)
 
 
@@ -137,6 +163,110 @@ def _first_sustained(env: np.ndarray, fps: float, thresh: float,
     run = 0
     for i, v in enumerate(env):
         run = run + 1 if v > thresh else 0
+        if run >= need:
+            return round((i - need + 1) / fps, 2)
+    return 0.0
+
+
+def _smooth(env: np.ndarray, fps: float, win: float = 1.0) -> np.ndarray:
+    n = max(1, int(win * fps))
+    return np.convolve(env, np.ones(n) / n, mode="same")
+
+
+def high_entry(env: np.ndarray, fps: float = 50.0, thresh: float = 0.15) -> float:
+    """When the >4kHz layer enters, measured against a typical level, not a peak.
+
+    Normalising by the maximum is right for the kick, which dominates its own
+    band wherever it plays, and wrong for hi-hats: one loud passage sets the
+    peak and everything before it reads as silence. It put the hat entry of a
+    264s song at 218s, and of a 91s song at 0s -- both badly wrong, in opposite
+    directions. The 75th percentile is a robust stand-in for "a normal loud
+    moment" and is not moved by a single drop.
+
+    The envelope is smoothed first because hats are transient: two-second
+    averages were well over the threshold from the moment they entered, while
+    individual frames dipped under it constantly, so an unsmoothed sustain test
+    waited 23 seconds for a run of frames that all happened to clear the bar.
+    """
+    if not len(env):
+        return 0.0
+    ref = float(np.percentile(env, 75))
+    return _first_sustained(_smooth(env, fps) / (ref + 1e-9), fps,
+                            thresh=thresh, sustain=0.5)
+
+
+def voiced_frames(vocals: str | Path, fps: float = 50.0,
+                  thresh: float = 0.06) -> tuple[np.ndarray, float]:
+    """A per-frame "is someone singing here" mask for a vocal stem.
+
+    The threshold is relative to the stem's own peak and deliberately low: a
+    breathy verse is quiet next to the chorus that sets the peak, and every
+    caller here only ever produces a warning.
+    """
+    x = decode_mono(vocals)
+    if not len(x):
+        return np.zeros(0, dtype=bool), fps
+    env = _band_rms(x, 200.0, 4000.0, fps)
+    if not len(env):
+        return np.zeros(0, dtype=bool), fps
+    return (env / (env.max() + 1e-9)) > thresh, fps
+
+
+def missed_windows(vocals: str | Path, starts: Sequence[float],
+                   min_voiced: float = 2.5,
+                   fps: float = 50.0) -> list[tuple[float, float, float]]:
+    """Stretches where the stem is singing but no word is cued.
+
+    Transcription can drop lines without ever failing -- on one song it lost the
+    whole opening couplet and hung the next line's words on its timestamps, so
+    the cue count, the coverage and the end time all looked healthy. Nothing in
+    the returned data said anything was wrong.
+
+    The vocal stem is the ground truth and it is already on disk. Cues mark where
+    words are; the stem marks where singing is. Sustained singing with no word
+    against it is the signature of a dropped line, whether it was trimmed off the
+    front or lost in the middle.
+
+    Returns `(start, end, voiced_seconds)` per suspect gap, worst first.
+    """
+    voiced, fps = voiced_frames(vocals, fps)
+    if not len(voiced):
+        return []
+    dur = len(voiced) / fps
+    edges = [0.0, *sorted(starts), dur]
+    out: list[tuple[float, float, float]] = []
+    for a, b in zip(edges, edges[1:]):
+        if b - a < min_voiced:
+            continue
+        span = voiced[int(a * fps):int(b * fps)]
+        sung = float(span.sum()) / fps
+        if sung >= min_voiced:
+            out.append((round(a, 2), round(b, 2), round(sung, 2)))
+    out.sort(key=lambda w: w[2], reverse=True)
+    return out
+
+
+def vocal_entry(vocals: str | Path, sustain: float = 0.25) -> float:
+    """The moment singing actually starts, in seconds.
+
+    Transcription can silently lose a quiet opening line -- Whisper's voice
+    detection trims it -- and the only way to notice was to listen. The vocal
+    stem is already on disk, so measure it instead: the first sustained energy
+    in the range a voice occupies. Compared against the first cue, this turns a
+    missing first line into a warning the run raises itself.
+
+    The threshold, in `voiced_frames`, is deliberately low. A breathy opening
+    line is quiet relative to the chorus that sets the peak, and missing a real
+    entry matters more here than an occasional false one -- this only ever
+    produces a warning.
+    """
+    voiced, fps = voiced_frames(vocals)
+    if not len(voiced):
+        return 0.0
+    need = max(1, int(sustain * fps))
+    run = 0
+    for i, v in enumerate(voiced):
+        run = run + 1 if v else 0
         if run >= need:
             return round((i - need + 1) / fps, 2)
     return 0.0
@@ -230,8 +360,12 @@ def analyse(instrumental: str | Path) -> Analysis:
     low_n = low / (low.max() + 1e-9)
     high_n = high / (high.max() + 1e-9)
 
+    # The kick keeps its peak-relative test: measured on two tracks it put the
+    # drum entry within a couple of seconds of where the envelope visibly steps
+    # up, because a kick dominates the low band wherever it plays. Hats do not,
+    # so they get their own detector.
     kick_in = _first_sustained(low_n, 50.0, thresh=0.22)
-    high_in = _first_sustained(high_n, 50.0, thresh=0.15)
+    high_in = high_entry(high, 50.0)
 
     period, bpm = estimate_tempo(x)
     anchor = lock_phase(x, period, search_from=max(0.0, kick_in - period))

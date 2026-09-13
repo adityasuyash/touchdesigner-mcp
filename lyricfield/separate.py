@@ -99,7 +99,7 @@ def stem_paths(track: str | Path, root: str | Path = DEFAULT_ROOT,
 def separate(track: str | Path, root: str | Path = DEFAULT_ROOT,
              model: str = DEFAULT_MODEL, stem: str = "vocals",
              device: str | None = None, force: bool = False,
-             jobs: int = 1, progress=None) -> StemSet:
+             jobs: int = 1, progress=None, should_stop=None) -> StemSet:
     """Split `track` into <stem> and no_<stem>. Returns existing stems unless forced."""
     track = Path(track).expanduser()
     if not track.exists():
@@ -130,6 +130,15 @@ def separate(track: str | Path, root: str | Path = DEFAULT_ROOT,
     tail: list[str] = []
     assert proc.stdout is not None
     for line in proc.stdout:
+        # Separation is the longest thing the system does, so a stop has to be
+        # able to end it rather than wait it out.
+        if should_stop is not None and should_stop():
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+            raise SeparationError("separation stopped")
         line = line.rstrip()
         if not line:
             continue

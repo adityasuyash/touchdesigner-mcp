@@ -85,13 +85,58 @@ def api_key(explicit: str | None = None) -> str:
     return key
 
 
-def _compress(path: Path) -> Path:
-    """Whisper only needs 16kHz mono; a 90s WAV stem is ~16MB and compresses to
-    well under a megabyte, which makes the upload negligible."""
+# How much audio to keep in front of the first singing. Whisper is markedly
+# worse at the start of a file, and a long quiet intro is what triggers it: on
+# one song a 6.6s instrumental lead-in made it drop the entire opening couplet
+# and hang the second line's words on the first line's timestamps, so the cue
+# count and coverage both looked healthy.
+#
+# Measured on that song, transcribing the vocal stem four ways:
+#
+#   whole file, 64k / 128k ..... opening couplet lost, both times
+#   1s of silence prepended .... still lost (and see the adelay note below)
+#   trimmed to the first word .. recovered, 379 words
+#
+# Padding made it worse, trimming fixed it, so the upload starts where the
+# singing starts. The lead-in is small on purpose: half a second of silence was
+# enough to send the model off the rails again (321 words and an "uploaded by"
+# hallucination), which is the same first-file-second weakness seen from the
+# other side.
+LEAD_IN = 0.1
+
+# Below this there is no intro worth trimming and no reason to re-measure.
+MIN_TRIM = 1.0
+
+
+def _upload_start(path: Path) -> float:
+    """Where to begin the upload: just before the first singing, or zero."""
+    try:
+        from . import analysis
+        entry = analysis.vocal_entry(path)
+    except Exception:      # measurement is an optimisation, never a hard failure
+        return 0.0
+    return round(max(0.0, entry - LEAD_IN), 2) if entry >= MIN_TRIM else 0.0
+
+
+def _compress(path: Path, start: float = 0.0) -> Path:
+    """Whisper only needs 16kHz mono, so the upload stays small.
+
+    The bitrate is generous rather than minimal: a four-minute 16kHz mono file
+    is far below the 24MB limit even at 128k, and thrift here costs
+    intelligibility on quiet, breathy singing -- exactly where transcription is
+    already weakest.
+
+    `start` trims the silent lead-in; see LEAD_IN. Note that seeking is what
+    trims, not a filter: `adelay` with a single delay value moves only the first
+    channel, and the downmix to mono below then restores the original timing
+    from the untouched second channel -- the shift silently vanishes while the
+    caller still corrects for it, putting every word a second out.
+    """
     out = Path(tempfile.gettempdir()) / f"lyricfield_{uuid.uuid4().hex}.mp3"
+    seek = ["-ss", f"{start}"] if start else []
     subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", "-i", str(path),
-         "-ac", "1", "-ar", "16000", "-b:a", "64k", str(out)],
+        ["ffmpeg", "-v", "error", "-y", *seek, "-i", str(path),
+         "-ac", "1", "-ar", "16000", "-b:a", "128k", str(out)],
         check=True,
     )
     return out
@@ -128,10 +173,11 @@ def transcribe_words(audio: str | Path, key: str | None = None,
     if not src.exists():
         raise TranscribeError(f"no such file: {src}")
 
-    tmp: Path | None = None
-    if src.stat().st_size > MAX_UPLOAD_MB * 1024 * 1024 or src.suffix.lower() == ".wav":
-        tmp = _compress(src)
-        src = tmp
+    # Always re-encode, so the lead-in trim is applied consistently and the
+    # offset below is always the right one to add back.
+    offset = _upload_start(src)
+    tmp = _compress(src, offset)
+    src = tmp
 
     try:
         fields = [
@@ -173,13 +219,17 @@ def transcribe_words(audio: str | Path, key: str | None = None,
         if tmp is not None:
             tmp.unlink(missing_ok=True)
 
+    # Put the trimmed lead-in back, so every timestamp still refers to the song
+    # rather than to the upload.
     words = [
-        Word(w["word"].strip(), float(w["start"]), float(w["end"]))
+        Word(w["word"].strip(),
+             float(w["start"]) + offset,
+             float(w["end"]) + offset)
         for w in payload.get("words", [])
         if w.get("word", "").strip()
     ]
     spans = [
-        (float(s["start"]), float(s["end"]))
+        (float(s["start"]) + offset, float(s["end"]) + offset)
         for s in payload.get("segments", [])
     ]
     if not words:

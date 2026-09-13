@@ -1,16 +1,23 @@
-"""Named, reusable animation styles.
+"""Named, reusable presets of a video type's tunables.
 
-A style is everything that decides how the field *looks and moves* — grid, look,
-cueing, beat — with none of the per-song facts. That split already exists in
-`Config`: `track` holds the song, the other four sections hold the style. So a
-style is a Config with `track` removed, and applying one is a section-wise copy.
+A style is everything that decides how a renderer *looks and moves*, with none of
+the per-song facts. That split already exists in `Config`: `track` holds the song
+and the type's params hold the look, so a style is a type's params plus a name,
+and applying one is a section-wise copy that provably cannot reach the track.
 
-Each style keeps a short video loop as its preview. A still is not enough: drift
-speed, dissolve, ripple and twinkle are all motion, and two styles can look
-identical frozen while behaving completely differently.
+A style belongs to exactly one type. The sections of `lyric_grid` describe a
+character field and mean nothing to a waveform renderer, so styles are stored
+per type and applying one across types is refused rather than silently partial.
 
-Styles are tracked in the repo — they are the reusable output of the work, and
-they contain no song data.
+    styles/<type>/<slug>/
+        style.toml
+        preview.mp4     a short loop -- drift, dissolve, ripple and twinkle are
+        preview.png     all motion, and two styles can look identical frozen
+
+Styles are tracked in the repo; they are the reusable output of the work. The
+previews are not: they are renders of the live field, so they show whichever
+song was loaded when they were captured, and a shared preview would leak that
+song's lyrics. `.gitignore` excludes `styles/*/preview.*` for that reason.
 """
 
 from __future__ import annotations
@@ -22,9 +29,10 @@ from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .config import Beat, Config, Cueing, Grid, Look, _toml_value
+from . import types as types_mod
+from .config import Config
+from .sections import toml_value
 
-STYLE_SECTIONS = ("grid", "look", "cueing", "beat")
 DEFAULT_ROOT = Path(__file__).resolve().parents[1] / "styles"
 
 _SLUG = re.compile(r"[^a-z0-9]+")
@@ -39,13 +47,23 @@ def slugify(name: str) -> str:
 class Style:
     name: str = "Untitled"
     slug: str = "untitled"
+    type: str = types_mod.DEFAULT_TYPE
     description: str = ""
     created: str = ""
     source_song: str = ""
-    grid: Grid = field(default_factory=Grid)
-    look: Look = field(default_factory=Look)
-    cueing: Cueing = field(default_factory=Cueing)
-    beat: Beat = field(default_factory=Beat)
+    params: object = None
+
+    def __post_init__(self) -> None:
+        if self.params is None:
+            self.params = types_mod.get_type(self.type).default_params()
+
+    @property
+    def video_type(self):
+        return types_mod.get_type(self.type)
+
+    @property
+    def sections(self) -> tuple[str, ...]:
+        return tuple(f.name for f in fields(self.params))
 
     # ---------- conversion ----------
 
@@ -56,32 +74,33 @@ class Style:
         return cls(
             name=name,
             slug=slugify(name),
+            type=cfg.type,
             description=description,
             created=datetime.now(timezone.utc).isoformat(timespec="seconds"),
             source_song=source_song,
-            grid=copy.deepcopy(cfg.grid),
-            look=copy.deepcopy(cfg.look),
-            cueing=copy.deepcopy(cfg.cueing),
-            beat=copy.deepcopy(cfg.beat),
+            params=copy.deepcopy(cfg.params),
         )
 
     def apply_to(self, cfg: Config) -> Config:
-        """Copy the style's sections onto a config, leaving `track` untouched."""
+        """Copy this style's params onto a config, leaving `track` untouched."""
         import copy
-        cfg.grid = copy.deepcopy(self.grid)
-        cfg.look = copy.deepcopy(self.look)
-        cfg.cueing = copy.deepcopy(self.cueing)
-        cfg.beat = copy.deepcopy(self.beat)
+        if cfg.type != self.type:
+            raise ValueError(
+                f"style {self.slug!r} is for video type {self.type!r}, but the song "
+                f"is set to {cfg.type!r}. Switch the song's type first — these "
+                "tunables describe a different renderer."
+            )
+        cfg.params = copy.deepcopy(self.params)
         return cfg
 
     def as_config(self) -> Config:
         """A Config carrying this style and default (empty) track data."""
-        return self.apply_to(Config())
+        return self.apply_to(Config(type=self.type))
 
     # ---------- io ----------
 
     def dir(self, root: str | Path = DEFAULT_ROOT) -> Path:
-        return Path(root) / self.slug
+        return Path(root) / self.type / self.slug
 
     def save(self, root: str | Path = DEFAULT_ROOT) -> Path:
         d = self.dir(root)
@@ -90,17 +109,18 @@ class Style:
             "# lyricfield style. Reusable across songs; contains no song data.",
             "",
             "[meta]",
-            f"name = {_toml_value(self.name)}",
-            f"slug = {_toml_value(self.slug)}",
-            f"description = {_toml_value(self.description)}",
-            f"created = {_toml_value(self.created)}",
-            f"source_song = {_toml_value(self.source_song)}",
+            f"name = {toml_value(self.name)}",
+            f"slug = {toml_value(self.slug)}",
+            f"type = {toml_value(self.type)}",
+            f"description = {toml_value(self.description)}",
+            f"created = {toml_value(self.created)}",
+            f"source_song = {toml_value(self.source_song)}",
             "",
         ]
-        for section in STYLE_SECTIONS:
+        for section in self.sections:
             out.append(f"[{section}]")
-            for k, v in asdict(getattr(self, section)).items():
-                out.append(f"{k} = {_toml_value(v)}")
+            for k, v in asdict(getattr(self.params, section)).items():
+                out.append(f"{k} = {toml_value(v)}")
             out.append("")
         (d / "style.toml").write_text("\n".join(out), encoding="utf-8")
         return d
@@ -112,22 +132,19 @@ class Style:
             path = path / "style.toml"
         data = tomllib.loads(path.read_text(encoding="utf-8"))
         meta = data.get("meta", {})
-        kw: dict = {
-            "name": meta.get("name", path.parent.name),
-            "slug": meta.get("slug", path.parent.name),
-            "description": meta.get("description", ""),
-            "created": meta.get("created", ""),
-            "source_song": meta.get("source_song", ""),
-        }
-        for f in fields(cls):
-            if f.name not in STYLE_SECTIONS:
-                continue
-            section = f.default_factory()          # type: ignore[misc]
-            for k, v in data.get(f.name, {}).items():
-                if hasattr(section, k):
-                    setattr(section, k, v)
-            kw[f.name] = section
-        return cls(**kw)
+        # A style written before video types existed has no meta.type, and its
+        # parent folder is the slug rather than the type.
+        slug = meta.get("slug", path.parent.name)
+        vt = types_mod.get_type(meta.get("type") or types_mod.DEFAULT_TYPE)
+        return cls(
+            name=meta.get("name", slug),
+            slug=slug,
+            type=vt.slug,
+            description=meta.get("description", ""),
+            created=meta.get("created", ""),
+            source_song=meta.get("source_song", ""),
+            params=vt.params_from(data),
+        )
 
     # ---------- preview ----------
 
@@ -140,97 +157,153 @@ class Style:
     def has_preview(self, root: str | Path = DEFAULT_ROOT) -> bool:
         return self.preview_video(root).exists()
 
+    def preview_url(self) -> str:
+        return f"/styles/{self.type}/{self.slug}/preview.mp4"
+
     def to_dict(self, root: str | Path = DEFAULT_ROOT) -> dict:
         d = {
             "name": self.name,
             "slug": self.slug,
+            "type": self.type,
             "description": self.description,
             "created": self.created,
             "source_song": self.source_song,
             "has_preview": self.has_preview(root),
+            "preview": self.preview_url(),
         }
-        d.update({s: asdict(getattr(self, s)) for s in STYLE_SECTIONS})
+        d.update({s: asdict(getattr(self.params, s)) for s in self.sections})
         return d
 
 
 # ------------------------------------------------------------------ registry
 
-def list_styles(root: str | Path = DEFAULT_ROOT) -> list[Style]:
-    root = Path(root)
+def _style_dirs(root: Path):
+    """Every style folder under root, tolerating the pre-type flat layout."""
     if not root.exists():
-        return []
-    out = []
+        return
     for d in sorted(root.iterdir()):
+        if not d.is_dir():
+            continue
         if (d / "style.toml").exists():
-            try:
-                out.append(Style.load(d))
-            except Exception:
-                continue
-    return out
+            yield d                          # legacy: styles/<slug>/
+            continue
+        for sub in sorted(d.iterdir()):       # styles/<type>/<slug>/
+            if sub.is_dir() and (sub / "style.toml").exists():
+                yield sub
 
 
-def get_style(slug: str, root: str | Path = DEFAULT_ROOT) -> Style:
-    d = Path(root) / slug
-    if not (d / "style.toml").exists():
-        raise FileNotFoundError(f"no style {slug!r} in {root}")
-    return Style.load(d)
+def list_styles(root: str | Path = DEFAULT_ROOT,
+                type: str | None = None) -> list[Style]:
+    out = []
+    for d in _style_dirs(Path(root)):
+        try:
+            st = Style.load(d)
+        except Exception:
+            continue
+        if type is None or st.type == type:
+            out.append(st)
+    return sorted(out, key=lambda s: (s.type, s.name))
 
 
-def delete_style(slug: str, root: str | Path = DEFAULT_ROOT) -> None:
-    d = Path(root) / slug
+def get_style(slug: str, root: str | Path = DEFAULT_ROOT,
+              type: str | None = None) -> Style:
+    for st in list_styles(root):
+        if st.slug == slug and (type is None or st.type == type):
+            return st
+    raise FileNotFoundError(f"no style {slug!r} in {root}")
+
+
+def delete_style(slug: str, root: str | Path = DEFAULT_ROOT,
+                 type: str | None = None) -> None:
+    try:
+        st = get_style(slug, root, type)
+    except FileNotFoundError:
+        return
+    d = st.dir(root)
     if d.exists():
         shutil.rmtree(d)
 
 
-def capture_preview(client, style: Style, at: float, seconds: float = 4.0,
-                    root: str | Path = DEFAULT_ROOT, fps: int = 24,
-                    width: int = 360, progress=None) -> Path:
-    """Render a short silent loop of the current TD state as this style's preview.
+# Neutral words used to render every style preview. Deliberately not any song's
+# lyrics: a preview made from the loaded song could not be shared or committed,
+# which is why previews used to be per-machine and remade constantly.
+PREVIEW_CUES = Path(__file__).parent / "data" / "preview_cues.tsv"
 
-    `at` should be a moment with visible activity -- a cue firing, ideally over a
-    busy stretch -- or the preview shows an idle field and tells you nothing.
+
+def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
+                    root: str | Path = DEFAULT_ROOT, fps: int = 24,
+                    width: int = 240, progress=None,
+                    restore_cues: bool = True) -> Path:
+    """Render this style's preview from placeholder words, once.
+
+    The words come from `data/preview_cues.tsv`, never from the song that
+    happens to be loaded -- that is what makes a preview song-independent, and
+    therefore storable and shareable rather than remade on every machine.
+
+    The song's own cue table is pushed back afterwards.
     """
     from . import render as render_mod
+    from . import sync
+    from .cues import CueTable
     from .sync import OUT_TOP
 
     say = progress or (lambda m: None)
-    d = style.dir(root)
-    d.mkdir(parents=True, exist_ok=True)
-    raw = d / "_raw.mp4"
 
-    say(f"cueing preview at {at:.2f}s")
-    client.run(
-        "def main():\n"
-        "    me.time.play = 0\n"
-        f"    op('/local/time').frame = max(1, int({at!r} * 60))\n"
-        "    return op('/local/time').frame\n"
-        "print(main())"
-    )
-    say(f"recording {seconds:.0f}s")
-    client.call("render", output=str(raw), duration=seconds + 1.5,
-                top=OUT_TOP, fps=fps)
-    client.run("me.time.play = 1")
+    before = None
+    if restore_cues:
+        try:
+            before = sync.pull_cues(client)
+        except Exception:
+            before = None
+    # The placeholder words are pushed into the live project, so the song's own
+    # cue table has to come back even when the render fails or is interrupted --
+    # otherwise the next preview of the *song* silently shows "lorem ipsum".
+    try:
+        say("pushing the placeholder words")
+        sync.push_cues(client, CueTable.load(PREVIEW_CUES))
+        sync.reset_field_state(client)
+        d = style.dir(root)
+        d.mkdir(parents=True, exist_ok=True)
+        raw = d / "_raw.mp4"
 
-    if not render_mod.wait_for_container(raw, timeout=420.0):
-        raise RuntimeError("preview capture did not produce a valid container")
+        # Through `park` rather than setting the frame here: a seek outside the
+        # play range is discarded silently, and a style preview captured from
+        # the wrong moment is indistinguishable from a style that looks wrong.
+        say(f"cueing preview at {at:.2f}s")
+        render_mod.park(client, at, covers=at + seconds + 2.0)
+        say(f"recording {seconds:.0f}s")
+        client.call("render", output=str(raw), duration=seconds + 1.5,
+                    top=OUT_TOP, fps=fps)
+        client.run("me.time.play = 1")
 
-    say("encoding preview")
-    import subprocess
-    subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
-         "-t", f"{seconds:g}", "-an",
-         "-vf", f"scale={width}:-2",
-         "-c:v", "libx264", "-crf", "26", "-preset", "veryfast",
-         "-movflags", "+faststart", "-pix_fmt", "yuv420p",
-         str(style.preview_video(root))],
-        check=True,
-    )
-    subprocess.run(
-        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-         "-ss", f"{seconds / 2:g}", "-i", str(style.preview_video(root)),
-         "-frames:v", "1", str(style.preview_poster(root))],
-        check=True,
-    )
-    raw.unlink(missing_ok=True)
+        if not render_mod.wait_for_container(raw, timeout=420.0):
+            raise RuntimeError("preview capture did not produce a valid container")
+
+        say("encoding preview")
+        import subprocess
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
+             "-t", f"{seconds:g}", "-an",
+             "-vf", f"scale={width}:-2",
+             "-c:v", "libx264", "-crf", "26", "-preset", "veryfast",
+             "-movflags", "+faststart", "-pix_fmt", "yuv420p",
+             str(style.preview_video(root))],
+            check=True,
+        )
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-ss", f"{seconds / 2:g}", "-i", str(style.preview_video(root)),
+             "-frames:v", "1", str(style.preview_poster(root))],
+            check=True,
+        )
+        raw.unlink(missing_ok=True)
+    finally:
+        if before is not None and before.cues:
+            say("restoring the song's own words")
+            try:
+                sync.push_cues(client, before)
+                sync.reset_field_state(client)
+            except Exception as e:
+                say(f"could not restore the cue table: {e}")
     say("preview ready")
     return style.preview_video(root)

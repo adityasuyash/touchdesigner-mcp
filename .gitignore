@@ -1,11 +1,18 @@
 # TouchDesigner
 *.toe
 *.toe.dir/
+# ...except the bootstrap template, kept in its expanded text form so the repo
+# stays diffable and nothing binary is committed. `toecollapse` rebuilds it into
+# a .toe during setup, and needs both the .dir and the .toc.
+!templates/**
 Backup/
 CrashAutoSave.*
 
 # Videos (keep mp4s local only)
 *.mp4
+# ...except style previews, which are rendered from placeholder words and carry
+# no song data, so they ship with the style they describe.
+!styles/**/preview.mp4
 
 # macOS
 .DS_Store
@@ -28,7 +35,6 @@ __pycache__/
 .venv/
 venv/
 
-# Style previews are renders of the live field, so they show whichever song was
-# loaded when they were captured. Until previews are generated from placeholder
-# text they stay local, or a shared style leaks the song's lyrics.
-styles/*/preview.*
+# Style previews are now rendered from placeholder words (data/preview_cues.tsv),
+# never from the loaded song, so they carry no lyrics and are committed: made
+# once, reused everywhere, rather than remade on every machine.

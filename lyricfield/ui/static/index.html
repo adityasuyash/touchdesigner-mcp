@@ -1,675 +1,1154 @@
 <!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>lyricfield</title>
 <style>
-  /* Neumorphism: one surface colour everywhere, and depth carried entirely by
-     a pair of opposed shadows -- a light one up-left, a dark one down-right.
-     Nothing has a border. Controls that accept input are pressed *into* the
-     surface (inset); controls you act on stand *out* of it. That inversion is
-     the whole affordance, so it has to stay consistent or the UI stops
-     reading. */
+  /* ---------------------------------------------------------------- tokens
+     Layered warm neutrals. Depth comes from the surface stack and a soft
+     warm-tinted shadow, never an outline around every region -- outlines
+     everywhere are the specific thing that read as dated. */
   :root {
-    --r: 14px;           /* card radius */
-    --r-sm: 9px;         /* control radius */
-    --d: 5px;            /* shadow offset */
-    --b: 10px;           /* shadow blur */
-    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+    color-scheme: light;
+    --canvas:   #f5f2ed;
+    --surface:  #fffefc;
+    --sunken:   #edeae3;
+    --text:     #1f1d1a;
+    --dim:      #77716a;
+    --faint:    #a9a299;
+    --hairline: #e5e0d8;
+    --accent:   #a8542f;
+    --accent-soft: rgba(168,84,47,.10);
+    --accent-text: #fffefc;
+    --ok:       #3f6b45;
+    --warn:     #8a6a1f;
+    --bad:      #a63a2c;
+    --lift-1: 0 1px 2px rgba(62,49,36,.04), 0 6px 18px rgba(62,49,36,.05);
+    --lift-2: 0 2px 8px rgba(62,49,36,.07), 0 18px 40px rgba(62,49,36,.09);
+
+    --t-xs: 11px; --t-sm: 12px; --t-md: 13px; --t-base: 15px;
+    --t-lg: 17px; --t-xl: 21px;
+    --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
+    --s-5: 24px; --s-6: 32px; --s-7: 48px;
+    --r-s: 10px; --r: 14px; --r-l: 18px;
+    --ease: cubic-bezier(.32,.72,0,1);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --canvas:   #17150f;
+    --surface:  #211e17;
+    --sunken:   #100e0a;
+    --text:     #f3f0e9;
+    --dim:      #9c958a;
+    --faint:    #6c665d;
+    --hairline: #322e26;
+    --accent:   #e08b5f;
+    --accent-soft: rgba(224,139,95,.15);
+    --accent-text: #211004;
+    --ok:       #7fc98a;
+    --warn:     #e0b75f;
+    --bad:      #e8796a;
+    --lift-1: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.28);
+    --lift-2: 0 2px 8px rgba(0,0,0,.5), 0 18px 40px rgba(0,0,0,.38);
   }
 
-  /* light: the canonical palette. White highlight, blue-grey shadow. */
-  :root, [data-theme="light"] {
-    --surface:#e0e5ec; --sunken:#dae0e8;
-    --sh-d:#a3b1c6; --sh-l:#ffffff;
-    /* Secondaries are darker than a neumorphic palette usually runs. The soft
-       look tempts you into low-contrast greys, and every one of these carries
-       real text -- labels, helper lines, error messages. All clear 4.5:1 on
-       the surface; measured, not eyeballed. */
-    --ink:#2b3240; --dim:#5c6574;
-    --accent:#246a8b; --ok:#25724f; --warn:#875a11; --bad:#a9433b;
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--canvas); color: var(--text);
+    font: var(--t-base)/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text",
+          "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: var(--s-7);
   }
 
-  /* dark: the same idea, but the highlight has to be a lift of the surface
-     rather than white, and both shadows soften -- at full strength dark
-     neumorphism turns into a pile of black rectangles. */
-  [data-theme="dark"] {
-    --surface:#2a2e36; --sunken:#262a31;
-    --sh-d:#1b1e24; --sh-l:#353b45;
-    --ink:#d7dde8; --dim:#939db0;
-    --accent:#63b6d8; --ok:#6ad49a; --warn:#d9ab6a; --bad:#e08079;
+  header {
+    position: sticky; top: 0; z-index: 20;
+    background: color-mix(in srgb, var(--canvas) 80%, transparent);
+    backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid var(--hairline);
   }
+  .bar { max-width: 720px; margin: 0 auto; display: flex; align-items: center;
+         gap: var(--s-3); padding: var(--s-3) var(--s-5); }
+  .wordmark { font-weight: 620; letter-spacing: -.022em; font-size: var(--t-lg); }
+  .spacer { flex: 1; }
+  .status { display: flex; align-items: center; gap: var(--s-2);
+            color: var(--dim); font-size: var(--t-sm); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bad); flex: none; }
+  .dot.on { background: var(--ok); }
 
-  * { box-sizing:border-box; }
+  main { max-width: 720px; margin: 0 auto; padding: var(--s-6) var(--s-5); }
 
-  body { margin:0; background:var(--surface); color:var(--ink);
-         font:13px/1.55 var(--mono); }
+  /* ------------------------------------------------------- grouped sections
+     An inset group: one rounded surface, rows inside, separators inset past
+     the leading glyph so they begin where the text begins. */
+  .group { background: var(--surface); border-radius: var(--r-l);
+           box-shadow: var(--lift-1); overflow: hidden; margin-bottom: var(--s-4); }
+  .group > .pad { padding: var(--s-5); }
+  h2.title { margin: 0 0 var(--s-1); font-size: var(--t-xl); font-weight: 620;
+             letter-spacing: -.021em; }
+  p.sub { margin: 0 0 var(--s-5); color: var(--dim); font-size: var(--t-md); }
+  h3.eyebrow { margin: 0 0 var(--s-2); font-size: var(--t-xs); font-weight: 620;
+               letter-spacing: .07em; text-transform: uppercase; color: var(--faint); }
 
-  /* the two depth primitives, named so the intent is legible at the call site */
-  .raised, fieldset, button, .msg, .still, .tabs button {
-    box-shadow: var(--d) var(--d) var(--b) var(--sh-d),
-                calc(var(--d) * -1) calc(var(--d) * -1) var(--b) var(--sh-l);
+  .field { margin-bottom: var(--s-5); }
+  .field:last-child { margin-bottom: 0; }
+  .field > label { display: block; font-size: var(--t-md); font-weight: 560;
+                   margin-bottom: var(--s-2); letter-spacing: -.006em; }
+  .hint { display: block; color: var(--dim); font-size: var(--t-sm);
+          margin-top: var(--s-2); line-height: 1.45; }
+
+  input[type=text], input[type=number], select, textarea {
+    width: 100%; font: inherit; font-size: var(--t-base); color: var(--text);
+    background: var(--sunken); border: 1px solid transparent;
+    border-radius: var(--r-s); padding: 11px 13px;
+    transition: border-color .2s var(--ease), background .2s var(--ease),
+                box-shadow .2s var(--ease);
   }
-  .sunk, input, select, textarea, .tabs button.sel {
-    box-shadow: inset 3px 3px 6px var(--sh-d),
-                inset -3px -3px 6px var(--sh-l);
+  input::placeholder, textarea::placeholder { color: var(--faint); }
+  input:focus-visible, select:focus-visible, textarea:focus-visible {
+    outline: none; border-color: var(--accent); background: var(--surface);
+    box-shadow: 0 0 0 3px var(--accent-soft);
   }
+  textarea { min-height: 58px; resize: vertical; }
 
-  header { display:flex; align-items:center; gap:16px; padding:14px 20px;
-           background:var(--surface); position:sticky; top:0; z-index:5;
-           flex-wrap:wrap;
-           box-shadow: 0 5px 14px -6px var(--sh-d); }
-  h1 { font-size:13px; margin:0; letter-spacing:.18em; text-transform:uppercase;
-       color:var(--dim); font-weight:700; }
-
-  .dot { width:10px; height:10px; border-radius:50%; background:var(--bad);
-         display:inline-block; margin-right:7px; vertical-align:-1px;
-         box-shadow: inset 1px 1px 2px rgba(0,0,0,.35),
-                     0 0 6px color-mix(in srgb, var(--bad) 60%, transparent); }
-  .dot.on { background:var(--ok);
-            box-shadow: inset 1px 1px 2px rgba(0,0,0,.35),
-                        0 0 6px color-mix(in srgb, var(--ok) 60%, transparent); }
-
-  main { display:grid; grid-template-columns:360px 1fr; gap:22px;
-         padding:22px; background:var(--surface);
-         min-height:calc(100vh - 53px); align-items:start; }
-  section { background:transparent; overflow:auto; }
-
-  fieldset { border:0; border-radius:var(--r); padding:18px 16px 16px;
-             margin:0 0 22px; background:var(--surface); }
-  legend { color:var(--dim); font-size:10px; letter-spacing:.16em;
-           text-transform:uppercase; padding:0 10px; font-weight:700; }
-
-  label { display:grid; grid-template-columns:1fr 84px; gap:10px;
-          align-items:center; margin:8px 0; color:var(--dim); }
-
-  input, select, textarea {
-    background:var(--sunken); color:var(--ink); border:0;
-    border-radius:var(--r-sm); padding:8px 11px;
-    font:12px var(--mono); width:100%; outline:0;
-    transition: box-shadow .15s ease;
+  button.btn {
+    appearance: none; font: inherit; font-size: var(--t-md); font-weight: 560;
+    cursor: pointer; border-radius: var(--r-s); padding: 10px 16px;
+    border: 1px solid var(--hairline); background: var(--surface);
+    color: var(--text); letter-spacing: -.006em; min-height: 38px;
+    transition: background .2s var(--ease), transform .1s var(--ease);
   }
-  input:focus, select:focus, textarea:focus {
-    box-shadow: inset 3px 3px 6px var(--sh-d), inset -3px -3px 6px var(--sh-l),
-                0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+  button.btn:hover:not([disabled]) { background: var(--sunken); }
+  button.btn:active:not([disabled]) { transform: scale(.985); }
+  button.btn[disabled] { opacity: .35; cursor: default; }
+  button.btn.primary {
+    background: var(--accent); color: var(--accent-text); border-color: transparent;
+    font-weight: 620; padding: 14px 22px; width: 100%; font-size: var(--t-base);
+    min-height: 48px;
   }
-  textarea { min-height:78px; resize:vertical; }
-  select { appearance:none; cursor:pointer;
-           background-image:linear-gradient(45deg,transparent 50%,var(--dim) 50%),
-                            linear-gradient(135deg,var(--dim) 50%,transparent 50%);
-           background-position:calc(100% - 16px) 52%, calc(100% - 11px) 52%;
-           background-size:5px 5px, 5px 5px; background-repeat:no-repeat;
-           padding-right:30px; }
-
-  /* range: sunken track, raised thumb -- the one place both primitives meet */
-  input[type=range] { appearance:none; background:transparent; padding:0;
-                      height:22px; box-shadow:none; cursor:pointer; }
-  input[type=range]::-webkit-slider-runnable-track {
-    height:7px; border-radius:99px; background:var(--sunken);
-    box-shadow: inset 2px 2px 4px var(--sh-d), inset -2px -2px 4px var(--sh-l); }
-  input[type=range]::-webkit-slider-thumb {
-    appearance:none; width:17px; height:17px; border-radius:50%; margin-top:-5px;
-    background:var(--surface);
-    box-shadow: 2px 2px 5px var(--sh-d), -2px -2px 5px var(--sh-l); }
-  input[type=range]::-webkit-slider-thumb:active { background:var(--accent); }
-
-  input[type=checkbox] { appearance:none; width:19px; height:19px;
-    border-radius:6px; background:var(--sunken); cursor:pointer;
-    box-shadow: inset 2px 2px 4px var(--sh-d), inset -2px -2px 4px var(--sh-l); }
-  input[type=checkbox]:checked { background:var(--accent);
-    box-shadow: 2px 2px 5px var(--sh-d), -2px -2px 5px var(--sh-l); }
-
-  button { background:var(--surface); color:var(--ink); border:0;
-           border-radius:var(--r-sm); padding:9px 15px;
-           font:12px var(--mono); cursor:pointer;
-           transition: box-shadow .13s ease, color .13s ease, transform .13s ease; }
-  button:hover:not(:disabled) { color:var(--accent); }
-  /* pressing pushes the control into the surface -- the affordance, not decoration */
-  button:active:not(:disabled) {
-    box-shadow: inset 3px 3px 6px var(--sh-d), inset -3px -3px 6px var(--sh-l);
-    transform: translateY(1px); }
-  button:disabled { opacity:.42; cursor:not-allowed; box-shadow:none; }
-
-  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-
-  .msg { padding:10px 13px; border-radius:var(--r-sm); margin:10px 0;
-         font-size:12px; background:var(--surface); color:var(--dim); }
-  .msg.warn { color:var(--warn); }
-  .msg.bad  { color:var(--bad); }
-  .msg.ok   { color:var(--ok); }
-
-  table { width:100%; border-collapse:separate; border-spacing:0 5px;
-          font-size:12px; }
-  th { text-align:left; color:var(--dim); font-weight:700; padding:4px 10px;
-       font-size:10px; letter-spacing:.12em; text-transform:uppercase; }
-  /* rows are shallow trays rather than ruled lines: no borders anywhere */
-  td { padding:3px 6px; background:var(--surface); }
-  td:first-child { border-radius:var(--r-sm) 0 0 var(--r-sm); padding-left:10px; }
-  td:last-child  { border-radius:0 var(--r-sm) var(--r-sm) 0; padding-right:10px; }
-  tbody tr { box-shadow: 3px 3px 7px var(--sh-d), -3px -3px 7px var(--sh-l); }
-  td input { box-shadow:none; background:transparent; padding:5px 7px; }
-  td input:focus { background:var(--sunken);
-                   box-shadow: inset 2px 2px 5px var(--sh-d),
-                               inset -2px -2px 5px var(--sh-l); }
-  .num { width:80px; }
-  .lineno { color:var(--dim); width:52px; }
-  /* Without explicit widths the browser spreads four short columns across the
-     whole pane and the word drifts a hand's width from its timestamp. */
-  #tab-cues table { max-width:660px; }
-  #tab-cues th:nth-child(1), #tab-cues td:nth-child(1) { width:72px; }
-  #tab-cues th:nth-child(3), #tab-cues td:nth-child(3) { width:104px; }
-  #tab-cues th:nth-child(4), #tab-cues td:nth-child(4) { width:56px; }
-  #tab-cues td:nth-child(4) button { padding:5px 9px; }
-
-  .stills { display:flex; gap:16px; flex-wrap:wrap; }
-  .still { border-radius:var(--r); padding:11px; background:var(--surface); }
-  .still img { display:block; width:150px; border-radius:var(--r-sm); }
-  .still div { color:var(--dim); font-size:11px; margin-top:7px; }
-
-  .tabs { display:flex; gap:12px; margin-bottom:20px; }
-  .tabs button { border-radius:var(--r-sm); }
-  .tabs button.sel { color:var(--accent); transform:translateY(1px); }
-
-  .hidden { display:none; }
-  small { color:var(--dim); line-height:1.5; display:block; margin-top:8px; }
-
-  #themeToggle { width:34px; height:34px; padding:0; font-size:15px;
-                 line-height:1; border-radius:50%; }
-
-  @media (max-width: 820px) {
-    main { grid-template-columns:1fr; padding:16px; gap:16px; }
+  button.btn.primary:hover:not([disabled]) { filter: brightness(1.06); background: var(--accent); }
+  button.btn.primary-quiet { border-color: var(--accent); color: var(--accent);
+                             background: var(--accent-soft); }
+  button.btn.primary-quiet:hover:not([disabled]) { background: var(--accent);
+                                                   color: var(--accent-text); }
+  button.btn.quiet { border-color: transparent; background: transparent; color: var(--dim); }
+  button.btn.quiet:hover:not([disabled]) { background: var(--sunken); color: var(--text); }
+  button.btn.small { padding: 7px 12px; font-size: var(--t-sm); min-height: 32px; }
+  .row { display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; }
+  .row.nowrap { flex-wrap: nowrap; }
+  .icon-btn {
+    appearance: none; border: 1px solid var(--hairline); background: var(--surface);
+    color: var(--dim); cursor: pointer; border-radius: 50%;
+    width: 32px; height: 32px; font-size: var(--t-md); line-height: 1;
+    transition: color .2s var(--ease), background .2s var(--ease);
   }
+  .icon-btn:hover { color: var(--text); background: var(--sunken); }
+
+  /* ------------------------------------------------------------- stage list */
+  .progress { height: 3px; background: var(--sunken); }
+  .progress > i { display: block; height: 100%; width: 0%; background: var(--accent);
+                  transition: width .45s var(--ease); }
+  .stages { list-style: none; margin: 0; padding: 0; }
+  .stage {
+    display: grid; grid-template-columns: 22px minmax(0,1fr) auto;
+    gap: var(--s-3); align-items: start; position: relative;
+    padding: 13px var(--s-5); font-size: var(--t-md);
+  }
+  /* separators inset past the glyph, so they start where the text starts */
+  .stage + .stage::before {
+    content: ""; position: absolute; left: calc(var(--s-5) + 22px + var(--s-3));
+    right: 0; top: 0; height: 1px; background: var(--hairline);
+  }
+  .stage .glyph {
+    width: 18px; height: 18px; border-radius: 50%; margin-top: 1px;
+    display: grid; place-items: center; font-size: 10px; line-height: 1;
+    border: 1.5px solid var(--faint); color: transparent;
+    transition: background .25s var(--ease), border-color .25s var(--ease),
+                color .25s var(--ease);
+  }
+  .stage .name { font-weight: 520; letter-spacing: -.005em; }
+  .stage .note { display: block; color: var(--dim); font-size: var(--t-sm);
+                 margin-top: 2px; overflow-wrap: anywhere; }
+  .stage .secs { color: var(--faint); font-size: var(--t-sm);
+                 font-variant-numeric: tabular-nums; margin-top: 1px; }
+  .stage.pending { opacity: .45; }
+  .stage.running .glyph { border-color: var(--accent); background: var(--accent);
+                          animation: breathe 1.6s var(--ease) infinite; }
+  .stage.running .name { font-weight: 600; }
+  .stage.done .glyph { border-color: var(--ok); background: var(--ok);
+                       color: var(--accent-text); }
+  .stage.skipped { opacity: .5; }
+  .stage.skipped .glyph { border-color: var(--faint); color: var(--faint); }
+  .stage.failed .glyph { border-color: var(--bad); background: var(--bad);
+                         color: var(--accent-text); }
+  .stage.failed .name, .stage.failed .note { color: var(--bad); }
+  .stage.stopped { opacity: .6; }
+  .stage.stopped .glyph { border-color: var(--warn); color: var(--warn); }
+  @keyframes breathe { 0%,100% { opacity:.45; transform:scale(.88) }
+                       50% { opacity:1; transform:scale(1) } }
+
+  /* ---------------------------------------------------------------- result */
+  .result { display: grid; grid-template-columns: auto 1fr; gap: var(--s-5);
+            align-items: start; }
+  /* The player sits on a frame rather than bleeding to its own edge. Native
+     controls draw at the very bottom of the video, so against a dark frame at
+     the edge of a light card they were invisible; the inset gives them ground. */
+  .player { background: #14120f; border-radius: var(--r); padding: 10px;
+            box-shadow: var(--lift-1); display: inline-block; line-height: 0; }
+  video.preview { height: 340px; width: auto; max-width: 100%;
+                  border-radius: var(--r-s); background: #000; display: block; }
+  @media (max-width: 620px) {
+    .result { grid-template-columns: 1fr; }
+    .player { display: block; }
+    video.preview { height: auto; width: 100%; }
+  }
+  .lenopts { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+  .lenopt { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+            padding: 7px 12px; border-radius: 999px; font-size: var(--t-sm);
+            border: 1px solid var(--hairline); background: var(--surface);
+            transition: border-color .2s var(--ease), background .2s var(--ease); }
+  .lenopt input[type=radio], .lenopt input[type=checkbox] { margin: 0; }
+  .lenopt.on { border-color: var(--accent); background: var(--accent-soft);
+               color: var(--accent); font-weight: 560; }
+  .lenopt input[type=number] { display: inline-block; width: 58px; padding: 2px 6px;
+                               font-size: var(--t-sm); background: transparent; }
+  .lenopt input[type=text] { display: inline-block; width: 62px; padding: 2px 6px;
+                             font-size: var(--t-sm); background: transparent; }
+  /* Sampled frames from the finished file. They are evidence, not controls --
+     shown as a report that stays shut when everything measured clean. */
+  .check { margin-top: var(--s-5); border-top: 1px solid var(--hairline);
+           padding-top: var(--s-4); }
+  .check > summary { cursor: pointer; list-style: none; display: flex;
+                     align-items: center; gap: var(--s-2);
+                     font-size: var(--t-md); color: var(--dim); }
+  .check > summary::-webkit-details-marker { display: none; }
+  .check > summary::after { content: "›"; margin-left: auto; color: var(--faint);
+                            transition: transform .25s var(--ease); }
+  .check[open] > summary::after { transform: rotate(90deg); }
+  .check .verdict { font-weight: 560; }
+  .check .verdict.ok { color: var(--ok); }
+  .check .verdict.bad { color: var(--bad); }
+  .stills { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr));
+            gap: var(--s-3); margin-top: var(--s-4); }
+  .still img { width: 100%; border-radius: var(--r-s); display: block;
+               border: 1px solid var(--hairline); }
+  .still .at { font-size: var(--t-sm); color: var(--text); margin-top: 6px; }
+  .still .met { font-size: var(--t-xs); color: var(--faint); line-height: 1.45;
+                overflow-wrap: anywhere; }
+
+  /* --------------------------------------------------------------- gallery */
+  .famrow { margin-top: var(--s-3); }
+  .gallery { display: grid; gap: var(--s-3);
+             grid-template-columns: repeat(auto-fill, minmax(104px,1fr)); }
+  .scard { appearance: none; border: 0; padding: 0; background: none;
+           cursor: pointer; text-align: left; font: inherit; color: var(--text); }
+  .scard .thumb { position: relative; width: 100%; aspect-ratio: 9/16;
+                  overflow: hidden; border-radius: var(--r); background: var(--sunken);
+                  box-shadow: var(--lift-1); outline: 2px solid transparent;
+                  outline-offset: 2px;
+                  transition: outline-color .2s var(--ease), transform .2s var(--ease); }
+  .scard:hover .thumb { transform: translateY(-2px); }
+  .scard[aria-checked="true"] .thumb { outline-color: var(--accent); }
+  .scard .thumb img, .scard .thumb video { width: 100%; height: 100%;
+                                           object-fit: cover; display: block; }
+  .scard .noprev { position: absolute; inset: 0; display: grid; place-items: center;
+                   color: var(--faint); font-size: var(--t-xs); text-align: center;
+                   padding: var(--s-2); }
+  .scard .cap { display: block; margin-top: 6px; font-size: var(--t-sm); font-weight: 540; }
+  .scard[aria-checked="true"] .cap { color: var(--accent); }
+
+  /* ------------------------------------------------------------ disclosure */
+  details.disc { background: var(--surface); border-radius: var(--r-l);
+                 box-shadow: var(--lift-1); margin-bottom: var(--s-3); }
+  details.disc > summary { cursor: pointer; padding: var(--s-4) var(--s-5);
+    font-size: var(--t-md); font-weight: 560; list-style: none;
+    display: flex; align-items: center; gap: var(--s-2); }
+  details.disc > summary::-webkit-details-marker { display: none; }
+  details.disc > summary::after { content: "›"; margin-left: auto;
+    color: var(--faint); font-size: var(--t-lg); transition: transform .2s var(--ease); }
+  details.disc[open] > summary::after { transform: rotate(90deg); }
+  details.disc > .disc-body { padding: 0 var(--s-5) var(--s-5); }
+
+  /* ----------------------------------------------------------------- misc */
+  .msg { padding: 10px 13px; border-radius: var(--r-s); font-size: var(--t-md);
+         margin-bottom: var(--s-2); background: var(--sunken); overflow-wrap: anywhere; }
+  .msg.ok { color: var(--ok); } .msg.warn { color: var(--warn); } .msg.bad { color: var(--bad); }
+  .empty { color: var(--faint); font-size: var(--t-md); }
+  .tablewrap { max-height: 300px; overflow: auto; border-radius: var(--r-s);
+               background: var(--sunken); }
+  table { border-collapse: collapse; width: 100%; font-size: var(--t-md); }
+  th, td { text-align: left; padding: 6px 9px; }
+  tbody tr + tr td { border-top: 1px solid var(--hairline); }
+  th { position: sticky; top: 0; background: var(--sunken); font-weight: 560;
+       color: var(--dim); font-size: var(--t-xs); text-transform: uppercase;
+       letter-spacing: .05em; }
+  td input { padding: 4px 7px; font-size: var(--t-md); background: transparent; }
+  td.num { width: 88px; } td.act { width: 36px; }
+  .sliders { display: flex; flex-direction: column; gap: var(--s-3); }
+  .slider label { display: flex; justify-content: space-between; gap: var(--s-2);
+                  font-size: var(--t-sm); margin-bottom: 3px; }
+  .slider label .v { color: var(--dim); font-variant-numeric: tabular-nums; }
+  /* A named control gets room to explain itself; a raw tunable does not. */
+  .slider.named { gap: 2px; }
+  .slider.named label { font-size: var(--t-base); font-weight: 560; }
+  .slider.named .hint { display: block; margin-top: 2px; }
+  .sliders + .allset, .allset { margin-top: var(--s-5); }
+  details.allset > summary { cursor: pointer; list-style: none;
+                             font-size: var(--t-md); color: var(--dim);
+                             padding-top: var(--s-3);
+                             border-top: 1px solid var(--hairline); }
+  details.allset > summary::-webkit-details-marker { display: none; }
+  details.allset > summary::after { content: " ›"; color: var(--faint); }
+  details.allset > .disc-body { padding: 0; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  .takes { display: flex; flex-direction: column; }
+  .take { display: flex; align-items: center; gap: var(--s-3); padding: 11px 0;
+          font-size: var(--t-md); }
+  .take + .take { border-top: 1px solid var(--hairline); }
+  .take .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .take .tag { font-size: var(--t-xs); color: var(--ok); }
+
+  /* ---------------------------------------------------------------- modal */
+  .modal { position: fixed; inset: 0; z-index: 50; display: grid;
+           place-items: center; background: rgba(30,22,14,.4);
+           backdrop-filter: blur(4px); padding: var(--s-5); }
+  .sheet { background: var(--surface); border-radius: var(--r-l);
+           box-shadow: var(--lift-2); width: min(520px,100%);
+           max-height: min(70vh,620px); display: flex; flex-direction: column;
+           overflow: hidden; }
+  .sheet-head { display: flex; align-items: center; gap: var(--s-2);
+                padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--hairline); }
+  .shortcuts { display: flex; gap: 6px; flex-wrap: wrap; padding: var(--s-3) var(--s-5) 0; }
+  .crumbs { padding: var(--s-3) var(--s-5); color: var(--dim); font-size: var(--t-sm);
+            overflow-wrap: anywhere; }
+  .crumbs button { background: none; border: 0; color: var(--accent);
+                   cursor: pointer; font: inherit; padding: 0 2px; }
+  .listing { overflow: auto; padding: 0 var(--s-3) var(--s-3); }
+  .entry { display: flex; align-items: center; gap: var(--s-3); width: 100%;
+           padding: 10px 12px; border: 0; background: none; cursor: pointer;
+           border-radius: var(--r-s); font: inherit; color: var(--text); text-align: left; }
+  .entry:hover { background: var(--sunken); }
+  .entry .sz { margin-left: auto; color: var(--faint); font-size: var(--t-sm); }
+  .entry .ico { width: 16px; text-align: center; color: var(--faint); }
+  [hidden] { display: none !important; }
 </style>
-
+</head>
+<body>
 <script>
-  // Runs before the body exists: reading the stored choice here avoids a flash
-  // of the wrong surface on load. Falls back to the OS setting when unset.
-  (() => {
-    let t;
-    try { t = localStorage.getItem('lf-theme'); } catch (e) {}
-    if (t !== 'light' && t !== 'dark') {
-      t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-    document.documentElement.setAttribute('data-theme', t);
+  (function () {
+    try {
+      var t = localStorage.getItem('lf-theme');
+      if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', t);
+    } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
   })();
 </script>
 
 <header>
-  <h1>lyricfield</h1>
-  <span><span class="dot" id="tddot"></span><span id="tdtext">checking…</span></span>
-  <span id="counts"></span>
-  <span style="flex:1"></span>
-  <button id="themeToggle" title="Toggle light / dark">◐</button>
-  <span id="job"></span>
+  <div class="bar">
+    <span class="wordmark">lyricfield</span>
+    <span class="spacer"></span>
+    <span class="status"><span class="dot" id="tddot"></span><span id="tdtext">checking…</span></span>
+    <button class="icon-btn" id="themeToggle" aria-label="Light or dark">◐</button>
+  </div>
 </header>
 
 <main>
-  <section>
-    <fieldset>
-      <legend>song</legend>
-      <label>current <span></span></label>
-      <select id="song"><option value="">— none (data/) —</option></select>
-      <div class="row" style="margin-top:8px">
-        <input id="newsong" placeholder="new song name" style="flex:1">
-        <button id="btnNewSong">Create</button>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <button id="btnFork">Fork TD project into folder</button>
-      </div>
-      <small id="songinfo">Each song gets its own folder: project.toe, cues,
-        stems, exports.</small>
-    </fieldset>
+  <section class="group"><div class="pad">
+    <h2 class="title">Make a video</h2>
+    <p class="sub">Pick a song and a look. Everything else happens on its own.</p>
 
-    <fieldset>
-      <legend>style</legend>
-      <select id="style"><option value="">— none —</option></select>
-      <div id="stylePreview" style="margin-top:8px"></div>
-      <div class="row" style="margin-top:8px">
-        <button id="btnApplyStyle">Apply</button>
-        <button id="btnPreviewStyle">Capture preview</button>
-      </div>
-      <div class="row" style="margin-top:8px">
-        <input id="stylename" placeholder="save current look as…" style="flex:1">
-        <button id="btnSaveStyle">Save</button>
-      </div>
-      <small>Previews are short loops — motion is what distinguishes a style.</small>
-    </fieldset>
+    <div class="field">
+      <label for="song">Song</label>
+      <select id="song"></select>
+    </div>
 
-    <fieldset>
-      <legend>new track</legend>
-      <label>audio file <span></span></label>
-      <input id="track" placeholder="/path/to/song.mp3">
-      <label>demucs model <span></span></label>
-      <select id="sepmodel">
-        <option>htdemucs</option>
-        <option>htdemucs_ft</option>
-        <option>mdx_extra</option>
-      </select>
-      <div class="row" style="margin-top:10px">
-        <button id="btnPrepare">Prepare track</button>
-        <button id="btnSeparate">Separate only</button>
-      </div>
-      <small>Separate → analyse → transcribe. Stages already done are skipped;
-        safe to re-run. Separation takes minutes.</small>
-      <div class="row" style="margin-top:6px">
-        <label style="grid-template-columns:auto auto; gap:5px">
-          <input type="checkbox" id="fsep" style="width:auto"> <span>re-separate</span>
-        </label>
-        <label style="grid-template-columns:auto auto; gap:5px">
-          <input type="checkbox" id="ftra" style="width:auto"> <span>re-transcribe</span>
-        </label>
-      </div>
-    </fieldset>
+    <div class="field" id="nameField">
+      <label for="runName">Name</label>
+      <input type="text" id="runName" placeholder="named from the file you choose">
+    </div>
 
-    <fieldset>
-      <legend>stems</legend>
-      <label>vocal stem <span></span></label>
-      <input id="vocals" placeholder="/path/vocals.wav">
-      <label>instrumental <span></span></label>
-      <input id="instr" placeholder="/path/no_vocals.wav">
-      <div class="row" style="margin-top:10px">
-        <button id="btnAnalyse">Analyse</button>
-        <small id="trackinfo"></small>
+    <div class="field">
+      <label for="runSource">Audio file</label>
+      <div class="row nowrap">
+        <input type="text" id="runSource" placeholder="/path/to/song.mp3" style="flex:1">
+        <button class="btn" id="btnBrowse" type="button">Browse…</button>
       </div>
-    </fieldset>
+    </div>
 
-    <fieldset>
-      <legend>lyrics — groq</legend>
-      <label>model <span></span></label>
-      <select id="model">
-        <option>whisper-large-v3</option>
-        <option>whisper-large-v3-turbo</option>
-      </select>
-      <label>language <span></span></label>
-      <input id="lang" placeholder="auto (en, hi, …)">
-      <small>Paste known lyrics to improve spelling and proper nouns:</small>
-      <textarea id="prompt" placeholder="optional prompt"></textarea>
-      <label>api key <span id="keystate"></span></label>
-      <input id="key" type="password" placeholder="paste once — it is saved">
-      <small id="keynote"></small>
-      <div class="row" style="margin-top:10px">
-        <button id="btnTranscribe">Transcribe vocals</button>
-      </div>
-    </fieldset>
+    <div class="field">
+      <label id="styleLabel">Style</label>
+      <div id="styleGallery" role="radiogroup" aria-labelledby="styleLabel"></div>
+      <span class="hint" id="styleNote"></span>
+    </div>
 
-    <fieldset>
-      <legend>touchdesigner</legend>
-      <div class="row">
-        <button id="btnPush">Push to TD</button>
-        <button id="btnPull">Pull cues from TD</button>
-        <button id="btnSave">Save project</button>
-      </div>
-      <small>Pull recovers a cue table that only exists inside the .toe.</small>
-    </fieldset>
+    <div class="row nowrap">
+      <button class="btn primary" id="btnPrimary">Make the video</button>
+      <button class="btn" id="btnSecondary" hidden>Restart</button>
+    </div>
+  </div>
 
-    <fieldset>
-      <legend>render</legend>
-      <label>output <span></span></label>
-      <input id="out" value="~/Desktop/lyricfield.mp4">
-      <label>duration s<input id="dur" class="num" type="number" step="0.01" value="90.53"></label>
-      <label>fps<input id="fps" class="num" type="number" value="30"></label>
-      <div class="row" style="margin-top:10px">
-        <button id="btnRender">Render</button>
-        <button id="btnStills">Sample stills</button>
-      </div>
-      <small>Stills verify the encoded file, not just TD.</small>
-    </fieldset>
+  <div class="progress" id="progress" hidden><i id="progressFill"></i></div>
+  <ul class="stages" id="stages"></ul>
   </section>
 
-  <section>
-    <div class="tabs">
-      <button data-tab="cues" class="sel">Cues</button>
-      <button data-tab="look">Look</button>
-      <button data-tab="beat">Beat</button>
-      <button data-tab="checks">Checks</button>
-    </div>
+  <section class="group" id="resultGroup" hidden><div class="pad">
+    <h2 class="title">Preview</h2>
+    <p class="sub" id="resultSub"></p>
+    <div class="result">
+      <div class="player"><video class="preview" id="resultVideo" controls loop playsinline></video></div>
+      <div>
+        <div class="row">
+          <button class="btn primary-quiet" id="btnDownload">Download video</button>
+          <button class="btn" id="btnSaveStyleFromTake">Save as a style</button>
+          <button class="btn quiet" id="btnRejectTake">Reject</button>
+        </div>
 
-    <div id="tab-cues">
-      <div class="row" style="margin-bottom:10px">
-        <button id="btnSaveCues">Save cues</button>
-        <button id="btnAddCue">Add row</button>
-        <small id="cuenote"></small>
+        <div class="field" style="margin-top:var(--s-5)">
+          <label for="tweak">Change the look</label>
+          <textarea id="tweak" placeholder="slower, colder, fewer flashes on the beat"></textarea>
+          <span class="hint">Described in words, turned into settings, previewed before anything is kept.</span>
+        </div>
+
+        <div class="field">
+          <label>Length</label>
+          <div class="lenopts" id="lenopts">
+            <label class="lenopt on"><input type="radio" name="len" value="preview" checked> Preview 8s</label>
+            <label class="lenopt"><input type="radio" name="len" value="full"> <span id="fullLabel">Full track</span></label>
+            <label class="lenopt"><input type="radio" name="len" value="custom"> Custom
+              <input type="number" id="customLen" min="1" max="900" value="30"> s</label>
+          </div>
+          <div class="row" style="margin-top:var(--s-3)">
+            <label class="lenopt"><span>Start at</span>
+              <input type="text" id="startAt" placeholder="auto" size="5"></label>
+            <span class="hint" id="startHint">Leave empty and it picks the busiest stretch.</span>
+          </div>
+        </div>
+
+        <button class="btn primary" id="btnGenerate">Generate</button>
       </div>
-      <table><thead><tr><th>line</th><th>word</th><th>start</th><th></th></tr></thead>
-        <tbody id="cuebody"></tbody></table>
     </div>
-
-    <div id="tab-look" class="hidden"></div>
-    <div id="tab-beat" class="hidden"></div>
-
-    <div id="tab-checks" class="hidden">
-      <div id="checks"></div>
+    <details class="check" id="checkBlock" hidden>
+      <summary>
+        <span>Render check</span>
+        <span class="verdict" id="checkVerdict"></span>
+      </summary>
+      <p class="sub" id="checkWhat"></p>
       <div class="stills" id="stills"></div>
-    </div>
-  </section>
+    </details>
+  </div></section>
+
+  <div id="detailSections" hidden>
+    <details class="disc"><summary>Words and timings</summary>
+      <div class="disc-body">
+        <div class="row" style="margin-bottom:var(--s-3)">
+          <button class="btn small" id="btnSaveCues">Save</button>
+          <button class="btn small" id="btnAddCue">Add row</button>
+          <span class="empty" id="cuenote"></span>
+        </div>
+        <div class="tablewrap">
+          <table><thead><tr><th>line</th><th>word</th><th>start</th><th></th></tr></thead>
+            <tbody id="cuebody"></tbody></table>
+        </div>
+        <div class="field" style="margin-top:var(--s-4)">
+          <label for="lang">Language</label>
+          <input type="text" id="lang" placeholder="auto — set it if the song is not English">
+        </div>
+      </div>
+    </details>
+
+    <details class="disc"><summary>Look</summary>
+      <div class="disc-body" id="lookBody"></div>
+    </details>
+
+    <details class="disc"><summary>Takes</summary>
+      <div class="disc-body"><div class="takes" id="takes"></div></div>
+    </details>
+
+    <details class="disc"><summary>Checks</summary>
+      <div class="disc-body"><div id="checks"><span class="empty">Nothing reported.</span></div></div>
+    </details>
+
+    <details class="disc"><summary>Start over</summary>
+      <div class="disc-body">
+        <div class="row">
+          <label class="lenopt"><input type="checkbox" id="fsep"> Separate again</label>
+          <label class="lenopt"><input type="checkbox" id="ftra"> Transcribe again</label>
+        </div>
+        <span class="hint">Both are slow, so they are skipped unless asked for.</span>
+        <div class="field" style="margin-top:var(--s-4)">
+          <label for="prompt">Known lyrics</label>
+          <textarea id="prompt" placeholder="optional — improves spelling and proper nouns"></textarea>
+        </div>
+        <div class="field" id="typeField" hidden>
+          <label for="vtype">Video type</label>
+          <select id="vtype"></select>
+          <span class="hint" id="vtypenote"></span>
+        </div>
+      </div>
+    </details>
+  </div>
 </main>
+
+<div class="modal" id="customModal" hidden>
+  <div class="sheet" role="dialog" aria-label="Describe a look">
+    <div class="sheet-head"><strong>Describe a look</strong><span class="spacer"></span>
+      <button class="icon-btn" id="customClose" aria-label="Close">×</button></div>
+    <div class="pad">
+      <div class="field">
+        <label for="customText">What should it look like?</label>
+        <textarea id="customText" rows="3"
+          placeholder="cold and slow, heavy glow, words that linger"></textarea>
+        <span class="hint">Turned into settings by the Claude already installed
+          on this machine, then rendered so you can see it before keeping it.</span>
+      </div>
+      <div class="row">
+        <button class="btn primary-quiet" id="customGo">Make it</button>
+      </div>
+      <p class="sub" id="customOut"></p>
+      <video class="preview" id="customPreview" style="height:220px" controls loop
+             muted playsinline hidden></video>
+      <div class="field" style="margin-top:var(--s-4)">
+        <label for="customName">Name it</label>
+        <input type="text" id="customName" placeholder="e.g. cold drift">
+      </div>
+      <div class="row">
+        <button class="btn primary-quiet" id="customKeep" disabled>Keep this style</button>
+        <button class="btn quiet" id="customDiscard">Discard</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="browser" hidden>
+  <div class="sheet" role="dialog" aria-label="Choose an audio file">
+    <div class="sheet-head"><strong>Choose a song</strong><span class="spacer"></span>
+      <button class="icon-btn" id="browseClose" aria-label="Close">×</button></div>
+    <div class="shortcuts" id="browseShortcuts"></div>
+    <div class="crumbs" id="browseCrumbs"></div>
+    <div class="listing" id="browseList"></div>
+  </div>
+</div>
 
 <script>
 const $ = s => document.querySelector(s);
-const api = async (path, opts) => {
-  const r = await fetch(path, {headers:{'Content-Type':'application/json'}, ...opts});
-  const body = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(body.detail ? JSON.stringify(body.detail) : r.statusText);
-  return body;
-};
-let CFG = {}, CUES = [];
+const GLYPH = {pending:'', running:'', done:'✓', skipped:'–', failed:'✕', stopped:'❙'};
+let CFG = {}, CFG_RANGES = {}, CFG_CONTROLS = [], CUES = [], STYLES = [], TYPES = [];
+let TAKE_FILE = '';        // basename of the take on screen, for Download
+let STYLE_SLUG = '', CURRENT_SLUG = '', LAST = {id:null, state:null};
 
-// ---- config controls, generated from the schema the server returns ----
-const RANGES = {
-  level_min:[0,1,.01], level_max:[0,1,.01], ceil:[0,1,.01],
-  dim_hue:[0,1,.01], dim_sat:[0,1,.01],
-  drift_min:[0,12,.1], drift_max:[0,12,.1], dissolve:[0,6,.1],
-  glow_base:[0,2,.01], glow_lfo:[0,1,.01], glow_low:[0,1,.01],
-  glow_radius:[0,80,1], glow_lfo_hz:[0,.5,.005],
-  ripple_time:[0,2,.01], ripple_sigma:[.2,8,.1], ripple_lift:[0,1,.01],
-  spark_time:[0,2,.01], spark_peak:[0,1,.01], spark_frac:[0,.3,.005],
-  twinkle_frac_lo:[0,.4,.005], twinkle_frac_hi:[0,.4,.005],
-  twinkle_decay:[0,1,.01], twinkle_lift:[0,1,.01],
-  ramp_up:[0,1,.01], hold:[0,3,.01], ramp_dn:[0,2,.01], lead:[0,2,.01],
-  offset:[-5,5,.01], ambient_target:[0,500,1], ambient_cycle:[1,20,.5],
-  stanza_size:[1,12,1], gap_min:[0,8,1], gap_max:[0,10,1],
-};
-
-function controls(sections, host) {
-  host.innerHTML = '';
-  for (const name of sections) {
-    const vals = CFG[name] || {};
-    const fs = document.createElement('fieldset');
-    fs.innerHTML = `<legend>${name}</legend>`;
-    for (const [k, v] of Object.entries(vals)) {
-      if (typeof v !== 'number') continue;
-      const [min, max, step] = RANGES[k] || [0, Math.max(1, v * 3), .01];
-      const lab = document.createElement('label');
-      lab.innerHTML = `<span>${k}</span>`;
-      const box = document.createElement('input');
-      box.type = 'number'; box.step = step; box.value = v; box.className = 'num';
-      const sl = document.createElement('input');
-      sl.type = 'range'; sl.min = min; sl.max = max; sl.step = step; sl.value = v;
-      const set = nv => { CFG[name][k] = parseFloat(nv); box.value = nv; sl.value = nv; };
-      sl.oninput = e => set(e.target.value);
-      box.onchange = e => set(e.target.value);
-      lab.append(box);
-      fs.append(lab, sl);
-    }
-    host.append(fs);
+async function api(path, opts) {
+  const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
+  if (!r.ok) {
+    let d = r.statusText;
+    try { const j = await r.json(); d = j.detail ? JSON.stringify(j.detail) : d; } catch (e) {}
+    throw new Error(`${r.status} ${d}`);
   }
-  const save = document.createElement('button');
-  save.textContent = 'Save + push';
-  save.onclick = async () => {
-    const r = await api('/api/config', {method:'POST', body:JSON.stringify(CFG)});
-    renderChecks(r.problems, 'config');
-    if (!r.problems.length) await api('/api/td/push', {method:'POST'}).catch(showErr);
-    poll();
-  };
-  host.append(save);
+  return r.status === 204 ? null : r.json();
 }
-
-// ---- cue table ----
-function renderCues() {
-  const tb = $('#cuebody');
-  tb.innerHTML = '';
-  CUES.forEach((c, i) => {
-    const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="lineno"><input class="num" value="${c.line}"></td>
-      <td><input value="${c.word.replace(/"/g,'&quot;')}"></td>
-      <td><input class="num" type="number" step="0.01" value="${c.start.toFixed(2)}"></td>
-      <td><button>×</button></td>`;
-    const [ln, wd, st] = tr.querySelectorAll('input');
-    ln.onchange = e => CUES[i].line = parseInt(e.target.value) || 1;
-    wd.onchange = e => CUES[i].word = e.target.value;
-    st.onchange = e => CUES[i].start = parseFloat(e.target.value) || 0;
-    tr.querySelector('button').onclick = () => { CUES.splice(i,1); renderCues(); };
-    tb.append(tr);
-  });
-  $('#cuenote').textContent = `${CUES.length} words`;
-}
-
-function renderChecks(problems, label) {
+function showErr(e) { note(String(e.message || e), 'bad'); }
+function note(text, kind) {
   const host = $('#checks');
-  const div = document.createElement('div');
-  div.className = 'msg ' + (problems.length ? 'warn' : 'ok');
-  div.textContent = problems.length
-    ? `${label}: ` + problems.join(' · ')
-    : `${label}: no problems`;
-  host.prepend(div);
-}
-
-const showErr = e => {
+  if (host.querySelector('.empty')) host.innerHTML = '';
   const d = document.createElement('div');
-  d.className = 'msg bad'; d.textContent = String(e.message || e);
-  $('#checks').prepend(d);
-  document.querySelector('[data-tab=checks]').click();
+  d.className = 'msg ' + (kind || 'warn'); d.textContent = text;
+  host.prepend(d);
+  while (host.children.length > 30) host.lastChild.remove();
+}
+$('#themeToggle').onclick = () => {
+  const n = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', n);
+  try { localStorage.setItem('lf-theme', n); } catch (e) {}
 };
 
-// ---- wiring ----
-document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('.tabs button').forEach(x => x.classList.remove('sel'));
-  b.classList.add('sel');
-  ['cues','look','beat','checks'].forEach(t =>
-    $('#tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
-});
+// -------------------------------------------------------------- stage list
+function renderStages(run) {
+  const host = $('#stages'), bar = $('#progress');
+  if (!run || !run.stages || !run.stages.length) { host.innerHTML = ''; bar.hidden = true; return; }
+  bar.hidden = false;
+  const total = run.stages.length;
+  const settled = run.stages.filter(s => s.state === 'done' || s.state === 'skipped').length;
+  $('#progressFill').style.width = Math.round(settled / total * 100) + '%';
 
-// ---- songs ----
-async function loadSongs() {
-  const r = await api('/api/songs');
-  const sel = $('#song');
-  sel.innerHTML = '<option value="">— none (data/) —</option>';
-  for (const s of r.songs) {
-    const o = document.createElement('option');
-    o.value = s.slug;
-    o.textContent = `${s.name} · ${s.cues} words` + (s.has_project ? ' · toe' : '');
-    if (s.slug === r.current) o.selected = true;
-    sel.append(o);
+  host.innerHTML = '';
+  for (const st of run.stages) {
+    const li = document.createElement('li');
+    li.className = 'stage ' + st.state;
+    const g = document.createElement('span');
+    g.className = 'glyph'; g.textContent = GLYPH[st.state] || '';
+    const body = document.createElement('div');
+    const nm = document.createElement('span');
+    nm.className = 'name'; nm.textContent = st.title;
+    body.append(nm);
+    // Only the stage in flight, a failure, or a stage with something worth
+    // saying carries its message; the rest collapse to title and duration so
+    // the eye lands on what is happening now.
+    const worth = st.message && st.message !== 'done' && st.message !== 'nothing to do';
+    if (worth && ['running','failed','done','stopped'].includes(st.state)) {
+      const n = document.createElement('span');
+      n.className = 'note'; n.textContent = st.message;
+      body.append(n);
+    }
+    const s = document.createElement('span');
+    s.className = 'secs'; s.textContent = st.seconds ? st.seconds.toFixed(1) + 's' : '';
+    li.append(g, body, s);
+    host.append(li);
   }
-  $('#songinfo').textContent = r.songs.length
-    ? `${r.songs.length} song(s) under ${r.root}`
-    : `no songs yet — created under ${r.root}`;
 }
 
-$('#song').onchange = async e => {
-  const slug = e.target.value;
-  if (!slug) return;
-  const r = await api(`/api/songs/${slug}/select`, {method:'POST'}).catch(showErr);
-  if (r && !r.project_open_in_td) {
-    renderChecks([`TD has a different project open — open ${slug}/project.toe to edit it`], 'song');
-  }
-  await refreshAll();
-};
-
-$('#btnNewSong').onclick = async () => {
-  const name = $('#newsong').value.trim();
-  if (!name) return;
-  await api('/api/songs', {method:'POST', body:JSON.stringify({
-    name, source: $('#track').value || null, style: $('#style').value || null,
-  })}).catch(showErr);
-  $('#newsong').value = '';
-  await loadSongs(); await refreshAll();
-};
-
-$('#btnFork').onclick = () => {
-  const slug = $('#song').value;
-  if (!slug) return showErr(new Error('select or create a song first'));
-  api(`/api/songs/${slug}/fork-project`, {method:'POST'}).then(poll).catch(showErr);
-};
-
-// ---- styles ----
-let STYLES = [];
-async function loadStyles() {
-  const r = await api('/api/styles');
-  STYLES = r.styles;
-  const sel = $('#style');
-  const keep = sel.value;
-  sel.innerHTML = '<option value="">— none —</option>';
-  for (const s of STYLES) {
-    const o = document.createElement('option');
-    o.value = s.slug;
-    o.textContent = s.name + (s.has_preview ? '' : ' (no preview)');
-    sel.append(o);
-  }
-  if (keep) sel.value = keep;
-  showStylePreview();
-}
-
-function showStylePreview() {
-  const slug = $('#style').value;
-  const host = $('#stylePreview');
-  const s = STYLES.find(x => x.slug === slug);
-  if (!s) { host.innerHTML = ''; return; }
-  host.innerHTML = s.has_preview
-    ? `<video src="/styles/${s.slug}/preview.mp4?t=${Date.now()}" autoplay loop muted
-         playsinline style="width:100%;border-radius:3px;border:1px solid var(--line)"></video>
-       <small>${s.description || ''}</small>`
-    : `<small>no preview yet — apply it, then Capture preview</small>`;
-}
-$('#style').onchange = showStylePreview;
-
-$('#btnApplyStyle').onclick = async () => {
-  const slug = $('#style').value;
-  if (!slug) return;
-  const r = await api(`/api/styles/${slug}/apply`, {method:'POST'}).catch(showErr);
-  if (r) { renderChecks(r.problems, `applied ${slug}`); await refreshAll(); }
-};
-
-$('#btnSaveStyle').onclick = async () => {
-  const name = $('#stylename').value.trim();
-  if (!name) return;
-  await api('/api/styles', {method:'POST',
-    body:JSON.stringify({name, description:''})}).catch(showErr);
-  $('#stylename').value = '';
-  await loadStyles();
-};
-
-$('#btnPreviewStyle').onclick = () => {
-  const slug = $('#style').value;
-  if (!slug) return showErr(new Error('select a style first'));
-  // sample where something is actually happening, not an idle stretch
-  const at = CUES.length ? CUES[Math.floor(CUES.length / 3)].start : 0;
-  api(`/api/styles/${slug}/preview`, {method:'POST',
-    body:JSON.stringify({at, seconds:4})}).then(poll).catch(showErr);
-};
-
-const applyTheme = t => {
-  document.documentElement.setAttribute('data-theme', t);
-  $('#themeToggle').textContent = t === 'dark' ? '◑' : '◐';
-  try { localStorage.setItem('lf-theme', t); } catch (e) {}
-};
-applyTheme(document.documentElement.getAttribute('data-theme'));
-$('#themeToggle').onclick = () => applyTheme(
-  document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
-
-$('#key').onchange = () => {
-  const v = $('#key').value.trim();
-  if (!v) return;
-  api('/api/key', {method:'POST', body:JSON.stringify({api_key:v})})
-    .then(() => { $('#key').value = ''; refreshKey(); }).catch(showErr);
-};
-
-const refreshKey = () => api('/api/key').then(r => {
-  $('#keystate').textContent = r.stored ? 'saved' : 'not set';
-  $('#keynote').textContent = r.stored
-    ? `stored in ${r.source} — leave blank`
-    : 'paste it once; it is written to disk and reused from then on';
-  if (r.stored) $('#key').placeholder = 'already saved — leave blank';
-}).catch(() => {});
-refreshKey();
-
-const prepBody = () => JSON.stringify({
-  track: $('#track').value, model: $('#sepmodel').value,
-  groq_model: $('#model').value, language: $('#lang').value || null,
-  prompt: $('#prompt').value || null, api_key: $('#key').value || null,
-  force_separate: $('#fsep').checked, force_transcribe: $('#ftra').checked,
-});
-
-$('#btnPrepare').onclick = () => api('/api/prepare', {method:'POST', body:prepBody()})
-  .then(poll).catch(showErr);
-
-$('#btnSeparate').onclick = () => api('/api/separate', {method:'POST',
-  body:JSON.stringify({track: $('#track').value, model: $('#sepmodel').value,
-    force: $('#fsep').checked})}).then(poll).catch(showErr);
-
-$('#btnAnalyse').onclick = () => api('/api/analyse', {method:'POST',
-  body:JSON.stringify({instrumental: $('#instr').value})}).then(poll).catch(showErr);
-
-$('#btnTranscribe').onclick = () => api('/api/transcribe', {method:'POST',
-  body:JSON.stringify({audio: $('#vocals').value, model: $('#model').value,
-    language: $('#lang').value || null, prompt: $('#prompt').value || null,
-    api_key: $('#key').value || null})}).then(poll).catch(showErr);
-
-$('#btnPush').onclick = () => api('/api/td/push', {method:'POST'})
-  .then(r => renderChecks([], 'pushed ' + r.pushed.join(', '))).catch(showErr);
-$('#btnPull').onclick = () => api('/api/td/pull-cues', {method:'POST'})
-  .then(() => loadCues()).catch(showErr);
-$('#btnSave').onclick = () => api('/api/td/save', {method:'POST'}).then(poll).catch(showErr);
-
-$('#btnSaveCues').onclick = () => api('/api/cues', {method:'POST',
-  body:JSON.stringify({cues: CUES})}).then(r => renderChecks(r.problems, 'cues')).catch(showErr);
-$('#btnAddCue').onclick = () => { CUES.push({word:'', start:0, line:1}); renderCues(); };
-
-$('#btnRender').onclick = () => api('/api/render', {method:'POST',
-  body:JSON.stringify({output: $('#out').value, duration: parseFloat($('#dur').value),
-    vocals: $('#vocals').value || null, instrumental: $('#instr').value || null,
-    fps: parseInt($('#fps').value)})}).then(poll).catch(showErr);
-
-$('#btnStills').onclick = async () => {
-  const d = parseFloat($('#dur').value);
-  const times = [d*0.08, d*0.35, d*0.62, d*0.9].map(t => +t.toFixed(1));
-  const r = await api('/api/stills', {method:'POST',
-    body:JSON.stringify({video: $('#out').value, times})}).catch(showErr);
-  if (!r) return;
-  $('#stills').innerHTML = '';
-  for (const s of r.stills) {
-    const el = document.createElement('div');
-    el.className = 'still';
-    el.innerHTML = `<img src="${s.file}?t=${Date.now()}">
-      <div>${s.time}s<br>band max ${s.band.YMAX ?? '–'}<br>
-      lower max ${s.lower.YMAX ?? '–'}</div>`;
-    $('#stills').append(el);
-  }
-  document.querySelector('[data-tab=checks]').click();
-};
-
-async function loadCues() {
-  const r = await api('/api/cues');
-  CUES = r.cues; renderCues();
-  if (r.problems.length) renderChecks(r.problems, 'cues');
+function setControls(run) {
+  const p = $('#btnPrimary'), sec = $('#btnSecondary');
+  const state = run ? run.state : 'idle';
+  sec.hidden = true;
+  if (state === 'running') { p.textContent = 'Stop'; p.dataset.act = 'stop'; }
+  else if (state === 'stopped') { p.textContent = 'Resume'; p.dataset.act = 'resume';
+                                  sec.hidden = false; sec.textContent = 'Restart'; }
+  else if (state === 'failed') { p.textContent = 'Try again'; p.dataset.act = 'resume';
+                                 sec.hidden = false; sec.textContent = 'Restart'; }
+  else if (state === 'done') { p.textContent = 'Make another'; p.dataset.act = 'make'; }
+  else { p.textContent = 'Make the video'; p.dataset.act = 'make'; }
 }
 
 async function poll() {
   try {
     const s = await api('/api/status');
     $('#tddot').classList.toggle('on', s.td_connected);
-    $('#tdtext').textContent = s.td_connected ? 'TD connected' : 'TD offline';
-    $('#counts').textContent = `${s.cues} words · ${s.lines} lines`;
-    const j = s.job;
-    $('#job').textContent = j.state === 'idle' ? ''
-      : `${j.name}: ${j.state} — ${j.message}`;
-    document.querySelectorAll('button').forEach(b => {
-      if (b.id && b.id.startsWith('btn')) b.disabled = (j.state === 'running');
+    $('#tdtext').textContent = s.td_connected ? 'TouchDesigner ready' : 'TouchDesigner offline';
+    renderStages(s.run);
+    setControls(s.run);
+    const busy = s.run && s.run.state === 'running';
+    document.querySelectorAll('button.btn').forEach(b => {
+      if (b.id !== 'btnPrimary') b.disabled = busy;
     });
-  } catch (e) { /* server restarting */ }
+    if (s.run && (s.run.id !== LAST.id || s.run.state !== LAST.state)) {
+      const finished = LAST.state === 'running' && s.run.state !== 'running';
+      LAST = {id: s.run.id, state: s.run.state};
+      if (finished) { await loadSongs(); await refreshAll(); showResult(s.run); }
+    }
+  } catch (e) { /* the server may be restarting */ }
 }
 
-// Reload everything that changes when the song or style changes.
+function showResult(run) {
+  const prev = (run.stages || []).find(s => s.key === 'preview');
+  if (!prev || !prev.detail || !prev.detail.path) return;
+  const name = prev.detail.path.split('/').pop();
+  TAKE_FILE = name;
+  $('#resultVideo').src = `/api/takes/file/${encodeURIComponent(name)}?t=${Date.now()}`;
+  const d0 = prev.detail;
+  $('#resultSub').textContent =
+    `${d0.width}×${d0.height} · ${(d0.duration||0).toFixed(1)}s` +
+    (d0.start ? ` · from ${clock(d0.start)}${d0.start_why ? ' (' + d0.start_why + ')' : ''}` : '');
+  $('#resultGroup').hidden = false;
+  $('#detailSections').hidden = false;
+  const vid = $('#resultVideo');
+  vid.muted = false; vid.volume = 0.8;
+
+  // A description that was applied should say what it did, and the Look panel
+  // should show where the controls ended up rather than where they started.
+  const d = (run.stages || []).find(s => s.key === 'describe');
+  if (d && d.state === 'done' && d.detail && d.detail.changed) {
+    const n = Object.keys(d.detail.changed).length;
+    if (n) {
+      note(`${d.detail.why || 'Applied your description'} (${n} settings)`, 'ok');
+      loadConfig();
+    }
+    (d.detail.ignored || []).forEach(x => note(x, 'warn'));
+  }
+
+  const v = (run.stages || []).find(s => s.key === 'verify');
+  if (v && v.detail) renderStills(v.detail, (prev.detail || {}).start || 0);
+  else $('#checkBlock').hidden = true;
+  if (v && v.detail && (v.detail.problems||[]).length)
+    v.detail.problems.forEach(p => note(p, 'warn'));
+}
+// Frames pulled back out of the finished file and measured -- the system checks
+// its own render rather than trusting TouchDesigner's word for it. They used to
+// sit unlabelled under the Generate button, where they read as three broken
+// buttons. Shut by default: the numbers only matter when something is off.
+// mm:ss, for labelling a frame by where it sits in the song.
+// "2:44", "164", "164.8" -- all reasonable things to type into a start box.
+function parseTime(v) {
+  v = (v || '').trim();
+  if (!v) return null;
+  const m = v.match(/^(\d+):([0-5]?\d(?:\.\d+)?)$/);
+  if (m) return parseInt(m[1], 10) * 60 + parseFloat(m[2]);
+  const n = parseFloat(v);
+  return isFinite(n) && n >= 0 ? n : null;
+}
+function clock(t) {
+  t = Math.max(0, Math.round(t));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
+}
+function renderStills(d, clipStart) {
+  const stills = d.stills || [], problems = d.problems || [];
+  const block = $('#checkBlock');
+  if (!stills.length) { block.hidden = true; return; }
+  block.hidden = false;
+  block.open = problems.length > 0;
+
+  const verdict = $('#checkVerdict');
+  verdict.textContent = problems.length
+    ? `${problems.length} problem${problems.length > 1 ? 's' : ''}`
+    : 'looks right';
+  verdict.className = 'verdict ' + (problems.length ? 'bad' : 'ok');
+  $('#checkWhat').textContent =
+    `${stills.length} frames sampled from the finished file and measured` +
+    ((d.regions || []).length
+      ? ` — brightness across ${d.regions.join(', ')}.` : '.') +
+    (problems.length ? ' ' + problems.join(' ')
+                     : ' Nothing outside tolerance.');
+
+  const host = $('#stills'); host.innerHTML = '';
+  for (const s of stills) {
+    const el = document.createElement('div'); el.className = 'still';
+    const img = document.createElement('img');
+    img.src = s.file + '?t=' + Date.now(); img.alt = `frame at ${s.time}s`;
+    const at = document.createElement('div'); at.className = 'at';
+    // Label by position in the song, not in the clip -- "0:12" is something the
+    // viewer can go and look at, "1.2s" is an offset into a file they never see.
+    at.textContent = clock((clipStart || 0) + s.time);
+    const met = document.createElement('div'); met.className = 'met';
+    met.textContent = (d.regions || []).filter(n => s[n])
+      .map(n => `${n} ${Math.round(s[n].YAVG ?? 0)} avg / ${Math.round(s[n].YMAX ?? 0)} peak`)
+      .join(' · ');
+    el.append(img, at, met); host.append(el);
+  }
+}
+
+// ------------------------------------------------------------------- songs
+async function loadSongs() {
+  const r = await api('/api/songs');
+  const sel = $('#song');
+  sel.innerHTML = '<option value="">— new song —</option>';
+  for (const s of r.songs) {
+    const o = document.createElement('option');
+    o.value = s.slug; o.textContent = `${s.name} · ${s.cues} words`;
+    o.dataset.name = s.name;
+    if (s.slug === r.current) o.selected = true;
+    sel.append(o);
+  }
+  CURRENT_SLUG = r.current || '';
+  $('#nameField').hidden = !!CURRENT_SLUG;
+}
+$('#song').onchange = async e => {
+  const slug = e.target.value;
+  $('#nameField').hidden = !!slug;
+  if (!slug) { CURRENT_SLUG = ''; $('#resultGroup').hidden = true; return; }
+  await api(`/api/songs/${slug}/select`, {method:'POST'}).catch(showErr);
+  CURRENT_SLUG = slug;
+  await refreshAll();
+};
+function songName() {
+  const slug = $('#song').value;
+  if (slug) return $('#song').selectedOptions[0].dataset.name || slug;
+  return $('#runName').value.trim();
+}
+
+// ---------------------------------------------------------------- browsing
+async function openBrowser(at) {
+  const r = await api('/api/browse' + (at ? `?path=${encodeURIComponent(at)}` : '')).catch(showErr);
+  if (!r) return;
+  $('#browser').hidden = false;
+  const sc = $('#browseShortcuts'); sc.innerHTML = '';
+  for (const s of r.shortcuts) {
+    const b = document.createElement('button');
+    b.className = 'btn small'; b.textContent = s.name;
+    b.onclick = () => openBrowser(s.path); sc.append(b);
+  }
+  const cr = $('#browseCrumbs'); cr.innerHTML = '';
+  r.crumbs.forEach((c, i) => {
+    if (i) cr.append(document.createTextNode(' / '));
+    const b = document.createElement('button'); b.textContent = c.name;
+    b.onclick = () => openBrowser(c.path); cr.append(b);
+  });
+  const list = $('#browseList'); list.innerHTML = '';
+  if (r.parent) list.append(entry('↰', 'Up a level', '', () => openBrowser(r.parent)));
+  for (const d of r.dirs) list.append(entry('▸', d.name, '', () => openBrowser(d.path)));
+  for (const f of r.files) list.append(entry('♪', f.name, f.mb + ' MB', () => {
+    $('#runSource').value = f.path;
+    // Named from the file, so the common case needs no typing at all.
+    if (!$('#song').value && !$('#runName').value.trim())
+      $('#runName').value = prettyName(f.name);
+    $('#browser').hidden = true;
+  }));
+  if (!r.dirs.length && !r.files.length)
+    list.innerHTML = '<div class="empty" style="padding:14px">Nothing here.</div>';
+}
+function prettyName(filename) {
+  return filename.replace(/\.[^.]+$/, '')
+    .replace(/\((?:official|lyric|audio|video|hd|4k)[^)]*\)/gi, '')
+    .replace(/\[[^\]]*\]/g, '')
+    .replace(/\s{2,}/g, ' ').trim();
+}
+function entry(ico, name, size, onclick) {
+  const b = document.createElement('button');
+  b.className = 'entry'; b.type = 'button'; b.onclick = onclick;
+  b.innerHTML = `<span class="ico">${ico}</span><span>${name}</span>` +
+                (size ? `<span class="sz">${size}</span>` : '');
+  return b;
+}
+$('#btnBrowse').onclick = () => {
+  const cur = $('#runSource').value.trim();
+  openBrowser(cur ? cur.replace(/\/[^/]*$/, '') : null);
+};
+$('#browseClose').onclick = () => { $('#browser').hidden = true; };
+$('#browser').onclick = e => { if (e.target.id === 'browser') $('#browser').hidden = true; };
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#browser').hidden = true; });
+
+// ------------------------------------------------------------------ styles
+async function loadStyles() { STYLES = (await api('/api/styles')).styles; renderGallery(); }
+function renderGallery() {
+  const host = $('#styleGallery'); host.innerHTML = '';
+  const builtin = {slug:'', name:'Built-in', family:'lyric', has_preview:false,
+                   description:"the renderer's own look, untouched"};
+  const fams = {};
+  for (const st of [builtin, ...STYLES]) (fams[st.family || 'lyric'] ||= []).push(st);
+  for (const [fam, list] of Object.entries(fams)) {
+    const wrap = document.createElement('div'); wrap.className = 'famrow';
+    const h = document.createElement('h3'); h.className = 'eyebrow';
+    h.textContent = fam === 'beatsync' ? 'Beatsync · no lyrics needed' : 'Lyric';
+    const grid = document.createElement('div'); grid.className = 'gallery';
+    for (const st of list) grid.append(styleCard(st));
+    if (fam === 'lyric') grid.append(customCard());
+    wrap.append(h, grid); host.append(wrap);
+  }
+  showStyleNote();
+}
+function styleCard(st) {
+  const on = st.slug === STYLE_SLUG;
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'scard';
+  b.setAttribute('role','radio'); b.setAttribute('aria-checked', String(on));
+  const t = document.createElement('div'); t.className = 'thumb';
+  const poster = st.preview ? st.preview.replace(/\.mp4$/, '.png') : '';
+  if (st.has_preview && on)
+    t.innerHTML = `<video src="${st.preview}" autoplay loop muted playsinline poster="${poster}"></video>`;
+  else if (st.has_preview)
+    t.innerHTML = `<img src="${poster}" alt="${st.name}">`;
+  else t.innerHTML = '<span class="noprev">no preview yet</span>';
+  const c = document.createElement('span'); c.className = 'cap'; c.textContent = st.name;
+  b.append(t, c);
+  b.onclick = () => { STYLE_SLUG = st.slug; renderGallery(); };
+  return b;
+}
+// Describe a look and have it made. The tile matches the others so it reads as
+// one more thing you can pick, not a separate mode.
+function customCard() {
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'scard';
+  const t = document.createElement('div'); t.className = 'thumb';
+  t.innerHTML = '<span class="noprev">＋<br>describe a look</span>';
+  const c = document.createElement('span'); c.className = 'cap';
+  c.textContent = 'Custom…';
+  b.append(t, c);
+  b.onclick = openCustom;
+  return b;
+}
+
+function openCustom() {
+  $('#customText').value = '';
+  $('#customOut').textContent = '';
+  $('#customPreview').hidden = true;
+  $('#customKeep').disabled = true;
+  $('#customModal').hidden = false;
+  $('#customText').focus();
+}
+function closeCustom() { $('#customModal').hidden = true; }
+
+let CUSTOM_SLUG = '';
+async function customDescribe() {
+  const text = $('#customText').value.trim();
+  if (!text) return;
+  $('#customGo').disabled = true;
+  $('#customOut').textContent = 'Asking Claude, then rendering a preview…';
+  const r = await api('/api/styles/custom', {method:'POST',
+    body: JSON.stringify({text})}).catch(showErr);
+  $('#customGo').disabled = false;
+  if (!r) return;
+  CUSTOM_SLUG = r.slug || '';
+  const n = Object.keys(r.changed || {}).length;
+  $('#customOut').textContent = (r.why || 'Applied.') + `  (${n} settings)`;
+  (r.ignored || []).forEach(x => note(x, 'warn'));
+  CFG_CONTROLS = r.controls || CFG_CONTROLS;
+  // the preview render is a background job; wait for it before offering Keep
+  await waitForJob();
+  const v = $('#customPreview');
+  v.src = `/styles/lyric_grid/${CUSTOM_SLUG}/preview.mp4?t=${Date.now()}`;
+  v.hidden = false;
+  $('#customKeep').disabled = false;
+}
+async function waitForJob() {
+  for (let i = 0; i < 200; i++) {
+    const j = await api('/api/job').catch(() => null);
+    if (!j || j.state !== 'running') return j;
+    $('#customOut').textContent = j.message || 'working…';
+    await new Promise(r => setTimeout(r, 1500));
+  }
+}
+async function customKeep() {
+  const name = ($('#customName').value || '').trim();
+  if (!name) { note('Give it a name first', 'warn'); return; }
+  await api('/api/styles/custom/keep', {method:'POST',
+    body: JSON.stringify({name, description: $('#customText').value.trim()})})
+    .catch(showErr);
+  await loadStyles();
+  note(`Saved the look as "${name}"`, 'ok');
+  closeCustom();
+}
+async function customDiscard() {
+  await api('/api/styles/custom/cancel', {method:'POST'}).catch(() => {});
+  await loadConfig();
+  closeCustom();
+}
+
+function showStyleNote() {
+  const st = STYLES.find(x => x.slug === STYLE_SLUG);
+  $('#styleNote').textContent = st ? (st.description || '')
+    : "The renderer's own look, with nothing applied on top.";
+}
+
+// -------------------------------------------------------------------- runs
+function runBody(extra) {
+  return JSON.stringify(Object.assign({
+    name: songName(),
+    source: $('#runSource').value.trim() || null,
+    style: STYLE_SLUG || null,
+    language: $('#lang').value.trim() || null,
+    prompt: $('#prompt').value.trim() || null,
+    force_separate: $('#fsep').checked,
+    force_transcribe: $('#ftra').checked,
+  }, extra || {}));
+}
+$('#btnPrimary').onclick = () => {
+  const act = $('#btnPrimary').dataset.act || 'make';
+  if (act === 'stop') return api('/api/run/stop', {method:'POST'}).then(poll).catch(showErr);
+  if (act === 'resume') return api('/api/run/resume', {method:'POST'}).then(poll).catch(showErr);
+  if (!songName()) return showErr(new Error('Choose a song file, or give it a name.'));
+  api('/api/run', {method:'POST', body: runBody()}).then(poll).catch(showErr);
+};
+$('#btnSecondary').onclick = () =>
+  api('/api/run/restart', {method:'POST'}).then(poll).catch(showErr);
+
+$('#lenopts').onchange = () => {
+  document.querySelectorAll('#lenopts .lenopt').forEach(l =>
+    l.classList.toggle('on', !!l.querySelector('input[type=radio]:checked')));
+};
+$('#btnGenerate').onclick = () => {
+  const mode = document.querySelector('input[name=len]:checked').value;
+  const tweak = $('#tweak').value.trim();
+  // Start at the description when there is one: it runs before push, so
+  // resuming from push would skip it and silently render the old look.
+  const body = {from_stage: tweak ? 'describe' : 'push'};
+  if (mode === 'full') body.length = 'full';
+  else if (mode === 'custom') body.preview_seconds = parseFloat($('#customLen').value) || 30;
+  const at = parseTime($('#startAt').value);
+  if (at !== null) body.start_seconds = at;
+  if (tweak) body.describe = tweak;
+  api('/api/run', {method:'POST', body: runBody(body)}).then(poll).catch(showErr);
+};
+// A <button>, not an <a>: every button rule in this file is written
+// `button.btn`, so an anchor would inherit none of the styling, and poll()
+// disables `button.btn` during a run -- an anchor would stay live mid-render.
+$('#btnDownload').onclick = () => {
+  if (!TAKE_FILE) return;
+  download(TAKE_FILE);
+};
+function download(name) {
+  const a = document.createElement('a');
+  a.href = `/api/takes/file/${encodeURIComponent(name)}?download=1`;
+  a.download = name;
+  document.body.append(a); a.click(); a.remove();
+}
+$('#customClose').onclick = closeCustom;
+$('#customGo').onclick = customDescribe;
+$('#customKeep').onclick = customKeep;
+$('#customDiscard').onclick = customDiscard;
+$('#btnRejectTake').onclick = () => { $('#resultGroup').hidden = true; };
+$('#btnSaveStyleFromTake').onclick = async () => {
+  const name = prompt('Name this look:');
+  if (!name) return;
+  await api('/api/styles', {method:'POST', body: JSON.stringify({name, description:''})})
+    .catch(showErr);
+  await loadStyles();
+  note(`Saved the look as "${name}"`, 'ok');
+};
+
+// ------------------------------------------------------------------- takes
+async function loadTakes() {
+  if (!CURRENT_SLUG) return;
+  const r = await api('/api/takes').catch(() => ({takes: []}));
+  const host = $('#takes'); host.innerHTML = '';
+  if (!r.takes.length) { host.innerHTML = '<span class="empty">No takes yet.</span>'; return; }
+  for (const t of r.takes) {
+    const el = document.createElement('div'); el.className = 'take';
+    el.innerHTML = `<span class="grow">${t.name}<br><span class="empty">` +
+      `${new Date(t.when*1000).toLocaleString()} · ${t.size_mb} MB</span></span>`;
+    if (t.ready) { const g = document.createElement('span');
+                   g.className = 'tag'; g.textContent = '✓ passed'; el.append(g); }
+    const dl = document.createElement('button');
+    dl.className = 'btn small'; dl.textContent = 'Download';
+    dl.onclick = () => download(t.file);
+    el.append(dl);
+    const b = document.createElement('button');
+    b.className = 'btn small'; b.textContent = 'Restore'; b.disabled = !t.has_settings;
+    b.onclick = () => api(`/api/takes/${encodeURIComponent(t.name)}/restore`, {method:'POST'})
+      .then(() => { note(`Restored ${t.name}`, 'ok'); refreshAll(); }).catch(showErr);
+    el.append(b); host.append(el);
+  }
+}
+
+// -------------------------------------------------------------------- cues
+async function loadCues() {
+  if (!CURRENT_SLUG) return;
+  const r = await api('/api/cues').catch(() => null);
+  if (!r) return;
+  CUES = r.cues; renderCues();
+  $('#cuenote').textContent = `${CUES.length} words`;
+}
+function renderCues() {
+  const b = $('#cuebody'); b.innerHTML = '';
+  CUES.forEach((c, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="num"><input type="number" value="${c.line}" step="1"></td>` +
+      `<td><input type="text" value="${c.word.replace(/"/g,'&quot;')}"></td>` +
+      `<td class="num"><input type="number" value="${c.start}" step="0.01"></td>` +
+      `<td class="act"><button class="icon-btn" aria-label="Remove">×</button></td>`;
+    const [ln, wd, st] = tr.querySelectorAll('input');
+    ln.onchange = e => c.line = parseInt(e.target.value) || 1;
+    wd.onchange = e => c.word = e.target.value;
+    st.onchange = e => c.start = parseFloat(e.target.value) || 0;
+    tr.querySelector('button').onclick = () => { CUES.splice(i,1); renderCues(); };
+    b.append(tr);
+  });
+}
+$('#btnSaveCues').onclick = () =>
+  api('/api/cues', {method:'POST', body: JSON.stringify({cues: CUES})})
+    .then(r => note(`Saved ${r.saved} words`, 'ok')).catch(showErr);
+$('#btnAddCue').onclick = () => { CUES.push({word:'', start:0, line:1}); renderCues(); };
+
+// -------------------------------------------------------------------- look
+// Six named controls, each moving a group of tunables. The raw set is still
+// reachable below them -- a specific fix sometimes needs a specific number --
+// but it is no longer what the panel opens with.
+function controls() {
+  const host = $('#lookBody'); if (!host) return;
+  host.innerHTML = '';
+
+  if (CFG_CONTROLS.length) {
+    const wrap = document.createElement('div'); wrap.className = 'sliders';
+    for (const c of CFG_CONTROLS) {
+      const row = document.createElement('div'); row.className = 'slider named';
+      const lab = document.createElement('label');
+      lab.innerHTML = `<span>${c.label}</span>`;
+      const sl = document.createElement('input');
+      sl.type = 'range'; sl.min = 0; sl.max = 1; sl.step = 0.01; sl.value = c.value;
+      sl.setAttribute('aria-label', c.label);
+      const hint = document.createElement('span');
+      hint.className = 'hint'; hint.textContent = c.hint;
+      // Committed on release, not while dragging: each change rewrites several
+      // parameters and saves, and reconciliation can move a value the drag did
+      // not touch. Redraw afterwards so what is shown is what was stored.
+      sl.onchange = async e => {
+        const r = await api('/api/control', {method: 'POST',
+          body: JSON.stringify({key: c.key, value: parseFloat(e.target.value)})
+        }).catch(showErr);
+        if (!r) return;
+        CFG = Object.assign(CFG, r.config); CFG.__sections = CFG.__sections;
+        CFG_CONTROLS = r.controls || CFG_CONTROLS;
+        (r.problems || []).forEach(p => note(p, 'warn'));
+        controls();
+        await api('/api/td/push', {method: 'POST'}).catch(() => {});
+      };
+      row.append(lab, sl, hint); wrap.append(row);
+    }
+    host.append(wrap);
+  }
+
+  const all = document.createElement('details'); all.className = 'allset';
+  all.innerHTML = '<summary>All settings</summary>';
+  const body = document.createElement('div'); body.className = 'disc-body';
+  for (const name of (CFG.__sections || [])) {
+    const h = document.createElement('h3'); h.className = 'eyebrow';
+    h.textContent = name; h.style.marginTop = 'var(--s-4)';
+    body.append(h);
+    const wrap = document.createElement('div'); wrap.className = 'sliders';
+    for (const [k, v] of Object.entries(CFG[name] || {})) {
+      if (typeof v !== 'number') continue;
+      const [min, max, step] = CFG_RANGES[k] || [0, Math.max(1, v*3), 0.01];
+      const row = document.createElement('div'); row.className = 'slider';
+      const lab = document.createElement('label');
+      lab.innerHTML = `<span>${k}</span><span class="v">${v}</span>`;
+      const sl = document.createElement('input');
+      sl.type = 'range'; sl.min = min; sl.max = max; sl.step = step; sl.value = v;
+      sl.setAttribute('aria-label', k);
+      sl.oninput = e => { const nv = parseFloat(e.target.value);
+        CFG[name][k] = nv; lab.querySelector('.v').textContent = nv; };
+      row.append(lab, sl); wrap.append(row);
+    }
+    body.append(wrap);
+  }
+  const save = document.createElement('button');
+  save.className = 'btn'; save.textContent = 'Save and push';
+  save.style.marginTop = 'var(--s-4)';
+  save.onclick = async () => {
+    const payload = {};
+    for (const sec of (CFG.__sections || [])) payload[sec] = CFG[sec];
+    const r = await api('/api/config', {method:'POST', body: JSON.stringify(payload)}).catch(showErr);
+    if (!r) return;
+    (r.problems || []).forEach(p => note(p, 'warn'));
+    if (!(r.problems||[]).length) {
+      await api('/api/td/push', {method:'POST'}).catch(showErr);
+      note('Look saved and pushed', 'ok');
+      loadConfig();
+    }
+  };
+  body.append(save);
+  all.append(body); host.append(all);
+}
+
+// ------------------------------------------------------------------- types
+async function loadTypes() {
+  TYPES = (await api('/api/types')).types;
+  const sel = $('#vtype'); sel.innerHTML = '';
+  for (const t of TYPES) {
+    const o = document.createElement('option');
+    o.value = t.slug; o.textContent = t.name; sel.append(o);
+  }
+}
+$('#vtype').onchange = async e => {
+  if (!CURRENT_SLUG) return;
+  await api(`/api/songs/${CURRENT_SLUG}/type`, {method:'POST',
+    body: JSON.stringify({type: e.target.value})}).catch(showErr);
+  await refreshAll();
+};
+
+// ------------------------------------------------------------------- state
 async function refreshAll() {
-  const c = await api('/api/config');
-  CFG = c.config;
-  $('#vocals').value = CFG.track.vocals || '';
-  $('#instr').value = CFG.track.instrumental || '';
-  $('#track').value = CFG.track.source || $('#track').value || '';
-  if (CFG.track.duration) $('#dur').value = CFG.track.duration.toFixed(2);
-  $('#trackinfo').textContent = CFG.track.duration
-    ? `${CFG.track.duration.toFixed(1)}s · kick ${CFG.track.kick_in}s · ${CFG.track.hold_windows.length} silences`
-    : 'not analysed';
-  if (CFG.track.style) $('#style').value = CFG.track.style;
-  showStylePreview();
-  controls(['look','cueing'], $('#tab-look'));
-  controls(['beat','grid'], $('#tab-beat'));
-  await loadCues();
-  if (c.problems.length) renderChecks(c.problems, 'config');
+  const c = await api('/api/config').catch(() => null);
+  if (!c) return;
+  CFG = c.config; CFG.__sections = c.sections; CFG_RANGES = c.ranges || {};
+  CFG_CONTROLS = c.controls || [];
+  $('#vtype').value = c.type;
+  const vt = TYPES.find(t => t.slug === c.type);
+  $('#vtypenote').textContent = vt ? `${vt.description} · needs ${vt.needs.join(', ')}` : '';
+  $('#typeField').hidden = TYPES.length < 2;
+  if (CFG.track.source && !$('#runSource').value) $('#runSource').value = CFG.track.source;
+  if (CFG.track.duration) {
+    const m = Math.floor(CFG.track.duration/60), s = Math.round(CFG.track.duration%60);
+    $('#fullLabel').textContent = `Full track ${m}:${String(s).padStart(2,'0')}`;
+  }
+  await loadStyles();
+  if (CFG.track.style) { STYLE_SLUG = CFG.track.style; renderGallery(); }
+  (c.problems || []).forEach(p => note(p, 'warn'));
+  if (CURRENT_SLUG) { $('#detailSections').hidden = false; controls(); loadCues(); loadTakes(); }
 }
 
 (async function init() {
-  await loadStyles();
-  await loadSongs();
-  await refreshAll();
+  await loadTypes(); await loadSongs(); await refreshAll();
   poll(); setInterval(poll, 2000);
 })();
 </script>
+</body>
+</html>

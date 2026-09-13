@@ -38,12 +38,17 @@ class CueTable:
             return cls()
         out: list[Cue] = []
         with path.open(newline="", encoding="utf-8") as fh:
+            first = True
             for row in csv.reader(fh, delimiter="\t"):
                 if not row or not row[0].strip():
                     continue
                 head = row[0].strip()
-                if head.startswith("#") or head.lower() == "word":
+                # Only the first row can be the header. Matching "word" anywhere
+                # silently dropped that cue from any song that sings it.
+                if head.startswith("#") or (first and head.lower() == "word"):
+                    first = False
                     continue
+                first = False
                 try:
                     out.append(Cue(head, float(row[1]), int(float(row[2]))))
                 except (IndexError, ValueError):
@@ -69,12 +74,15 @@ class CueTable:
     @classmethod
     def from_dat_text(cls, text: str) -> "CueTable":
         out: list[Cue] = []
+        first = True
         for raw in text.splitlines():
             parts = raw.rstrip("\r").split("\t")
             if len(parts) < 3 or not parts[0].strip():
                 continue
-            if parts[0].strip().lower() == "word":
+            if first and parts[0].strip().lower() == "word":
+                first = False
                 continue
+            first = False
             try:
                 out.append(Cue(parts[0].strip(), float(parts[1]), int(float(parts[2]))))
             except ValueError:

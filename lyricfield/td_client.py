@@ -10,6 +10,7 @@ exists for the common "it will come back in a minute" case.
 
 from __future__ import annotations
 
+import http.client
 import json
 import time
 import urllib.error
@@ -48,13 +49,17 @@ class TDClient:
         try:
             with urllib.request.urlopen(req, timeout=timeout or self.timeout) as resp:
                 raw = resp.read().decode()
-        except urllib.error.URLError as e:
-            raise TDUnavailable(f"cannot reach TouchDesigner at {self.url}: {e}") from e
         except TimeoutError as e:
             raise TDUnavailable(
                 f"TouchDesigner did not respond within {timeout or self.timeout}s "
                 "(it stalls under load; try again shortly)"
             ) from e
+        except (OSError, http.client.HTTPException) as e:
+            # OSError covers URLError and, importantly, ConnectionResetError:
+            # loading a project tears the web server down mid-request, so the
+            # socket is reset rather than refused. Letting that escape as a bare
+            # OSError made every project switch look like a crash.
+            raise TDUnavailable(f"cannot reach TouchDesigner at {self.url}: {e}") from e
         if not raw.strip():
             return {}
         return json.loads(raw)
@@ -74,16 +79,21 @@ class TDClient:
     # ---------- lifecycle ----------
 
     def ping(self, timeout: float = 5.0) -> bool:
+        """Is TouchDesigner answering? Never raises -- callers poll this in a
+        loop precisely when TD is in the middle of going away."""
         try:
             self._rpc("tools/list", timeout=timeout)
             return True
-        except (TDUnavailable, TDError):
+        except Exception:
             return False
 
-    def wait_until_ready(self, seconds: float = 300.0, interval: float = 3.0) -> bool:
+    def wait_until_ready(self, seconds: float = 300.0, interval: float = 3.0,
+                         should_stop=None) -> bool:
         """TD routinely blocks for 1-3 minutes while saving or under render load."""
         deadline = time.time() + seconds
         while time.time() < deadline:
+            if should_stop is not None and should_stop():
+                return False
             if self.ping():
                 return True
             time.sleep(interval)

@@ -1,8 +1,18 @@
 # lyricfield
 
-A lyric-video system: a dense character grid where the song's own words sit dim
-and drifting, brighten in place on cue, and respond to the beat as light.
-TouchDesigner renders it; everything that decides how it behaves lives here.
+A music-video system. Ingest a song, pick the kind of video to make, and it
+renders one. TouchDesigner draws it; everything that decides how it behaves
+lives here.
+
+Ingest is shared by every video type — separate the stems, measure the track's
+structure, transcribe the words — and produces one substrate: duration, kick
+entry, hi-hat entry, beat grid, silence windows, and word-level cues. What
+differs is the **video type**: its TouchDesigner network, its tunables, and
+whether it needs lyrics at all.
+
+The first type, `lyric_grid`, is a dense character grid where the song's own
+words sit dim and drifting, brighten in place on cue, and respond to the beat as
+light.
 
 ## Why the code is here and not in the .toe
 
@@ -46,7 +56,8 @@ misheard words in the cue table → **Push to TD** → **Render** → **Sample s
 
 | module | responsibility |
 |---|---|
-| `config.py` | every tunable, plus the constraints *between* them |
+| `config.py` | a song's config: track facts + video type + that type's params |
+| `sections.py` | the sectioned-dataclass/TOML machinery config and params share |
 | `cues.py` | per-word cue table (TSV), validation |
 | `transcribe.py` | Groq Whisper → word-level cues |
 | `analysis.py` | silences, kick entry, tempo, beat phase |
@@ -54,12 +65,14 @@ misheard words in the cue table → **Push to TD** → **Render** → **Sample s
 | `sync.py` | push repo → TD; pull cue tables back out |
 | `render.py` | capture, container validation, stem muxing, stills |
 | `ui/` | local control UI |
-| `td/field_callbacks.py` | runs **inside** TouchDesigner |
+| `types/` | the video types — one package each |
+| `types/<slug>/params.py` | that type's tunables, and the constraints *between* them |
+| `types/<slug>/field.py` | runs **inside** TouchDesigner |
 
 ## Things that are easy to get wrong
 
-These are encoded as checks in `Config.validate()` and `CueTable.problems()`
-because each one shipped as a real defect.
+These are encoded as checks in the type's `Params.validate()` and in
+`CueTable.problems()` because each one shipped as a real defect.
 
 **Brightness stacks.** `spark_peak` and `ripple_lift` add on top of the glow
 before reaching the output. Set to 0.75/0.40 they measured **0.99** at
@@ -93,3 +106,24 @@ server thread, so saves routinely hang for one to three minutes and then succeed
 Lyric text is always user-supplied — typed in the UI, imported, or transcribed
 from a vocal stem. None is bundled with the source, and `data/cues.tsv` is
 gitignored.
+
+## Adding a video type
+
+A type is a package under `lyricfield/types/` exposing `TYPE`:
+
+```
+lyricfield/types/<slug>/
+    __init__.py   TYPE = VideoType(...)
+    params.py     the tunables, as a sectioned dataclass with validate()
+    field.py      optional: code that runs inside TouchDesigner
+    build.py      optional: constructs the network from an empty project
+```
+
+`build` is what keeps the repo the source of truth. A type without one falls back
+to forking whatever TouchDesigner currently has open — workable for the first
+type, which is how `lyric_grid` was made, and not workable for several.
+
+Every tunable a type declares must be read by its `field.py` from the params DAT.
+Pushing a value TouchDesigner ignores is worse than not having the knob: it
+reports success and changes nothing. `lyric_grid/field.py` binds all of its
+tunables in `_apply_params()` and re-reads them whenever the params DAT changes.

@@ -1,0 +1,4 @@
+?
+enableexternaltox 0 off
+externaltox 17 "" "me.parent().fileFolder + '/' + '../touchdesigner-mcp/td_mcp_server.tox'"
+?

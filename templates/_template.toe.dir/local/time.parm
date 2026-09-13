@@ -1,0 +1,8 @@
+?
+play 0 0
+rate 17 60 cookRate()
+end 0 600
+rangestart 0 1
+rangeend 0 600
+clone 0 /sys/local/time
+?

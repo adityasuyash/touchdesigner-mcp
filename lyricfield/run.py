@@ -1,0 +1,553 @@
+"""The whole job, as ordered stages: song details in, finished preview out.
+
+Every step that used to be a button a person pressed in the right order is a
+stage here, and each one knows whether it is already done. Re-running resumes
+rather than repeats, which matters because the slow parts are very slow --
+separation takes minutes and transcription costs money.
+
+    environment -> workspace -> ingest -> provision -> push -> preview -> verify
+
+Two rules shape the error handling:
+
+  * **Retry the transient, stop at the rest.** TouchDesigner stalls for one to
+    three minutes on save as a matter of course, and Groq returns 503s. Those
+    are worth another attempt. A failed stage stops the run with everything
+    before it intact.
+  * **Never continue past a failure.** Rendering from a stale cue table or an
+    unbuilt network produces something that looks like output and is not, which
+    is worse than stopping.
+
+The full-length render is deliberately *not* a stage. The automatic run produces
+a short preview and measures it; committing to a long render is a separate act.
+"""
+
+from __future__ import annotations
+
+import threading
+import time
+import traceback
+import uuid
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Callable
+
+from .td_client import TDUnavailable
+
+PENDING, RUNNING, DONE, FAILED, SKIPPED, STOPPED = (
+    "pending", "running", "done", "failed", "skipped", "stopped")
+
+
+class Stopped(Exception):
+    """Raised when a run is asked to stop. Not a failure -- everything already
+    finished stays finished, and the run can be resumed from here."""
+
+# How long a preview runs. Long enough to show drift, dissolve and a few cues;
+# short enough that judging a look does not cost a full render.
+PREVIEW_SECONDS = 8.0
+
+
+@dataclass
+class Stage:
+    key: str
+    title: str
+    state: str = PENDING
+    message: str = ""
+    detail: dict = field(default_factory=dict)
+    seconds: float = 0.0
+
+
+@dataclass
+class Run:
+    id: str
+    song: str
+    stages: list[Stage]
+    state: str = PENDING
+    log: list[str] = field(default_factory=list)
+    error: str = ""
+    started: float = 0.0
+    finished: float = 0.0
+
+    def stage(self, key: str) -> Stage | None:
+        return next((s for s in self.stages if s.key == key), None)
+
+    def to_dict(self) -> dict:
+        d = asdict(self)
+        d["elapsed"] = round((self.finished or time.time()) - self.started, 1)
+        return d
+
+
+# --------------------------------------------------------------------- context
+
+@dataclass
+class Ctx:
+    """Everything the stages share. The workspace is bound once, at submit time.
+
+    That binding matters: the previous job model read the selected song from a
+    global when each step ran, so choosing a different song mid-run redirected
+    that run's writes into the new song's folder.
+    """
+    client: object
+    name: str = ""
+    source: str = ""
+    video_type: str | None = None
+    style: str | None = None
+    workspace: object = None
+    options: dict = field(default_factory=dict)
+    run: object = None          # set by execute(); `verify` reads the preview path
+    # The cancel signal. It lives here rather than on `Run` because `Run.to_dict`
+    # uses `asdict`, and an Event is not serialisable.
+    stop: object = field(default_factory=threading.Event)
+
+    def should_stop(self) -> bool:
+        return self.stop.is_set()
+
+    def check(self) -> None:
+        if self.stop.is_set():
+            raise Stopped()
+
+    @property
+    def cfg(self):
+        return self.workspace.load_config()
+
+
+# ---------------------------------------------------------------------- retry
+
+def attempt(fn, say, tries: int = 3, delay: float = 5.0,
+            transient=(TDUnavailable,)):
+    """Run `fn`, retrying only the failures that are worth retrying."""
+    last = None
+    for i in range(1, tries + 1):
+        try:
+            return fn()
+        except transient as e:
+            last = e
+            if i < tries:
+                say(f"{type(e).__name__}: {e} — retry {i}/{tries - 1} in {delay:.0f}s")
+                time.sleep(delay)
+    raise last
+
+
+# --------------------------------------------------------------------- stages
+
+def _environment(ctx: Ctx, say) -> dict:
+    from . import td_setup
+    return td_setup.ensure(ctx.client, say=say)
+
+
+def _workspace(ctx: Ctx, say) -> dict:
+    from .config import Config
+    from .workspace import DEFAULT_ROOT, Workspace, distinct_slug, slugify
+
+    def belongs(folder: Path) -> bool:
+        """Is this folder already holding *this* song?
+
+        Reusing a folder is the normal, wanted case -- it is what makes a run
+        resumable. Reusing another song's folder is the disaster: ingest finds
+        its cue table, reports "keeping existing cue table", and renders one
+        song's words over another song's audio. So compare the source before
+        moving in.
+        """
+        cfg_path = folder / "config.toml"
+        if not cfg_path.exists():
+            return True                      # nothing there to conflict with
+        if not ctx.source:
+            return True                      # nothing to compare it against
+        try:
+            recorded = Path(Config.load(cfg_path).track.source or "").name
+        except Exception:
+            return True
+        return not recorded or recorded == Path(ctx.source).name
+
+    slug = distinct_slug(ctx.name, DEFAULT_ROOT, belongs)
+    if slug != slugify(ctx.name):
+        say(f"{slugify(ctx.name)!r} already belongs to another song; using {slug!r}")
+    try:
+        ctx.workspace = Workspace.open(slug)
+        say(f"using existing song {slug}")
+    except FileNotFoundError:
+        ctx.workspace = Workspace.create(
+            ctx.name, ctx.source or None,
+            video_type=ctx.video_type, style=ctx.style, slug=slug)
+        say(f"created {slug}")
+    cfg = ctx.workspace.load_config()
+    if not cfg.track.title:
+        cfg.track.title = ctx.name
+        ctx.workspace.save_config(cfg)
+    return ctx.workspace.to_dict()
+
+
+def _ingest(ctx: Ctx, say) -> dict:
+    from . import pipeline
+    from .cues import CueTable
+
+    ws = ctx.workspace
+    cfg = ws.load_config()
+    vt = cfg.video_type
+    source = ctx.source or cfg.track.source
+    if not source:
+        raise ValueError("no source audio for this song")
+
+    say(f"{vt.name} is a {vt.family} type; it needs {', '.join(sorted(vt.needs))}")
+    res = pipeline.prepare(
+        source, ws.config_path, ws.cues_path,
+        stem_root=ws.stems_dir,
+        needs=vt.needs,
+        groq_key=ctx.options.get("api_key"),
+        language=ctx.options.get("language"),
+        prompt=ctx.options.get("prompt"),
+        force_separate=bool(ctx.options.get("force_separate")),
+        force_transcribe=bool(ctx.options.get("force_transcribe")),
+        should_stop=ctx.should_stop,
+        progress=say)
+
+    # A lyric video with no words would build a project that renders an empty
+    # field. Stop here and say so rather than producing convincing nothing.
+    table = CueTable.load(ws.cues_path)
+    if vt.needs_lyrics and not table.cues:
+        raise ValueError(
+            f"{vt.name} is a lyric type but this song has no cue table. "
+            "Transcribe the vocal, or type the words in, before rendering.")
+
+    # Say what happened rather than leaving it to a state word. "reused" and
+    # "did not run" look identical otherwise, which is what made this look
+    # like transcription had failed when it had just produced 380 words.
+    reused = [x.split(" (")[0] for x in res.skipped]
+    parts = []
+    if res.duration:
+        parts.append(f"{res.duration:.0f}s track")
+    if table.cues:
+        parts.append(f"{len(table.cues)} words across {len(table.lines)} lines")
+    if reused:
+        parts.append("reused " + ", ".join(reused))
+    say(" · ".join(parts) or "prepared")
+    return res.to_dict()
+
+
+def _provision(ctx: Ctx, say) -> dict:
+    return attempt(lambda: ctx.workspace.provision(ctx.client, progress=say), say)
+
+
+def _describe(ctx: Ctx, say) -> dict:
+    """Turn a written description into settings, before anything is pushed.
+
+    It sits between provision and push so the preview that follows is the
+    described look -- there is no point proposing settings the render will not
+    use. Nothing is kept: the config is saved for this preview, and the take is
+    what the person accepts or rejects.
+    """
+    text = (ctx.options.get("describe") or "").strip()
+    if not text:
+        return {"stage_skipped": True, "why": "nothing described"}
+    from . import describe as describe_mod
+    cfg = ctx.workspace.load_config()
+    say(f"asking for settings matching {text!r}")
+    prop = describe_mod.propose(cfg, text)
+    if prop.problems:
+        # Refuse rather than render something known-broken, and say which part.
+        raise ValueError("the proposed settings are not valid: "
+                         + "; ".join(prop.problems))
+    cfg.save(ctx.workspace.config_path)
+    if prop.why:
+        say(prop.why)
+    say(f"{len(prop.changed)} settings changed")
+    for line in prop.ignored:
+        say(f"ignored — {line}")
+    return prop.to_dict()
+
+
+def _push(ctx: Ctx, say) -> dict:
+    from . import sync
+    from .cues import CueTable
+    ws = ctx.workspace
+    cfg = ws.load_config()
+    problems = cfg.validate()
+    if problems:
+        raise ValueError("config is not valid: " + "; ".join(problems))
+    done = attempt(
+        lambda: sync.push_all(ctx.client, cfg, CueTable.load(ws.cues_path)), say)
+    return {"pushed": done}
+
+
+def preview_window(cfg, cues, seconds: float) -> float:
+    """Where to start a preview so it contains something worth looking at.
+
+    A preview from t=0 shows whatever the song opens with, which is often an
+    intro: august's first word lands at 6.6s, so eight seconds from zero held
+    two cues against nineteen for the benchmark track.
+
+    Rather than guess from the kick or the first word -- both of which picked a
+    worse window than zero on one song or the other -- slide the window over the
+    cue table and take the densest one. Ties go to the earliest, so a song that
+    is uniformly busy still previews from near its start.
+    """
+    if not cues:
+        return 0.0
+    times = sorted(c.start for c in cues)
+    dur = float(getattr(cfg.track, "duration", 0.0) or 0.0)
+    limit = max(0.0, dur - seconds) if dur else None
+
+    best_at, best_n = 0.0, sum(1 for t in times if t < seconds)
+    for t in times:
+        at = max(0.0, t - 0.75)          # open just before a word, not on it
+        if limit is not None:
+            at = min(at, limit)
+        n = sum(1 for x in times if at <= x < at + seconds)
+        if n > best_n:
+            best_at, best_n = at, n
+    return round(best_at, 2)
+
+
+def _preview(ctx: Ctx, say) -> dict:
+    from . import render as render_mod
+    from .cues import CueTable
+    ws, cfg = ctx.workspace, ctx.workspace.load_config()
+    # Length is a choice at generate time: the short preview, the whole track,
+    # or a specific number of seconds.
+    if ctx.options.get("length") == "full" and cfg.track.duration:
+        seconds = float(cfg.track.duration)
+        out = ws.export_path()
+        say(f"rendering the full {seconds:.0f}s")
+    else:
+        seconds = float(ctx.options.get("preview_seconds") or PREVIEW_SECONDS)
+        out = ws.export_path("preview")
+    # An explicit start wins; left empty, pick the most lyric-dense window.
+    # Either way the choice is reported, because a render of a part of the song
+    # nobody asked for looks exactly like a bug.
+    chosen = ctx.options.get("start_seconds")
+    if ctx.options.get("length") == "full":
+        start, why = 0.0, "the whole track"
+    elif chosen not in (None, ""):
+        start, why = max(0.0, float(chosen)), "as asked"
+    else:
+        start = preview_window(cfg, CueTable.load(ws.cues_path).cues, seconds)
+        why = "the busiest stretch"
+    dur = float(getattr(cfg.track, "duration", 0.0) or 0.0)
+    if dur:
+        start = min(start, max(0.0, dur - seconds))
+    say(f"{seconds:.0f}s from {int(start//60)}:{int(start%60):02d} ({why})")
+    res = attempt(lambda: render_mod.render(
+        ctx.client, out, seconds,
+        vocals=cfg.track.vocals or None,
+        instrumental=cfg.track.instrumental or None,
+        should_stop=ctx.should_stop, start=start,
+        progress=say), say, tries=2)
+    return {"path": str(res.path), "duration": res.duration, "start": start,
+            "start_why": why,
+            "width": res.width, "height": res.height, "fps": res.fps}
+
+
+def _save(ctx: Ctx, say) -> dict:
+    """Write the project to disk.
+
+    Its own stage because it is the slowest and least reliable thing the system
+    does -- TouchDesigner routinely stops answering for one to three minutes
+    mid-save -- and burying that inside another stage makes the other stage look
+    hung. `save_project` quiesces first and treats a timeout as "wait and
+    re-check" rather than a failure.
+    """
+    from . import sync
+    return {"result": attempt(lambda: sync.save_project(ctx.client), say, tries=2,
+                              delay=10.0)}
+
+
+def _verify(ctx: Ctx, say) -> dict:
+    from . import render as render_mod
+    from .cues import CueTable
+    ws, cfg = ctx.workspace, ctx.workspace.load_config()
+    prev = ctx.run.stage("preview").detail.get("path") if ctx.run else None
+    if not prev or not Path(prev).exists():
+        return {"stage_skipped": True, "why": "no preview to measure"}
+    dur = float(ctx.run.stage("preview").detail.get("duration") or 0) or 4.0
+    times = [round(dur * f, 1) for f in (0.15, 0.5, 0.85)]
+    say(f"sampling stills at {times}")
+    made = render_mod.sample_frames(prev, times, ws.stills_dir)
+    regions = cfg.video_type.regions(cfg) or {"frame": None}
+    out, problems = [], []
+    for img, t in zip(made, times):
+        entry = {"time": t, "file": f"/api/stills/{img.name}"}
+        for name, box in regions.items():
+            stats = (render_mod.region_stats(img, *box) if box
+                     else render_mod.region_stats(img))
+            entry[name] = stats
+        out.append(entry)
+    # The invariant worth asserting automatically: no *letters* outside the band,
+    # because that is the failure that shipped three times. Compare averages, not
+    # peaks -- the glow blur is wider than the gap between the band edge and the
+    # frame edge, so a thin bright rim below the band is bleed and is expected.
+    # Measured on a good frame: below-band YMAX 69 but YAVG 0.0 and not a single
+    # pixel over 100, against an in-band YAVG of 2.8.
+    # ffmpeg's signalstats reports limited-range luma, where black is 16 and not
+    # 0. Comparing raw YAVGs made every frame look guilty: 16.0 below the band
+    # against 16.5 inside it is black against black.
+    floor = 16.0
+    for e in out:
+        lower, band = e.get("lower") or {}, e.get("band") or {}
+        lo_avg = max(0.0, lower.get("YAVG", floor) - floor)
+        band_avg = max(0.0, band.get("YAVG", floor) - floor)
+        if band_avg > 0.1 and lo_avg > band_avg * 0.35:
+            problems.append(
+                f"{e['time']}s: letters below the band "
+                f"(YAVG {lo_avg:.1f} against {band_avg:.1f} inside)")
+    # Does the picture belong to this song? Nothing here used to ask, which is
+    # how a render of a completely different part of the track was written out
+    # as "verified with no problems" -- every regional brightness check passed,
+    # because the frames were perfectly good frames of the wrong thing.
+    match = {}
+    cues = CueTable.load(ws.cues_path).cues if ws.cues_path.exists() else []
+    if cues:
+        start = float(ctx.run.stage("preview").detail.get("start") or 0.0)
+        try:
+            match = render_mod.picture_matches_cues(
+                prev, [c.start for c in cues], start)
+        except Exception as e:
+            say(f"could not measure the picture against the cues: {e}")
+        if match.get("checked"):
+            ratio, black = match.get("ratio"), match.get("black_fraction", 0.0)
+            say(f"lit {match['bright_in_cue']:.0f} px during words against "
+                f"{match['bright_outside']:.0f} px between them")
+            if ratio is not None and ratio < 1.5:
+                problems.append(
+                    f"the picture does not follow the words: {match['bright_in_cue']:.0f} "
+                    f"lit pixels while a word is being sung against "
+                    f"{match['bright_outside']:.0f} between words. The render is "
+                    f"probably showing a different part of the song than the audio."
+                )
+            if black > 0.02:
+                problems.append(
+                    f"{100 * black:.0f}% of the frames are completely black "
+                    f"(longest run {match['longest_black_seconds']:.1f}s)")
+
+    # Record the settings that produced this preview, and whether it passed.
+    try:
+        ws.write_take(Path(prev), ready=not problems)
+    except Exception as e:
+        say(f"could not record the take: {e}")
+    return {"stills": out, "regions": list(regions), "problems": problems,
+            "match": match}
+
+
+STAGES: list[tuple[str, str, Callable]] = [
+    ("environment", "Prepare TouchDesigner", _environment),
+    ("workspace", "Create the song folder", _workspace),
+    ("ingest", "Separate, analyse, transcribe", _ingest),
+    ("provision", "Build the network", _provision),
+    ("describe", "Apply the description", _describe),
+    ("push", "Push params and cues", _push),
+    ("preview", "Render a preview", _preview),
+    ("verify", "Measure the result", _verify),
+    ("save", "Save the project", _save),
+]
+
+
+def new_run(song: str) -> Run:
+    return Run(id=uuid.uuid4().hex[:8], song=song,
+               stages=[Stage(key=k, title=t) for k, t, _ in STAGES])
+
+
+def execute(run: Run, ctx: Ctx, on_change=None, from_stage: str | None = None) -> Run:
+    """Walk the stages in order, stopping at the first failure.
+
+    `from_stage` enters partway: everything before it is marked skipped rather
+    than quietly not happening. That is what "update the preview" is — a look or
+    cue change does not need the stems re-checked, and re-running ingest for it
+    would be minutes of work to confirm nothing moved.
+    """
+    ctx.run = run                               # verify reads the preview's path
+    run.state = RUNNING
+    run.started = time.time()
+    notify = on_change or (lambda: None)
+
+    keys = [k for k, _t, _f in STAGES]
+    start_at = keys.index(from_stage) if from_stage in keys else 0
+    if start_at:
+        # The workspace still has to be resolved, or later stages have nothing
+        # to act on; it is cheap and idempotent.
+        try:
+            _workspace(ctx, lambda m: None)
+        except Exception:
+            pass
+        for k in keys[:start_at]:
+            sk = run.stage(k)
+            sk.state = SKIPPED
+            sk.message = "not needed for this update"
+        notify()
+
+    for key, _title, fn in STAGES[start_at:]:
+        if ctx.should_stop():
+            run.state = STOPPED
+            run.finished = time.time()
+            notify()
+            return run
+        st = run.stage(key)
+        st.state = RUNNING
+        st.message = ""
+        notify()
+        t0 = time.time()
+
+        def say(m, _st=st, _run=run):
+            _st.message = str(m)
+            _run.log.append(f"[{_st.key}] {m}")
+            del _run.log[:-400]
+            notify()
+
+        try:
+            detail = fn(ctx, say) or {}
+            st.detail = detail if isinstance(detail, dict) else {"result": detail}
+            # `stage_skipped` means this stage did nothing at all. It is NOT the
+            # same as `skipped`, which ingest uses for the sub-steps it reused --
+            # reading that list as a boolean marked a run "skipped" right after
+            # it had separated a track and transcribed 380 words.
+            st.state = SKIPPED if st.detail.get("stage_skipped") else DONE
+            st.message = st.message or ("nothing to do" if st.state == SKIPPED else "done")
+        except Stopped:
+            st.state = STOPPED
+            st.message = "stopped"
+            run.state = STOPPED
+            run.finished = time.time()
+            st.seconds = round(time.time() - t0, 1)
+            notify()
+            return run
+        except Exception as e:
+            st.state = FAILED
+            st.message = f"{type(e).__name__}: {e}"
+            st.detail = {"traceback": traceback.format_exc()[-3000:]}
+            run.state = FAILED
+            run.error = st.message
+            run.finished = time.time()
+            st.seconds = round(time.time() - t0, 1)
+            notify()
+            return run
+        st.seconds = round(time.time() - t0, 1)
+        notify()
+
+    run.state = DONE
+    run.finished = time.time()
+    notify()
+    return run
+
+
+def start(run: Run, ctx: Ctx, on_change=None,
+          from_stage: str | None = None) -> threading.Thread:
+    th = threading.Thread(target=execute, args=(run, ctx, on_change, from_stage),
+                          daemon=True)
+    th.start()
+    return th
+
+
+def resume_point(run: Run) -> str | None:
+    """The first stage that has not settled — where a resume picks up."""
+    for st in run.stages:
+        if st.state not in (DONE, SKIPPED):
+            return st.key
+    return None
+
+
+def carry_over(old: Run, new: Run) -> None:
+    """Bring a stopped run's finished stages into its replacement, so a resume
+    shows what actually happened rather than relabelling real work as skipped."""
+    for st in old.stages:
+        if st.state in (DONE, SKIPPED):
+            tgt = new.stage(st.key)
+            if tgt is not None:
+                tgt.state, tgt.message = st.state, st.message
+                tgt.detail, tgt.seconds = st.detail, st.seconds

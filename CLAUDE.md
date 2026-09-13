@@ -47,7 +47,6 @@ Key subsystems:
 - `scripts/rebuild_tox.py` — reloads server script into TD and re-exports the `.tox`
 - `td_mcp_server.tox` — pre-wired component (Web Server DAT + callback script), drag-and-drop install
 - `.mcp.json` — Claude Code MCP client config pointing to `localhost:9988/mcp`
-- `example.toe` — self-contained demo project (not tracked in git, binary)
 
 ## Working with TouchDesigner
 
@@ -57,35 +56,56 @@ Key subsystems:
 - To set expressions on parameters, use `par.name.expr = "..."` — assigning a string directly to a numeric par will error.
 - After writing a GLSL shader, call `op.par.loaduniformnames.pulse()` to auto-detect uniforms.
 
-## lyricfield — the lyric-video system
+## lyricfield — the music-video system
 
 A second project lives in `lyricfield/`. It uses this MCP server as transport but
-is otherwise independent: lyric videos as a dense character grid, rendered by
-TouchDesigner and driven entirely from files.
+is otherwise independent: ingest a song, pick a **video type**, render it.
+
+Ingest is shared by every type — separate, analyse, transcribe — and yields one
+substrate (duration, kick entry, hi-hat entry, beat grid, silence windows,
+word-level cues). What differs is the renderer.
 
 **The repo is the source of truth.** TD holds a thin shell (a Script TOP, cue and
 character DATs, the render chain); `lyricfield/sync.py` pushes behaviour in. Edit
-`lyricfield/td/field_callbacks.py` here — never in the DAT, or the next push
+`lyricfield/types/<slug>/field.py` here — never in the DAT, or the next push
 overwrites it.
 
 ```
 lyricfield/
-  config.py      tunables + the constraints between them (validate() before render)
+  config.py      a song: track facts + video type + that type's params
+  sections.py    the sectioned-dataclass/TOML machinery those share
   cues.py        per-word cue table, TSV, hand-editable
   separate.py    Demucs stem separation (shells out to the CLI)
   transcribe.py  Groq Whisper -> word-level cues
   analysis.py    silences, kick entry, tempo, beat phase
   pipeline.py    prepare(): separate -> analyse -> transcribe, resumable
-  styles.py      named reusable looks + video previews
+  styles.py      named presets of one type's params + video previews
   workspace.py   one folder per song
   td_client.py   JSON-RPC client for :9988
   sync.py        push repo -> TD, pull cue tables out
   render.py      capture, container validation, stem muxing, stills
   ui/            control UI (python -m lyricfield.ui.server -> :8765)
-  td/            code that runs inside TouchDesigner
+  types/         the video types, one package each
+    lyric_grid/  params.py, field.py, build.py
 ```
 
 Run the UI and work from there; every stage also has a CLI entry point.
+
+### Adding a video type
+
+1. `lyricfield/types/<slug>/params.py` — the tunables as a sectioned dataclass
+   with `validate()`
+2. `lyricfield/types/<slug>/field.py` — code that runs inside TD, if it needs any
+3. `lyricfield/types/<slug>/build.py` — construct the network from an empty
+   project; without one, provisioning falls back to forking the open project
+4. `lyricfield/types/<slug>/__init__.py` — `TYPE = VideoType(...)`
+
+**Every tunable a type declares must be consumed by its `field.py` or its
+`build.py`.** Pushing a value TD ignores is worse than not having the knob: it
+reports success and changes nothing. That was true of 45 of the 51 values pushed
+before types existed. The split is: `field.py` reads what changes per frame;
+`build.py` bakes what belongs to the network (font, resolution, the glow and
+bloom expressions).
 
 ### Concepts
 
@@ -93,10 +113,14 @@ Run the UI and work from there; every stage also has a CLI entry point.
   `project.toe`, `config.toml`, `cues.tsv`, `source/`, `stems/`, `exports/`.
   A new song's `.toe` is forked from whatever TD currently has open; there is
   deliberately no checked-in template (binary, undiffable, stale within a day).
-- **Style** — `Config` minus `track`, so grid/look/cueing/beat are reusable across
-  songs and applying one provably cannot touch song data. Stored in `styles/`
-  (tracked) with a short video preview, because motion is what distinguishes a
-  style and a still cannot show it.
+- **Video type** — the renderer: its TD network, its tunables, whether it needs
+  lyrics. Ingest is shared; this is what differs. `lyricfield/types/<slug>/`.
+- **Style** — a named preset of one type's params, so it is reusable across songs
+  and provably cannot touch song data. Scoped to its type, because `lyric_grid`'s
+  sections mean nothing to another renderer; applying across types is refused.
+  Stored in `styles/<type>/<slug>/` (tracked) with a short video preview, because
+  motion is what distinguishes a style and a still cannot show it. The previews
+  themselves are gitignored — they are renders of whichever song was loaded.
 
 ### TouchDesigner client gotchas
 
@@ -117,9 +141,24 @@ re-introduce them by calling the raw tools.
   its layout on a backward jump, so samples come back empty and look like a bug.
 - **Look up TD parameter names with `docs`.** `amp` not `amplitude`, `rough` not
   `roughness`, `size` not `radius`.
+- **`map` reports a stale expression as if it were active.** It reads `p.expr`
+  without checking `p.mode`, so a parameter switched back to a constant still
+  shows its old expression. Confirm with `p.eval()` before believing it.
+- **`project.load()` kills the MCP server** — it lives inside the project. It
+  only comes back if the project being loaded contains one, so never point a
+  load at a file you have not checked, and always follow it with
+  `TDClient.wait_until_ready()`. `lyricfield/td_setup.py` keeps a template whose
+  only operator is the server, for exactly this.
 
 ### Rendering and verification
 
+- **Check the picture against the cue table, not just its brightness.** A
+  30-second render of entirely the wrong part of the song was written out
+  "verified with no problems": every regional brightness check passed, because
+  they were good frames of the wrong thing. `render.picture_matches_cues` counts
+  bright pixels inside a word's plateau against those between words — the
+  failing render measured *more* light between words than during them (ratio
+  0.49, against 10-40 when it is right).
 - **Verify at `/project1/out`, never upstream.** A bloom branch went negative (a
   Level TOP black level remaps, it does not clamp) and subtracted ~0.23 from the
   whole frame while every upstream metric looked perfect.
@@ -133,8 +172,50 @@ re-introduce them by calling the raw tools.
   written. Require a stable size *and* a successful ffprobe parse.
 - **Quiesce before saving.** The Script TOP is `CookLevel.ALWAYS` and blocks the
   web server; saves hang for 1-3 minutes and then succeed.
+- **The timeline has two lengths, and `end` is the one that does not matter.**
+  `rangestart`/`rangeend` with `rangelimit` at "loop" confine the playhead, and
+  nothing errors when you try to leave that range: `me.time.frame += 100` moves,
+  `me.time.frame = <past rangeend>` silently snaps back. A `rangeend` inherited
+  from a 90s song capped a 264s track, so seeking to 2:45 wrapped round to 1:20
+  and rendered the wrong part of the song with words that did not match the
+  moment. `sync.set_timeline_length` sets both; never set `end` alone.
+- **A seek must be read back.** `park()` asks for a frame and then checks where
+  the playhead actually is, because the write above fails silently. Nothing
+  downstream should assume a seek worked.
+- **Text calibration needs the Script TOP bypassed, and must restore on
+  failure.** `calibrate_text` writes a probe glyph into the character DAT and
+  measures where it lands; the Script TOP cooks ALWAYS and rewrites that DAT, so
+  with it live the probes are garbage and the solve gives up. It used to give up
+  *leaving the probe values behind* — `trackingx 0.1, linespacing 0` — which
+  drops the row pitch from 53px to the font's natural 40px, so the grid draws
+  short and the bottom third of every frame is empty, with the build still
+  reporting success. It now bypasses the Script TOP itself, applies the solved
+  geometry to **both** text layers, puts the old geometry back if it fails, and
+  reports failure as a build problem.
+- **A stopped run strands the recorder.** Halting playback leaves
+  `_mcp_movieout` in the network and every later render refuses to start, so the
+  stop path tears it down (`render.stop_recording`).
+- **A paused timeline strands a render.** `render` schedules its finalize with
+  `delayFrames`, which only advances while playing, so pausing mid-record leaves
+  `_mcp_movieout` in the network and the PNGs on disk. Recover with
+  `run("_render_realtime_stop({})")`.
 
 ### Lyrics
 
 Always user-supplied — typed, imported, or transcribed from a vocal stem. None is
 bundled with the source; `data/cues.tsv` and per-song `cues.tsv` are gitignored.
+
+- **Trim the silent lead-in before uploading to Whisper; never pad it.** A long
+  quiet intro makes it drop the opening line outright — on one song it lost the
+  whole first couplet and hung the *second* line's words on the first line's
+  timestamps, so the cue count, the coverage and the end time all looked healthy
+  and nothing reported a problem. Measured on that song: whole file at 64k and
+  at 128k both lost it, a second of prepended silence also lost it, and trimming
+  to the first sung note recovered it. Keep the lead-in small — half a second of
+  silence was enough to send the model off into hallucinated captions.
+- **`adelay` with one value delays only the first channel.** Downmixing to mono
+  afterwards restores the original timing from the untouched second channel, so
+  the shift vanishes while the caller still corrects for it — every word a
+  second out, silently. Use `adelay=delays=N:all=1`, or seek instead.
+- **Language is worth more than any audio setting.** Auto-detection gave 43
+  words on a Hindi track where `language="hi"` gave 121, from identical audio.

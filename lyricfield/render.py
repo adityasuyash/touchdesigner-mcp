@@ -53,22 +53,109 @@ def _ffprobe(path: Path) -> dict | None:
         return None
 
 
-def park(client: TDClient) -> None:
-    """Pause at frame 1 with field state cleared, ready to record."""
-    client.run(
+class SeekFailed(RuntimeError):
+    """The timeline did not go where it was told."""
+
+
+def park(client: TDClient, at_seconds: float = 0.0,
+         covers: float = 0.0) -> float:
+    """Pause at `at_seconds` with field state cleared, ready to record.
+
+    Returns the second the timeline actually sits on.
+
+    **This used to be able to fail in total silence, and did.** TouchDesigner
+    confines the playhead to the play range (`rangestart`..`rangeend`), and a
+    frame assignment outside it is discarded with no error and no exception --
+    `me.time.frame += 100` moves, `me.time.frame = <past rangeend>` does nothing
+    at all. Every new project inherits `rangeend` from the project it was forked
+    from, which traced back to a 90-second benchmark track, so on a 264s song
+    every seek past 1:30 was thrown away. The timeline then simply looped where
+    it was, and the render recorded an unrelated part of the song under correct
+    audio -- the picture at 0:16 while the vocal sang 3:08.
+
+    So: widen the range to cover what is about to be recorded, seek, then read
+    the frame back and refuse to continue if it is not where it was sent.
+    """
+    from . import sync
+
+    # Grow only to what the caller says it is about to record. Deliberately not
+    # `max(at_seconds, covers)`: sizing the timeline to fit whatever start it was
+    # handed means a nonsense start silently stretches the project to fit rather
+    # than being caught below, which is the failure mode this whole function
+    # exists to stop.
+    rate = 60.0
+    if covers > 0:
+        info = sync.set_timeline_length(client, float(covers) + 2.0)
+        rate = float(info.get("rate") or rate) if isinstance(info, dict) else rate
+    else:
+        out = client.run("print(op('/local/time').rate)").strip()
+        try:
+            rate = float(out)
+        except ValueError:
+            pass
+
+    want = max(1, int(round(float(at_seconds) * rate)))
+    out = client.run(
         "def main():\n"
         "    me.time.play = 0\n"
-        "    op('/local/time').frame = 1\n"
+        f"    op('/local/time').frame = {want}\n"
         f"    sc = op({SCRIPT_TOP!r})\n"
         "    if sc is not None:\n"
         "        sc.bypass = False\n"
         f"    o = op({OUT_TOP!r})\n"
         "    if o is not None:\n"
         "        o.cook(force=True)\n"
-        "    return 'parked at frame %d' % op('/local/time').frame\n"
+        "    t = op('/local/time')\n"
+        "    return '%d %d %d' % (t.frame, t.par.rangeend.eval(), t.end)\n"
         "print(main())"
-    )
+    ).strip()
+    try:
+        landed, range_end, end = (int(float(v)) for v in out.split())
+    except ValueError as e:
+        raise SeekFailed(f"could not read the timeline back: {out!r}") from e
+
+    # One frame of slack: the playhead can settle on a neighbour, but it cannot
+    # be somewhere else entirely.
+    if abs(landed - want) > 1:
+        raise SeekFailed(
+            f"asked the timeline for frame {want} ({at_seconds:.1f}s) and it "
+            f"sits on {landed} ({landed / rate:.1f}s). The play range is "
+            f"1..{range_end} of {end} frames — a seek outside it is discarded "
+            f"silently, and anything recorded now would be the wrong part of "
+            f"the song."
+        )
     reset_field_state(client)
+    return landed / rate
+
+
+def stop_recording(client: TDClient) -> str:
+    """Tear down a recording that is still in the network, whatever its state.
+
+    A stopped run leaves the Movie File Out behind: `render` schedules its own
+    finalize in timeline frames, so halting playback strands the recorder, and
+    the *next* render then refuses to start -- one aborted preview quietly
+    breaks every render after it until someone notices the operator sitting
+    there. Stopping is the supported route; destroying it is the fallback for
+    when TD says there is no active recording but the operator is still there.
+    """
+    try:
+        client.call("render", output="", duration=0, action="stop")
+        return "stopped"
+    except Exception:
+        pass
+    try:
+        client.run(
+            "def main():\n"
+            "    o = op('/project1/_mcp_movieout')\n"
+            "    if o is None:\n"
+            "        return 'nothing to clear'\n"
+            "    o.destroy()\n"
+            "    return 'cleared'\n"
+            "print(main())"
+        )
+        return "cleared"
+    except Exception as e:
+        return f"could not clear the recorder: {e}"
 
 
 def resume_playback(client: TDClient) -> None:
@@ -76,10 +163,13 @@ def resume_playback(client: TDClient) -> None:
 
 
 def wait_for_container(path: Path, timeout: float = 900.0,
-                       settle: float = 5.0, poll: float = 4.0) -> bool:
+                       settle: float = 5.0, poll: float = 4.0,
+                       should_stop=None) -> bool:
     """Stable size AND a parseable container. Size alone is not enough."""
     deadline = time.time() + timeout
     while time.time() < deadline:
+        if should_stop is not None and should_stop():
+            return False
         if path.exists():
             a = path.stat().st_size
             time.sleep(settle)
@@ -91,11 +181,16 @@ def wait_for_container(path: Path, timeout: float = 900.0,
 
 
 def mux_stems(video: Path, out: Path, vocals: Path, instrumental: Path,
-              duration: float) -> None:
-    """Replace TD's drifting audio with the real stem mix, copying the video."""
+              duration: float, start: float = 0.0) -> None:
+    """Replace TD's drifting audio with the real stem mix, copying the video.
+
+    `start` seeks both stems, so a preview taken from the middle of a song is
+    heard from the middle too rather than against the opening bars.
+    """
+    seek = ["-ss", f"{start:.3f}"] if start else []
     subprocess.run(
         ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-         "-i", str(video), "-i", str(vocals), "-i", str(instrumental),
+         "-i", str(video), *seek, "-i", str(vocals), *seek, "-i", str(instrumental),
          "-filter_complex",
          "[1:a][2:a]amix=inputs=2:duration=shortest:normalize=0[a]",
          "-map", "0:v", "-map", "[a]", "-t", f"{duration:.3f}",
@@ -109,14 +204,18 @@ def render(client: TDClient, out_path: str | Path, duration: float,
            instrumental: str | Path | None = None,
            fps: int = 30, pad: float = 2.5,
            top: str = OUT_TOP,
+           should_stop=None, start: float = 0.0,
            progress=None) -> RenderResult:
     """Capture `duration` seconds and return a finished MP4 with stem audio."""
     out_path = Path(out_path)
     raw = out_path.with_name(out_path.stem + "_raw.mp4")
     say = progress or (lambda m: None)
 
-    say("parking timeline")
-    park(client)
+    # `covers` so the timeline and its play range are wide enough for the whole
+    # recording, not just its first frame -- a render that runs off the end of
+    # the range loops back to the start mid-take.
+    say(f"parking at {start:.1f}s" if start else "parking timeline")
+    park(client, start, covers=start + duration + pad)
 
     say(f"recording {duration + pad:.1f}s")
     client.call("render", output=str(raw), duration=duration + pad,
@@ -124,15 +223,29 @@ def render(client: TDClient, out_path: str | Path, duration: float,
     resume_playback(client)
 
     say("waiting for TD to finish writing")
-    if not wait_for_container(raw):
+    if not wait_for_container(raw, should_stop=should_stop):
+        # The automatic finalize is scheduled in timeline frames, so anything
+        # that pauses playback leaves the recording stranded: operators in the
+        # network, frames on disk, and the next render refusing to start.
+        # Finalize explicitly, then keep the partial under a name that says so.
+        say("render did not complete; finalizing the stranded recording")
+        try:
+            client.call("render", output=str(raw), duration=duration,
+                        action="stop")
+        except Exception:
+            pass
+        if raw.exists():
+            failed = out_path.with_name(out_path.stem + ".failed.mp4")
+            raw.replace(failed)
+            say(f"partial output kept at {failed.name}")
         raise TDUnavailable(
-            f"{raw.name} never became a valid container. TD may still be writing; "
-            "check the file before re-rendering."
+            f"{raw.name} never became a valid container. The recording has been "
+            "stopped and any partial output renamed; re-render when ready."
         )
 
     if vocals and instrumental:
         say("muxing stem audio")
-        mux_stems(raw, out_path, Path(vocals), Path(instrumental), duration)
+        mux_stems(raw, out_path, Path(vocals), Path(instrumental), duration, start)
         raw.unlink(missing_ok=True)
     else:
         raw.replace(out_path)
@@ -168,11 +281,90 @@ def sample_frames(video: str | Path, times: list[float],
     return made
 
 
-def region_stats(image: str | Path, x: int, y: int, w: int, h: int) -> dict:
-    """YMIN/YAVG/YMAX over a crop, straight from ffmpeg signalstats."""
+def picture_matches_cues(video: str | Path, cue_times, start: float,
+                         fps: float = 10.0, lit: int = 200) -> dict:
+    """Does the picture light up when the song sings? Measured, not assumed.
+
+    This exists because a 30-second render of *entirely the wrong part of the
+    song* was written to disk marked "verified with no problems". Everything
+    the verifier looked at -- brightness per region, letters staying inside the
+    band -- was perfectly fine. The one thing nobody checked was whether the
+    picture had anything to do with the audio playing over it.
+
+    The measurement is simple: count bright pixels per frame, and compare the
+    frames that fall inside a cued word's plateau against the frames that do
+    not. When the picture is the song, lit words only happen during cues, so
+    the ratio is large. When it is not, the two are indistinguishable -- the
+    failing render measured *more* bright pixels outside cues than inside.
+
+    Returns the ratio, the black-frame fraction, and enough of the raw numbers
+    to argue with.
+    """
+    import numpy as np
+
+    info = _ffprobe(Path(video)) or {}
+    vs = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
+    w, h = int(vs.get("width", 0)), int(vs.get("height", 0))
+    times = sorted(float(t) for t in cue_times)
+    if not (w and h and times):
+        return {"checked": False, "why": "no video stream or no cues"}
+
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(video), "-vf", f"fps={fps:g}",
+         "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        capture_output=True,
+    ).stdout
+    n = len(raw) // (w * h)
+    if n < 4:
+        return {"checked": False, "why": "too few frames to measure"}
+    frames = np.frombuffer(raw[:n * w * h], dtype=np.uint8).reshape(n, h * w)
+
+    bright = np.array([(f > lit).sum() for f in frames], float)
+    dark = np.array([f.mean() for f in frames]) < 0.05
+
+    # A word is at full weight between its ramp-up and its ramp-down. Those
+    # spans are the only times anything should be bright.
+    t = float(start) + np.arange(n) / fps
+    inside = np.zeros(n, bool)
+    for c in times:
+        inside |= (t >= c + 0.12) & (t <= c + 0.92)
+
+    ins = float(bright[inside].mean()) if inside.any() else 0.0
+    out = float(bright[~inside].mean()) if (~inside).any() else 0.0
+    return {
+        "checked": True,
+        "frames": n,
+        "bright_in_cue": round(ins, 1),
+        "bright_outside": round(out, 1),
+        # Guard the ratio: a song can be dense enough that almost every frame is
+        # inside a cue, and then "outside" is a handful of frames and its mean
+        # says little. Reported either way; the caller decides.
+        "ratio": round(ins / out, 2) if out > 1.0 else None,
+        "outside_frames": int((~inside).sum()),
+        "black_fraction": round(float(dark.mean()), 4),
+        "longest_black_seconds": round(_longest_run(dark) / fps, 2),
+    }
+
+
+def _longest_run(mask) -> int:
+    best = run = 0
+    for v in mask:
+        run = run + 1 if v else 0
+        best = max(best, run)
+    return best
+
+
+def region_stats(image: str | Path, x: int | None = None, y: int | None = None,
+                 w: int | None = None, h: int | None = None) -> dict:
+    """YMIN/YAVG/YMAX over a crop, straight from ffmpeg signalstats.
+
+    With no crop given, measures the whole frame -- which is what a video type
+    that declares no regions of interest gets.
+    """
+    crop = "" if None in (x, y, w, h) else f"crop={w}:{h}:{x}:{y},"
     out = subprocess.run(
         ["ffmpeg", "-hide_banner", "-i", str(image),
-         "-vf", f"crop={w}:{h}:{x}:{y},signalstats,metadata=print", "-f", "null", "-"],
+         "-vf", f"{crop}signalstats,metadata=print", "-f", "null", "-"],
         capture_output=True, text=True,
     )
     stats: dict = {}

@@ -391,8 +391,17 @@ TOOLS = [
                     "type": "string",
                     "description": "Absolute path to a CHOP for audio capture (e.g. '/project1/ex3_audio').",
                 },
+                "action": {
+                    "type": "string",
+                    "enum": ["start", "stop", "status"],
+                    "description": (
+                        "'start' (default) begins recording. 'stop' finalizes a recording "
+                        "immediately — needed because the automatic finalize is scheduled in "
+                        "timeline frames and never fires if playback is paused, which strands "
+                        "the recording operators and frames. 'status' reports what is active."
+                    ),
+                },
             },
-            "required": ["output", "duration"],
         },
     },
 ]
@@ -662,10 +671,24 @@ def _find_ffmpeg():
 def handle_render(args):
     """Render MP4 from a TOP using TD-native MovieFileOut + optional AudioFileOut.
 
-    Always uses the two-phase TD-native approach:
-      action='start' → creates operators, begins recording, returns immediately
-      action='stop'  → stops recording, ffmpeg combines frames+audio into MP4
+      action='start' (default) → creates operators, begins recording, returns
+      action='stop'            → finalizes now; ffmpeg combines frames + audio
+      action='status'          → what is recording, if anything
+
+    'stop' exists because the automatic finalize is scheduled with delayFrames,
+    which only advances while the timeline plays. Pause mid-record and the
+    recording is stranded: operators left in the network, frames left on disk.
     """
+    action = args.get('action', 'start')
+    if action == 'stop':
+        return _render_realtime_stop(args)
+    if action == 'status':
+        if not _active_recording:
+            return {"recording": False}
+        return {"recording": True,
+                "output": _active_recording.get('output'),
+                "top": _active_recording.get('top_path'),
+                "tmp_dir": _active_recording.get('tmp_dir')}
     return _handle_render_realtime(args)
 
 
@@ -716,10 +739,38 @@ def _handle_render_realtime(args):
     if not duration:
         return {"error": "duration is required"}
 
-    # Extend timeline if needed so recording doesn't loop with hard cuts
-    needed_frames = int(float(duration) * me.time.rate) + int(me.time.rate)  # +1s buffer
-    if me.time.end < needed_frames:
-        me.time.end = needed_frames
+    # Starting over a live recording used to destroy its operators and finalize
+    # it against the new paths, losing both takes. Refuse instead.
+    if _active_recording:
+        return {
+            "error": "a recording is already active; finalize it with "
+                     "action='stop' before starting another",
+            "active": _active_recording.get('output'),
+            "tmp_dir": _active_recording.get('tmp_dir'),
+        }
+
+    # Extend the timeline if needed so the recording doesn't loop with hard cuts.
+    #
+    # The play range matters as much as the length. `rangestart`..`rangeend`
+    # confines the playhead, and with `rangelimit` at "loop" it physically
+    # cannot leave -- a frame set past `rangeend` is discarded with no error,
+    # and playback wraps. Growing `end` alone therefore fixed nothing: a project
+    # whose range was inherited from a 90-second song recorded the wrong part of
+    # a 264-second one, under correct audio, and reported success.
+    #
+    # Measured against the timeline the recording actually plays, not `me.time`,
+    # which can be a different component.
+    tl = op('/local/time') or me.time
+    needed_frames = int(float(duration) * tl.rate) + int(tl.rate)  # +1s buffer
+    if tl.end < needed_frames:
+        tl.end = needed_frames
+    try:
+        if tl.par.rangestart.eval() > 1:
+            tl.par.rangestart = 1
+        if tl.par.rangeend.eval() < tl.end:
+            tl.par.rangeend = tl.end
+    except AttributeError:
+        pass            # a time component without a play range; nothing to widen
 
     # Create temp directory for image sequence
     tmp_dir = _tempfile.mkdtemp(prefix='td_render_')
@@ -974,27 +1025,37 @@ def handle_td_run(args):
     except SyntaxError:
         pass
 
-    if is_expr:
-        try:
-            value = eval(code)
-            result = {"ok": True, "result": _serialize(value)}
-            op_errors = _scan_op_errors()
-            if op_errors:
-                result["warnings"] = op_errors
-            return result
-        except Exception as e:
-            return {"ok": False, "error": traceback.format_exc()}
-
-    # Multi-line / statement code — use exec
+    # A single expression may still print — `print(x)` parses as an expression.
+    # Capturing stdout on both paths stops that output being silently dropped,
+    # which made the most natural probe anyone writes return nothing at all.
+    scope = {}
     old_stdout = sys.stdout
     sys.stdout = captured = io.StringIO()
     error = None
+    value = None
     try:
-        exec(code)
-    except Exception as e:
+        if is_expr:
+            value = eval(code, scope)
+        else:
+            # exec needs an explicit globals mapping, or names bound at the top
+            # level of the submitted code are invisible inside any nested def.
+            exec(code, scope)
+    except Exception:
         error = traceback.format_exc()
     finally:
         sys.stdout = old_stdout
+
+    if is_expr:
+        output = captured.getvalue()
+        if error:
+            return {"ok": False, "error": error}
+        result = {"ok": True, "result": _serialize(value)}
+        if output:
+            result["output"] = output
+        op_errors = _scan_op_errors()
+        if op_errors:
+            result["warnings"] = op_errors
+        return result
 
     output = captured.getvalue()
     result = {"ok": error is None}
@@ -1141,13 +1202,19 @@ def handle_inspect_op(args):
 # ---------------------------------------------------------------------------
 
 def _set_par(p, value):
-    """Set a parameter value with menu validation. Returns (eval_value, error_or_None)."""
-    if p.isMenu and isinstance(value, str):
+    """Set a parameter value with menu validation. Returns (eval_value, error_or_None).
+
+    Only a strict Menu constrains its value. A StrMenu (e.g. a Select CHOP's
+    'channames', a Text TOP's 'font') takes any string and merely offers its menu
+    as suggestions — validating those against menuNames rejects every legitimate
+    value that is not already in the list.
+    """
+    if p.isMenu and str(p.style) == 'Menu' and isinstance(value, str):
         valid = p.menuNames
         if value not in valid:
             return None, f"invalid menu value '{value}' for '{p.name}' — valid: {list(valid)}"
     p.val = value
-    return p.eval(), None
+    return _serialize(p.eval()), None
 
 
 def handle_set(args):
@@ -1192,7 +1259,7 @@ def handle_set(args):
         try:
             p = getattr(target.par, name)
             p.expr = expr
-            expr_values[name] = p.eval()
+            expr_values[name] = _serialize(p.eval())
         except Exception as e:
             errors.append(f"{name}: {e}")
 
@@ -1270,7 +1337,7 @@ def handle_create(args):
         try:
             p = getattr(new_op.par, name)
             p.expr = expr
-            expr_values[name] = p.eval()
+            expr_values[name] = _serialize(p.eval())
         except Exception as e:
             errors.append(f"{name}: {e}")
 
@@ -1781,7 +1848,10 @@ def _gather_network(container, family_filter='', include_defaults=False):
             pg = str(p.page) if p.page else ''
             if pg == 'Common' or p.name == 'pageindex':
                 continue
-            if p.expr:
+            # Only when the parameter is actually in expression mode. A par
+            # switched back to a constant keeps its old expression text, and
+            # reporting that as live makes the map lie about the network.
+            if p.expr and 'EXPRESSION' in str(p.mode).upper():
                 params.append((p.name, p.expr, True))
             elif include_defaults or p.val != p.default:
                 if not include_defaults and p.val == p.default:

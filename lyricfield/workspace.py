@@ -26,23 +26,66 @@ a push can refuse to write a song's data into the wrong project.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import shutil
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import types as types_mod
 from .config import Config
 from .cues import CueTable
 from .styles import Style, get_style
 
 DEFAULT_ROOT = Path.home() / "lyricfield-projects"
+# A project containing only the MCP server, used as the starting point for a new
+# song. Created by lyricfield.td_setup; see sync.load_project for why loading
+# anything without a server in it is unrecoverable.
+DEFAULT_TEMPLATE = DEFAULT_ROOT / "_template.toe"
 
-_SLUG = re.compile(r"[^a-z0-9]+")
+_DASHES = re.compile(r"-+")
 
 
 def slugify(name: str) -> str:
-    s = _SLUG.sub("-", name.strip().lower()).strip("-")
-    return s or "untitled"
+    """A folder name for a song title, in any script.
+
+    This used to strip everything outside `[a-z0-9]` and fall back to the
+    literal string "untitled". Every Devanagari, CJK, Cyrillic or Arabic title
+    therefore produced the *same* slug, and the run's workspace stage opens an
+    existing folder by slug -- so the second such song adopted the first one's
+    folder, found its cue table, reported "keeping existing cue table", and
+    rendered one song's video with another song's lyrics. Marked verified.
+
+    Unicode letters and digits are kept, which every filesystem this runs on
+    accepts. A title with no alphanumerics at all (punctuation, emoji) falls
+    back to a hash of the title rather than a shared constant: two such songs
+    must still not collide.
+    """
+    kept = "".join(ch if ch.isalnum() else "-" for ch in name.strip().lower())
+    slug = _DASHES.sub("-", kept).strip("-")
+    if slug:
+        return slug
+    return "song-" + hashlib.sha1(name.encode("utf-8")).hexdigest()[:8]
+
+
+def distinct_slug(name: str, root: Path,
+                  belongs: Callable[[Path], bool]) -> str:
+    """`slugify(name)`, or a variant of it that is not already another song's.
+
+    Titles that differ only in punctuation slug identically ("Song #1" and
+    "Song 1"), and a slug collision silently merges two songs' data. When the
+    folder that already holds this slug is a different song, take the next free
+    variant instead of moving in with it.
+    """
+    base = slugify(name)
+    candidate, n = base, 2
+    while True:
+        d = Path(root).expanduser() / candidate
+        if not d.exists() or belongs(d):
+            return candidate
+        candidate = f"{base}-{n}"
+        n += 1
 
 
 @dataclass
@@ -60,22 +103,6 @@ class Workspace:
     @property
     def project(self) -> Path:
         return self.dir / "project.toe"
-
-    @property
-    def current_project(self) -> Path:
-        """The newest project*.toe in this folder.
-
-        TouchDesigner increments the version on every save, so the file being
-        written is project.toe, then project.1.toe, then project.2.toe. The
-        highest number is the live one; the rest are free backups. Use this
-        whenever you mean "this song's project as it stands now".
-        """
-        def version(path: Path) -> int:
-            parts = path.name.split(".")
-            return int(parts[1]) if len(parts) == 3 and parts[1].isdigit() else 0
-
-        takes = sorted(self.dir.glob("project*.toe"), key=version)
-        return takes[-1] if takes else self.project
 
     @property
     def config_path(self) -> Path:
@@ -113,21 +140,77 @@ class Workspace:
             n += 1
         return candidate
 
+    # ---------- takes ----------
+
+    def write_take(self, export: Path, ready: bool = False) -> Path:
+        """Record what produced an export, beside it.
+
+        `export_path` versions the filename but not the settings, so a take
+        could not be identified, compared or returned to. The config and cues
+        are small text files with serialisers already, which makes a take a
+        thing the system can act on rather than just a file someone kept.
+        """
+        export = Path(export)
+        self.load_config().save(export.with_suffix(".toml"))
+        CueTable.load(self.cues_path).save(export.with_suffix(".tsv"))
+        if ready:
+            export.with_suffix(".ready").write_text("verified with no problems\n")
+        return export.with_suffix(".toml")
+
+    def takes(self) -> list[dict]:
+        """Every export that has its settings recorded, newest first."""
+        out = []
+        if not self.exports_dir.exists():
+            return out
+        for mp4 in sorted(self.exports_dir.glob("*.mp4")):
+            cfg = mp4.with_suffix(".toml")
+            out.append({
+                "name": mp4.stem,
+                "file": mp4.name,
+                "when": mp4.stat().st_mtime,
+                "size_mb": round(mp4.stat().st_size / 1048576, 1),
+                "has_settings": cfg.exists(),
+                "ready": mp4.with_suffix(".ready").exists(),
+            })
+        return sorted(out, key=lambda t: -t["when"])
+
+    def restore_take(self, name: str) -> Config:
+        """Put a take's settings back as the working copy."""
+        cfg_file = self.exports_dir / f"{name}.toml"
+        cues_file = self.exports_dir / f"{name}.tsv"
+        if not cfg_file.exists():
+            raise FileNotFoundError(f"take {name!r} has no recorded settings")
+        cfg = Config.load(cfg_file)
+        cfg.save(self.config_path)
+        if cues_file.exists():
+            CueTable.load(cues_file).save(self.cues_path)
+        return cfg
+
     # ---------- lifecycle ----------
 
     @classmethod
     def create(cls, name: str, source_audio: str | Path | None = None,
                root: str | Path = DEFAULT_ROOT,
+               video_type: str | None = None,
                style: str | Style | None = None,
-               copy_source: bool = True) -> "Workspace":
-        ws = cls(root=Path(root).expanduser(), slug=slugify(name), name=name)
+               copy_source: bool = True,
+               slug: str | None = None) -> "Workspace":
+        # `slug` is passed when the caller has already resolved a collision --
+        # two songs whose titles slug the same must not share a folder.
+        ws = cls(root=Path(root).expanduser(), slug=slug or slugify(name), name=name)
         for d in (ws.dir, ws.source_dir, ws.stems_dir, ws.exports_dir, ws.stills_dir):
             d.mkdir(parents=True, exist_ok=True)
 
-        cfg = Config()
+        # A style carries its own video type, and it wins: picking "calm drift"
+        # is picking the renderer it was made for.
+        st = None
         if style is not None:
             st = style if isinstance(style, Style) else get_style(style)
+            video_type = st.type
+        cfg = Config(type=video_type or types_mod.DEFAULT_TYPE)
+        if st is not None:
             cfg = st.apply_to(cfg)
+            cfg.track.style = st.slug
 
         if source_audio:
             src = Path(source_audio).expanduser()
@@ -164,13 +247,15 @@ class Workspace:
     def load_cues(self) -> CueTable:
         return CueTable.load(self.cues_path)
 
-    def save_cues(self, table: CueTable) -> None:
-        table.save(self.cues_path)
+    def set_type(self, slug: str) -> Config:
+        """Switch this song to a different renderer, keeping every measured fact.
 
-    def apply_style(self, style: str | Style) -> Config:
-        st = style if isinstance(style, Style) else get_style(style)
-        cfg = st.apply_to(self.load_config())
-        cfg.track.style = st.slug
+        The type's tunables reset to its defaults rather than carrying over --
+        they describe a different visual system, and a number that means "grid
+        columns" in one means nothing in the next.
+        """
+        cfg = self.load_config().with_type(slug)
+        cfg.track.style = ""
         self.save_config(cfg)
         return cfg
 
@@ -200,12 +285,110 @@ class Workspace:
                 f"TD reported saving but {self.project} does not exist. "
                 "Check the path is writable."
             )
-        # TD increments on save: it wrote project.toe and its live project is
-        # now project.1.toe. Hand back the one it will keep writing to.
-        live = self.live_project_in(client)
-        if live is not None and live.parent.resolve() == self.dir.resolve():
-            return live
         return self.project
+
+    def provision(self, client, progress=None, template: Path | None = None,
+                  rebuild: bool = False) -> dict:
+        """Make TouchDesigner hold this song's project, built and verified.
+
+        This is the step that used to be a person opening a .toe and dragging
+        components around. It is safe to run every time: if the project already
+        exists it is opened rather than recreated, and building is idempotent.
+
+        A damaged or half-built project is therefore not a rescue operation --
+        `verify()` notices and `build()` puts it back, from `config.toml` and
+        `cues.tsv`, which are the actual source of truth.
+        """
+        from . import sync
+        from .cues import CueTable
+
+        say = progress or (lambda m: None)
+        cfg = self.load_config()
+        vt = cfg.video_type
+        out: dict = {"song": self.slug, "type": cfg.type}
+
+        # ---- 1. the right project open ----
+        # `is_open_in` rather than an exact filename match: until the increment
+        # preference is off, TouchDesigner's live name drifts to project.N.toe
+        # and an exact comparison would reload the project on every run.
+        if not self.is_open_in(client):
+            if self.project.exists():
+                say(f"opening {self.project.name}")
+                sync.load_project(client, self.project)
+            else:
+                src = Path(template) if template else DEFAULT_TEMPLATE
+                if not src.exists():
+                    raise FileNotFoundError(
+                        f"no template at {src}; run environment setup first so a "
+                        "project containing the MCP server exists to start from"
+                    )
+                say(f"creating {self.project.name} from the template")
+                sync.load_project(client, src)
+                # The template is open and nearly empty, so a save is instant and
+                # the file is disposable -- the one cheap, safe moment to settle
+                # whether TouchDesigner renames a project when it saves. Doing it
+                # here also means the save below lands on the name we asked for.
+                from . import td_setup
+                try:
+                    td_setup.settle_increment_now(client, say)
+                except Exception as e:
+                    say(f"could not settle the save-increment preference: {e}")
+                self.dir.mkdir(parents=True, exist_ok=True)
+                sync.save_project_as(client, self.project)
+            out["opened"] = str(self.project)
+        else:
+            out["opened"] = "already open"
+
+        # ---- 2. the network ----
+        if vt.can_build:
+            found = vt.verify(client, cfg) if not rebuild else ["forced"]
+            # "note:" entries are observations, not faults -- unrelated operators
+            # left in the project are none of the builder's business.
+            faults = [d for d in found if not str(d).startswith("note:")]
+            out["notes"] = [d for d in found if str(d).startswith("note:")]
+            discrepancies = faults
+            out["discrepancies_before"] = len(faults)
+            if discrepancies:
+                say(f"building the {vt.name} network "
+                    f"({len(discrepancies)} discrepanc"
+                    f"{'y' if len(discrepancies) == 1 else 'ies'})")
+                res = vt.build(client, cfg, progress=say)
+                out["built"] = res.get("built")
+                out["problems"] = res.get("problems")
+                out["discrepancies"] = res.get("discrepancies")
+            else:
+                say("network already matches the spec")
+                out["built"] = 0
+                out["discrepancies"] = []
+        else:
+            say(f"{vt.name} has no builder; leaving the network as found")
+            out["built"] = None
+
+        # ---- 2b. the timeline has to be at least as long as the song ----
+        # The template carries whatever length the project it came from had --
+        # 94s, from the 90s benchmark track. A 264s song in a 94s timeline
+        # cannot play or render past the loop point, and nothing says so.
+        # `exact`: this is the one place that knows how long the song really is,
+        # so it sets the length rather than only raising it. Otherwise a project
+        # forked from a longer song, or stretched by an earlier render, keeps a
+        # timeline that has nothing to do with the track in it.
+        if cfg.track.duration:
+            want = cfg.track.duration + 4.0
+            out["timeline"] = sync.set_timeline_length(client, want, exact=True)
+            say(f"timeline set to {want:.0f}s")
+
+        # ---- 3. content ----
+        say("pushing params, field script and cues")
+        out["pushed"] = sync.push_all(client, cfg, CueTable.load(self.cues_path))
+
+        # ---- 4. persist ----
+        # A built network that is only in TouchDesigner's memory is one crash
+        # away from gone. Rebuilding would recover it, but nothing should have
+        # to.
+        if out.get("built"):
+            say("saving the project")
+            out["saved"] = sync.save_project(client)
+        return out
 
     def live_project_in(self, client) -> Path | None:
         """The .toe TouchDesigner actually has open, or None if it cannot say."""
@@ -221,19 +404,24 @@ class Workspace:
         return Path(out) if out else None
 
     def is_open_in(self, client) -> bool:
-        """Is TD actually running this workspace's project?
+        """Is TouchDesigner actually running this workspace's project?
 
-        Matches on the folder, not the exact filename. TouchDesigner increments
-        the version on every save -- ask it to write project.toe and its live
-        project becomes project.1.toe, then project.2.toe -- so an exact-name
-        comparison reports "wrong project" forever and the guard that should
-        stop a push landing in the wrong song refuses every push instead.
-        Any project*.toe inside this workspace is this song.
+        This is the guard that stops a push landing in the wrong song, so it has
+        to be right in both directions: too strict and every push is refused,
+        too loose and a song's data lands in another song's project.
+
+        With `lyricfield.td_setup` applied the filename is stable and an exact
+        match is correct. Without it TouchDesigner renames the project on every
+        save -- project.toe, then project.1.toe, then project.2.toe -- and an
+        exact comparison would report "wrong project" forever. Hence the
+        fallback: any project*.toe in this workspace's folder is this song.
         """
         live = self.live_project_in(client)
         if live is None:
             return False
         try:
+            if live.resolve() == self.project.resolve():
+                return True
             return (live.parent.resolve() == self.dir.resolve()
                     and live.name.startswith("project") and live.suffix == ".toe")
         except OSError:
@@ -252,6 +440,7 @@ class Workspace:
             "cues": len(cues.cues),
             "lines": len(cues.lines),
             "duration": cfg.track.duration,
+            "type": cfg.type,
             "style": getattr(cfg.track, "style", ""),
             "exports": exports,
         }

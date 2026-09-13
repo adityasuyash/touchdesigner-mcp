@@ -1,18 +1,17 @@
-"""Every tunable in one place, persisted to TOML.
+"""A song's configuration: what track it is, which video type, and that type's tunables.
 
-These values were arrived at by measurement during the TouchDesigner build, not
-by taste, and several of them interact in ways that are easy to get wrong:
+    [video]   which renderer this song uses
+    [track]   per-song facts -- paths, and the values lyricfield.analysis measured
+    ...       one section per tunable group, owned by the video type
 
-  * `spark_peak` and `ripple_lift` stack on top of `glow_base` before reaching
-    the output. Set naively (0.75 / 0.40) they measured 0.99 at /project1/out --
-    indistinguishable from a cued word. Change them together and re-measure.
-  * Nothing except a cued word may reach 1.0. `ceil` is the hard cap applied in
-    the field script before the glow is composited.
-  * `band` rows must fit inside `vrows`. Leaving band < vrows-1 puts dead black
-    at the bottom of frame; that bug shipped in three versions.
+Splitting it this way is what lets a type be swapped without touching song data,
+and what lets a style (a named preset of the type's tunables) be provably unable
+to overwrite the track. The type owns its sections and the constraints between
+them; see `lyricfield/types/<slug>/params.py`.
 
-`validate()` encodes those constraints so the UI can refuse a bad combination
-rather than burning a two-minute render to discover it.
+Older config files that predate video types have no `[video]` section. They load
+as `lyric_grid`, whose sections are exactly the `grid`/`look`/`cueing`/`beat` the
+old format used, so nothing needs migrating.
 """
 
 from __future__ import annotations
@@ -20,63 +19,10 @@ from __future__ import annotations
 import tomllib
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
+from typing import Any
 
-
-@dataclass
-class Grid:
-    cols: int = 24
-    vrows: int = 24
-    band: int = 22
-    band_top: int = 1
-    font: str = "Courier New"
-    font_px: float = 50.0
-    width: int = 720
-    height: int = 1280
-
-
-@dataclass
-class Look:
-    dim_hue: float = 0.58
-    dim_sat: float = 0.35
-    level_min: float = 0.10
-    level_max: float = 0.38
-    ceil: float = 0.58          # hard cap for anything not cued
-    drift_min: float = 3.0
-    drift_max: float = 6.0
-    dissolve: float = 2.5
-    glow_base: float = 0.62
-    glow_lfo: float = 0.08
-    glow_low: float = 0.10
-    glow_radius: float = 20.0
-    glow_lfo_hz: float = 0.06
-
-
-@dataclass
-class Cueing:
-    ramp_up: float = 0.12
-    hold: float = 0.80
-    ramp_dn: float = 0.25
-    lead: float = 0.15
-    offset: float = 0.0         # global nudge, applied to every cue
-    stanza_size: int = 5
-    ambient_target: int = 190
-    ambient_cycle: float = 6.0
-    gap_min: int = 2
-    gap_max: int = 4
-
-
-@dataclass
-class Beat:
-    ripple_time: float = 0.55
-    ripple_sigma: float = 2.2
-    ripple_lift: float = 0.14
-    spark_time: float = 0.25
-    spark_peak: float = 0.52
-    spark_frac: float = 0.055
-    twinkle_frac_lo: float = 0.04
-    twinkle_frac_hi: float = 0.11
-    twinkle_decay: float = 0.22
-    twinkle_lift: float = 0.20
+from . import types as types_mod
+from .sections import build_sections, flatten, sections_toml, toml_value
 
 
 @dataclass
@@ -98,11 +44,46 @@ class Track:
 
 @dataclass
 class Config:
-    grid: Grid = field(default_factory=Grid)
-    look: Look = field(default_factory=Look)
-    cueing: Cueing = field(default_factory=Cueing)
-    beat: Beat = field(default_factory=Beat)
+    type: str = types_mod.DEFAULT_TYPE
     track: Track = field(default_factory=Track)
+    params: Any = None
+
+    def __post_init__(self) -> None:
+        if self.params is None:
+            self.params = self.video_type.default_params()
+
+    # ---------- type ----------
+
+    @property
+    def video_type(self):
+        return types_mod.get_type(self.type)
+
+    def with_type(self, slug: str) -> "Config":
+        """Switch renderer, keeping the song. The new type's tunables start at
+        its defaults -- they describe a different renderer and do not carry over."""
+        t = types_mod.get_type(slug)
+        return Config(type=slug, track=self.track, params=t.default_params())
+
+    # ---------- section access ----------
+
+    def __getattr__(self, name: str):
+        # `cfg.grid`, `cfg.look`, ... read through to the active type's params.
+        # Only reached for attributes the dataclass itself does not define.
+        params = self.__dict__.get("params")
+        if params is not None and hasattr(params, name):
+            return getattr(params, name)
+        raise AttributeError(
+            f"{type(self).__name__!r} has no attribute {name!r} "
+            f"(type {self.__dict__.get('type')!r} has sections "
+            f"{list(self.__dict__.get('params').__dataclass_fields__) if params else []})"
+        )
+
+    def sections(self) -> dict[str, Any]:
+        """Every section as plain dicts, including track -- what the UI renders."""
+        out = {"track": asdict(self.track)}
+        for f in fields(self.params):
+            out[f.name] = asdict(getattr(self.params, f.name))
+        return out
 
     # ---------- io ----------
 
@@ -112,14 +93,14 @@ class Config:
         if not path.exists():
             return cls()
         data = tomllib.loads(path.read_text(encoding="utf-8"))
-        kw = {}
-        for f in fields(cls):
-            section = f.default_factory()          # type: ignore[misc]
-            for k, v in data.get(f.name, {}).items():
-                if hasattr(section, k):
-                    setattr(section, k, v)
-            kw[f.name] = section
-        return cls(**kw)
+        slug = (data.get("video") or {}).get("type") or types_mod.DEFAULT_TYPE
+        try:
+            vt = types_mod.get_type(slug)
+        except KeyError:
+            vt = types_mod.get_type(types_mod.DEFAULT_TYPE)
+            slug = vt.slug
+        track = build_sections(_TrackHolder, {"track": data.get("track", {})}).track
+        return cls(type=slug, track=track, params=vt.params_from(data))
 
     def save(self, path: str | Path) -> None:
         path = Path(path)
@@ -127,75 +108,78 @@ class Config:
         path.write_text(self.to_toml(), encoding="utf-8")
 
     def to_toml(self) -> str:
-        out: list[str] = [
+        out = [
             "# lyricfield configuration.",
-            "# Regenerated by the UI; safe to hand-edit. See config.py for the",
-            "# constraints between these values.",
+            "# Regenerated by the UI; safe to hand-edit. The [video] type decides",
+            "# which sections follow and what they mean -- see",
+            f"# lyricfield/types/{self.type}/params.py for the constraints between them.",
             "",
+            "[video]",
+            f"type = {toml_value(self.type)}",
+            "",
+            "[track]",
         ]
-        for f in fields(self):
-            out.append(f"[{f.name}]")
-            for k, v in asdict(getattr(self, f.name)).items():
-                out.append(f"{k} = {_toml_value(v)}")
-            out.append("")
+        for k, v in asdict(self.track).items():
+            out.append(f"{k} = {toml_value(v)}")
+        out.append("")
+        out.append(sections_toml(self.params))
         return "\n".join(out)
 
     def as_params(self) -> dict:
-        """Flat dict injected into TD alongside the field script."""
-        p: dict = {}
-        for f in fields(self):
-            p.update(asdict(getattr(self, f.name)))
+        """Flat dict injected into TouchDesigner alongside the field script."""
+        p = flatten(self.params)
+        p.update(asdict(self.track))
         p["hold_windows"] = [tuple(w) for w in self.track.hold_windows]
         return p
 
     # ---------- constraints ----------
 
     def validate(self) -> list[str]:
-        out: list[str] = []
-        g, lk, b, c = self.grid, self.look, self.beat, self.cueing
+        return self.track_problems() + list(self.params.validate())
 
-        if g.band > g.vrows - g.band_top:
-            out.append(
-                f"band {g.band} + band_top {g.band_top} exceeds vrows {g.vrows}; "
-                "rows would fall outside the frame"
-            )
-        if g.band < g.vrows - g.band_top - 1:
-            dead = (g.vrows - g.band_top - g.band) * (g.height / g.vrows)
-            out.append(
-                f"band {g.band} leaves {dead:.0f}px of dead space at the bottom of "
-                f"frame (vrows {g.vrows}) — this shipped as a bug for three versions"
-            )
-        if lk.level_min >= lk.level_max:
-            out.append("level_min must be below level_max")
-        if lk.level_max > lk.ceil:
-            out.append(f"level_max {lk.level_max} exceeds ceil {lk.ceil}")
-        if b.spark_peak > lk.ceil:
-            out.append(f"spark_peak {b.spark_peak} exceeds ceil {lk.ceil}")
+    def track_problems(self) -> list[str]:
+        """What is wrong with the measured facts, as opposed to the tunables.
 
-        # the stacking check that actually caught the 0.99 regression
-        stacked = lk.ceil + lk.glow_base * 0.55
-        if stacked >= 0.95:
-            out.append(
-                f"ceil {lk.ceil} plus glow ~{lk.glow_base} will reach ≈{stacked:.2f} at "
-                "the output — non-cued cells approach white and stop reading as dim"
-            )
-        if c.gap_min > c.gap_max:
-            out.append("gap_min must not exceed gap_max")
-        if c.ambient_target > g.band * g.cols * 0.9:
-            out.append(
-                f"ambient_target {c.ambient_target} is close to the {g.band * g.cols} "
-                "cell capacity; layout will start failing to place lines"
-            )
+        Nothing checked these at all, and two of them reach TouchDesigner as
+        divisors in a Script TOP that cooks every frame. A `beat_period` of zero
+        is an OverflowError sixty times a second in the one place nothing is
+        watching; a `duration` of zero sends the renderer to a fallback length
+        that has nothing to do with the song.
+
+        Only checked once measured: a fresh config legitimately has zeros in it,
+        and complaining before ingest has run would be noise.
+        """
+        t, out = self.track, []
+        measured = bool(t.duration or t.beat_period != Track.beat_period
+                        or t.vocals or t.instrumental)
+        if not measured:
+            return out
+
+        if t.duration <= 0:
+            out.append("track duration is not measured; the renderer cannot "
+                       "know how long the song is")
+        if t.beat_period <= 0:
+            out.append("beat_period must be positive -- it is a divisor "
+                       "evaluated every frame inside TouchDesigner")
+        for name in ("kick_in", "high_in", "beat_anchor"):
+            v = getattr(t, name)
+            if v < 0:
+                out.append(f"{name} is negative ({v})")
+            elif t.duration and v > t.duration:
+                out.append(f"{name} ({v:.1f}s) is past the end of the "
+                           f"{t.duration:.1f}s track")
+        for name in ("vocals", "instrumental", "source"):
+            path = getattr(t, name)
+            if path and not Path(path).exists():
+                out.append(f"{name} file is recorded but missing: {path}")
+        for w in t.hold_windows:
+            if len(w) != 2 or w[0] > w[1]:
+                out.append(f"hold window {w} is not an ordered (start, end) pair")
+                break
         return out
 
 
-def _toml_value(v) -> str:
-    if isinstance(v, bool):
-        return "true" if v else "false"
-    if isinstance(v, (int, float)):
-        return repr(v)
-    if isinstance(v, str):
-        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
-    if isinstance(v, (list, tuple)):
-        return "[" + ", ".join(_toml_value(x) for x in v) + "]"
-    raise TypeError(f"cannot serialise {type(v)}")
+@dataclass
+class _TrackHolder:
+    """Lets `build_sections` fill a Track the same way it fills type sections."""
+    track: Track = field(default_factory=Track)

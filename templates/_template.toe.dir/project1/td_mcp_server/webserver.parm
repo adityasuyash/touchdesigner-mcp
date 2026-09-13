@@ -1,0 +1,7 @@
+?
+active 0 on
+port 16 9988 op('mcp_port')['port']
+callbacks 0 mcp_handler
+password 1024 ""
+language 0 text
+?

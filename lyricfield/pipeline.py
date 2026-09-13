@@ -28,6 +28,11 @@ from . import transcribe as transcribe_mod
 from .config import Config
 from .cues import CueTable
 
+# How far a first cue may trail the first singing before it counts as a lost
+# opening line. Generous enough for a held breath or an ad-lib the transcriber
+# reasonably skipped; august's gap was 5.9s.
+LATE_CUE_GAP = 2.5
+
 
 @dataclass
 class Prepared:
@@ -37,6 +42,7 @@ class Prepared:
     duration: float = 0.0
     cues: int = 0
     lines: int = 0
+    vocal_in: float = 0.0
     skipped: list[str] = field(default_factory=list)
     problems: list[str] = field(default_factory=list)
     analysis: dict = field(default_factory=dict)
@@ -49,6 +55,7 @@ class Prepared:
             "duration": self.duration,
             "cues": self.cues,
             "lines": self.lines,
+            "vocal_in": self.vocal_in,
             "skipped": self.skipped,
             "problems": self.problems,
             "analysis": self.analysis,
@@ -66,31 +73,67 @@ def prepare(track: str | Path,
             language: str | None = None,
             prompt: str | None = None,
             force_separate: bool = False,
+            force_analyse: bool = False,
             force_transcribe: bool = False,
+            needs: frozenset | set | None = None,
+            should_stop=None,
             progress=None) -> Prepared:
+    """Produce only what the video type asked for.
+
+    `needs` comes from `VideoType.needs`. A beatsync type on an instrumental
+    track asks for the mix alone, so neither Demucs nor Groq is ever started --
+    minutes and money not spent on stems and words nothing will read.
+    """
+    from .types import CUES, INSTRUMENTAL, VOCALS
+
     track = Path(track).expanduser()
     say = progress or (lambda m: None)
     out = Prepared(track=track.stem)
+    needs = set(needs) if needs is not None else {INSTRUMENTAL, CUES}
 
     # ---- 1. stems ----
-    say("separating stems")
-    stems = separate_mod.separate(
-        track, root=stem_root, model=model, device=device,
-        force=force_separate, progress=say)
-    if stems.exists and not force_separate:
-        out.skipped.append("separation (stems already present)")
-    out.vocals = str(stems.vocals)
-    out.instrumental = str(stems.instrumental)
+    stems = None
+    if needs & {INSTRUMENTAL, VOCALS}:
+        say("separating stems")
+        stems = separate_mod.separate(
+            track, root=stem_root, model=model, device=device,
+            force=force_separate, progress=say, should_stop=should_stop)
+        if stems.exists and not force_separate:
+            out.skipped.append("separation (stems already present)")
+        out.vocals = str(stems.vocals)
+        out.instrumental = str(stems.instrumental)
+    else:
+        say("this video type needs no stems; skipping separation")
+        out.skipped.append("separation (not needed by this video type)")
 
     # ---- 2. analysis ----
-    say("analysing instrumental")
-    res = analysis_mod.analyse(stems.instrumental)
+    # Skippable like separation and transcription: re-decoding the instrumental
+    # and re-running the phase-lock sweep on every resume contradicted this
+    # module's own promise that a stage whose output exists is not repeated.
+    cfg = Config.load(config_path)
+    # Analyse the instrumental when one exists, the source mix otherwise. Vocals
+    # do pollute onset detection, which is exactly why a type that wants clean
+    # onsets asks for an instrumental.
+    analysis_src = Path(stems.instrumental) if stems else track
+    measured = (cfg.track.duration and cfg.track.beat_period
+                and cfg.track.instrumental == str(analysis_src))
+    if measured and not force_analyse:
+        say(f"keeping existing analysis ({cfg.track.duration:.1f}s, "
+            f"kick {cfg.track.kick_in:.1f}s)")
+        out.skipped.append("analysis (already measured)")
+        res = analysis_mod.Analysis(
+            duration=cfg.track.duration, kick_in=cfg.track.kick_in,
+            high_in=cfg.track.high_in, beat_period=cfg.track.beat_period,
+            beat_anchor=cfg.track.beat_anchor,
+            hold_windows=[tuple(w) for w in cfg.track.hold_windows])
+    else:
+        say(f"analysing {'the instrumental' if stems else 'the mix'}")
+        res = analysis_mod.analyse(analysis_src)
     out.duration = res.duration
     out.analysis = res.to_dict()
 
-    cfg = Config.load(config_path)
     cfg.track.vocals = out.vocals
-    cfg.track.instrumental = out.instrumental
+    cfg.track.instrumental = out.instrumental or str(analysis_src)
     cfg.track.duration = res.duration
     cfg.track.kick_in = res.kick_in
     cfg.track.high_in = res.high_in
@@ -98,19 +141,23 @@ def prepare(track: str | Path,
     cfg.track.beat_anchor = res.beat_anchor
     cfg.track.hold_windows = [list(w) for w in res.hold_windows]
 
-    # the field script holds the grid for the whole timeline, which runs past the
-    # last cue; without this the tail reverts to the baked-in fallback
-    cfg.cueing.ambient_cycle = cfg.cueing.ambient_cycle or 6.0
-
     # ---- 3. cues ----
     cues_path = Path(cues_path)
     existing = CueTable.load(cues_path)
-    if existing.cues and not force_transcribe:
+    if CUES not in needs:
+        say("this video type needs no lyrics; skipping transcription")
+        out.skipped.append("transcription (not needed by this video type)")
+        table = existing
+    elif existing.cues and not force_transcribe:
         say(f"keeping existing cue table ({len(existing.cues)} words)")
         out.skipped.append("transcription (cue table already present)")
         table = existing
     else:
         say("transcribing vocal stem with Groq")
+        if stems is None:
+            raise ValueError(
+                "this video type asks for cues but not for stems; transcription "
+                "needs an isolated vocal")
         table = transcribe_mod.transcribe_to_cues(
             stems.vocals, key=groq_key, model=groq_model,
             language=language, prompt=prompt)
@@ -122,6 +169,25 @@ def prepare(track: str | Path,
 
     cfg.save(config_path)
     out.problems = table.problems(res.duration) + cfg.validate()
+
+    # Did transcription drop any lines? Compare the cue table against the stem
+    # itself: sustained singing with no word cued against it means words were
+    # lost, and nothing else in this data would have shown it.
+    if table.cues and out.vocals:
+        try:
+            starts = [c.start for c in table.cues]
+            out.vocal_in = analysis_mod.vocal_entry(out.vocals)
+            gaps = analysis_mod.missed_windows(out.vocals, starts,
+                                               min_voiced=LATE_CUE_GAP)
+        except Exception:      # a measurement, never a reason to fail the run
+            gaps = []
+        for a, b, sung in gaps[:3]:
+            where = "before the first cued word" if a == 0.0 else f"from {a:.1f}s"
+            out.problems.append(
+                f"{sung:.1f}s of singing {where} (to {b:.1f}s) has no words "
+                f"cued against it -- transcription probably dropped a line; "
+                f"add the words to cues.tsv or re-run transcription")
+
     say("prepared")
     return out
 
@@ -139,12 +205,14 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--language", default=None)
     ap.add_argument("--prompt", default=None)
     ap.add_argument("--force-separate", action="store_true")
+    ap.add_argument("--force-analyse", action="store_true")
     ap.add_argument("--force-transcribe", action="store_true")
     a = ap.parse_args(argv)
 
     res = prepare(a.track, a.config, a.cues, stem_root=a.stem_root,
                   model=a.model, device=a.device, language=a.language,
                   prompt=a.prompt, force_separate=a.force_separate,
+                  force_analyse=a.force_analyse,
                   force_transcribe=a.force_transcribe, progress=print)
     print()
     print(f"track        {res.track}")

@@ -1,0 +1,165 @@
+"""Config, the sectioned-TOML machinery, and validation."""
+
+from __future__ import annotations
+
+import pytest
+
+from lyricfield import sections as S
+from lyricfield.config import Config
+from lyricfield.types.lyric_grid.params import Params
+
+
+def test_defaults_are_valid(cfg):
+    assert cfg.validate() == []
+
+
+def test_toml_round_trip(tmp_path, cfg):
+    cfg.track.title = "A Song"
+    cfg.params.look.dim_hue = 0.42
+    p = tmp_path / "config.toml"
+    cfg.save(p)
+    back = Config.load(p)
+    assert back.track.title == "A Song"
+    assert back.params.look.dim_hue == 0.42
+    assert back.type == cfg.type
+
+
+def test_missing_file_loads_defaults(tmp_path):
+    assert Config.load(tmp_path / "nope.toml").validate() == []
+
+
+def test_a_config_written_before_a_tunable_existed_still_loads(tmp_path):
+    """`build_sections` tolerates missing keys on purpose: tunables get added,
+    and an old config must not become unloadable because of it."""
+    p = tmp_path / "old.toml"
+    p.write_text('[video]\ntype = "lyric_grid"\n\n[look]\ndim_hue = 0.3\n')
+    c = Config.load(p)
+    assert c.params.look.dim_hue == 0.3
+    assert c.params.grid.letter_frac == Params().grid.letter_frac
+
+
+def test_unknown_keys_are_ignored(tmp_path):
+    p = tmp_path / "future.toml"
+    p.write_text('[video]\ntype = "lyric_grid"\n\n[look]\ndim_hue = 0.3\nnot_a_real_knob = 9\n')
+    assert Config.load(p).params.look.dim_hue == 0.3
+
+
+def test_the_shipped_example_config_loads():
+    from pathlib import Path
+    repo = Path(__file__).resolve().parents[1]
+    example = repo / "data" / "config.example.toml"
+    if not example.exists():
+        pytest.skip("no example config in the repo")
+    Config.load(example)          # must not raise
+
+
+# ---------------------------------------------------------------- sections
+
+def test_section_names_match_the_dataclass():
+    assert set(S.section_names(Params)) == set(Params().__dataclass_fields__)
+
+
+def test_flatten_covers_every_tunable():
+    flat = S.flatten(Params())
+    for name in ("dim_hue", "hold", "ripple_lift", "cols"):
+        assert name in flat
+
+
+def test_toml_value_refuses_what_it_cannot_write():
+    with pytest.raises(TypeError):
+        S.toml_value(object())
+
+
+# -------------------------------------------------------------- validation
+
+def test_level_min_above_level_max_is_caught():
+    p = Params()
+    p.look.level_min, p.look.level_max = 0.5, 0.2
+    assert p.validate() != []
+
+
+def test_level_max_above_ceil_is_caught():
+    p = Params()
+    p.look.level_max = p.look.ceil + 0.1
+    assert p.validate() != []
+
+
+def test_the_brightness_stacking_regression_is_caught():
+    """Spark and glow add at the output; 0.75/0.40 once measured 0.99 there.
+    Only a cued word may reach 1.0."""
+    p = Params()
+    p.look.ceil, p.look.glow_base = 0.9, 0.9
+    assert any("glow" in s or "ceil" in s for s in p.validate())
+
+
+def test_dead_space_at_the_bottom_of_frame_is_caught():
+    """`band` well inside `vrows` left 480px of black for three versions."""
+    p = Params()
+    p.grid.band = p.grid.vrows // 2
+    assert p.validate() != []
+
+
+def test_negative_blur_is_caught():
+    p = Params()
+    p.look.glow_radius, p.look.glow_radius_lfo = 5.0, 50.0
+    assert p.validate() != []
+
+
+def test_regions_cover_the_frame():
+    p = Params()
+    r = p.regions()
+    assert set(r) == {"band", "lower"}
+    (_, y0, w, h0) = r["band"]
+    (_, y1, w2, h1) = r["lower"]
+    assert w == w2 == p.grid.width
+    assert y1 == y0 + h0, "the band and the area below it must be contiguous"
+    assert y1 + h1 <= p.grid.height
+
+
+# ------------------------------------------------------------ track facts
+
+def test_a_fresh_config_does_not_complain_about_unmeasured_facts(cfg):
+    """Zeros before ingest are normal, not errors."""
+    assert cfg.track_problems() == []
+
+
+def test_a_zero_beat_period_is_caught():
+    """It is a divisor evaluated every frame inside a CookLevel.ALWAYS TOP."""
+    c = Config()
+    c.track.duration, c.track.beat_period = 100.0, 0.0
+    assert any("beat_period" in s for s in c.validate())
+
+
+def test_an_unmeasured_duration_is_caught_once_the_song_is_ingested():
+    c = Config()
+    c.track.duration, c.track.beat_period = 0.0, 0.5
+    c.track.instrumental = "/tmp/does-not-matter.wav"
+    assert any("duration" in s for s in c.validate())
+
+
+def test_a_marker_past_the_end_of_the_track_is_caught():
+    c = Config()
+    c.track.duration, c.track.kick_in = 90.0, 400.0
+    assert any("kick_in" in s for s in c.validate())
+
+
+def test_a_missing_stem_is_caught(tmp_path):
+    c = Config()
+    c.track.duration = 90.0
+    c.track.vocals = str(tmp_path / "gone.wav")
+    assert any("vocals" in s for s in c.validate())
+
+
+def test_a_present_stem_is_accepted(tmp_path):
+    real = tmp_path / "vocals.wav"
+    real.write_bytes(b"x")
+    c = Config()
+    c.track.duration, c.track.vocals = 90.0, str(real)
+    assert c.validate() == []
+
+
+def test_a_backwards_hold_window_is_caught():
+    c = Config()
+    c.track.duration = 90.0
+    c.track.hold_windows = [[10.0, 5.0]]
+    assert any("hold window" in s for s in c.validate())
