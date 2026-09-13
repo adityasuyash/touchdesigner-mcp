@@ -1,0 +1,520 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>lyricfield</title>
+<style>
+  :root {
+    --bg:#0c0e12; --panel:#14181f; --line:#222836; --ink:#c9d4e4; --dim:#7b8798;
+    --accent:#5fb3d4; --warn:#d4a15f; --bad:#d46a6a; --ok:#6ad49a;
+    --mono: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:13px/1.5 var(--mono); }
+  header { display:flex; align-items:center; gap:16px; padding:10px 16px;
+           border-bottom:1px solid var(--line); background:var(--panel);
+           position:sticky; top:0; z-index:5; flex-wrap:wrap; }
+  h1 { font-size:13px; margin:0; letter-spacing:.14em; text-transform:uppercase;
+       color:var(--dim); font-weight:600; }
+  .dot { width:8px; height:8px; border-radius:50%; background:var(--bad);
+         display:inline-block; margin-right:6px; }
+  .dot.on { background:var(--ok); }
+  main { display:grid; grid-template-columns:340px 1fr; gap:1px;
+         background:var(--line); min-height:calc(100vh - 45px); }
+  section { background:var(--bg); padding:16px; overflow:auto; }
+  fieldset { border:1px solid var(--line); border-radius:4px; padding:12px;
+             margin:0 0 14px; }
+  legend { color:var(--dim); font-size:11px; letter-spacing:.1em;
+           text-transform:uppercase; padding:0 6px; }
+  label { display:grid; grid-template-columns:1fr 78px; gap:8px;
+          align-items:center; margin:5px 0; color:var(--dim); }
+  input, select, textarea { background:#0a0c10; color:var(--ink);
+          border:1px solid var(--line); border-radius:3px; padding:4px 6px;
+          font:12px var(--mono); width:100%; }
+  input[type=range] { padding:0; }
+  textarea { min-height:74px; resize:vertical; }
+  button { background:#1b2230; color:var(--ink); border:1px solid var(--line);
+           border-radius:3px; padding:6px 11px; font:12px var(--mono);
+           cursor:pointer; }
+  button:hover:not(:disabled) { border-color:var(--accent); color:#fff; }
+  button:disabled { opacity:.45; cursor:not-allowed; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .msg { padding:8px 10px; border-radius:3px; margin:8px 0; font-size:12px;
+         border:1px solid var(--line); background:var(--panel); }
+  .msg.warn { border-color:var(--warn); color:var(--warn); }
+  .msg.bad  { border-color:var(--bad);  color:var(--bad); }
+  .msg.ok   { border-color:var(--ok);   color:var(--ok); }
+  table { width:100%; border-collapse:collapse; font-size:12px; }
+  th { text-align:left; color:var(--dim); font-weight:500; padding:4px 6px;
+       border-bottom:1px solid var(--line); position:sticky; top:0;
+       background:var(--bg); }
+  td { padding:2px 6px; border-bottom:1px solid #171c25; }
+  td input { border-color:transparent; background:transparent; }
+  td input:focus { border-color:var(--accent); background:#0a0c10; }
+  .num { width:74px; }
+  .lineno { color:var(--dim); width:48px; }
+  .stills { display:flex; gap:12px; flex-wrap:wrap; }
+  .still { border:1px solid var(--line); border-radius:4px; padding:8px;
+           background:var(--panel); }
+  .still img { display:block; width:150px; border-radius:2px; }
+  .still div { color:var(--dim); font-size:11px; margin-top:5px; }
+  .tabs { display:flex; gap:2px; margin-bottom:14px; }
+  .tabs button { border-radius:3px 3px 0 0; }
+  .tabs button.sel { border-color:var(--accent); color:#fff; }
+  .hidden { display:none; }
+  small { color:var(--dim); }
+</style>
+
+<header>
+  <h1>lyricfield</h1>
+  <span><span class="dot" id="tddot"></span><span id="tdtext">checking…</span></span>
+  <span id="counts"></span>
+  <span style="flex:1"></span>
+  <span id="job"></span>
+</header>
+
+<main>
+  <section>
+    <fieldset>
+      <legend>song</legend>
+      <label>current <span></span></label>
+      <select id="song"><option value="">— none (data/) —</option></select>
+      <div class="row" style="margin-top:8px">
+        <input id="newsong" placeholder="new song name" style="flex:1">
+        <button id="btnNewSong">Create</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="btnFork">Fork TD project into folder</button>
+      </div>
+      <small id="songinfo">Each song gets its own folder: project.toe, cues,
+        stems, exports.</small>
+    </fieldset>
+
+    <fieldset>
+      <legend>style</legend>
+      <select id="style"><option value="">— none —</option></select>
+      <div id="stylePreview" style="margin-top:8px"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="btnApplyStyle">Apply</button>
+        <button id="btnPreviewStyle">Capture preview</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="stylename" placeholder="save current look as…" style="flex:1">
+        <button id="btnSaveStyle">Save</button>
+      </div>
+      <small>Previews are short loops — motion is what distinguishes a style.</small>
+    </fieldset>
+
+    <fieldset>
+      <legend>new track</legend>
+      <label>audio file <span></span></label>
+      <input id="track" placeholder="/path/to/song.mp3">
+      <label>demucs model <span></span></label>
+      <select id="sepmodel">
+        <option>htdemucs</option>
+        <option>htdemucs_ft</option>
+        <option>mdx_extra</option>
+      </select>
+      <div class="row" style="margin-top:10px">
+        <button id="btnPrepare">Prepare track</button>
+        <button id="btnSeparate">Separate only</button>
+      </div>
+      <small>Separate → analyse → transcribe. Stages already done are skipped;
+        safe to re-run. Separation takes minutes.</small>
+      <div class="row" style="margin-top:6px">
+        <label style="grid-template-columns:auto auto; gap:5px">
+          <input type="checkbox" id="fsep" style="width:auto"> <span>re-separate</span>
+        </label>
+        <label style="grid-template-columns:auto auto; gap:5px">
+          <input type="checkbox" id="ftra" style="width:auto"> <span>re-transcribe</span>
+        </label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>stems</legend>
+      <label>vocal stem <span></span></label>
+      <input id="vocals" placeholder="/path/vocals.wav">
+      <label>instrumental <span></span></label>
+      <input id="instr" placeholder="/path/no_vocals.wav">
+      <div class="row" style="margin-top:10px">
+        <button id="btnAnalyse">Analyse</button>
+        <small id="trackinfo"></small>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>lyrics — groq</legend>
+      <label>model <span></span></label>
+      <select id="model">
+        <option>whisper-large-v3</option>
+        <option>whisper-large-v3-turbo</option>
+      </select>
+      <label>language <span></span></label>
+      <input id="lang" placeholder="auto (en, hi, …)">
+      <small>Paste known lyrics to improve spelling and proper nouns:</small>
+      <textarea id="prompt" placeholder="optional prompt"></textarea>
+      <label>api key <span></span></label>
+      <input id="key" type="password" placeholder="GROQ_API_KEY if not in env">
+      <div class="row" style="margin-top:10px">
+        <button id="btnTranscribe">Transcribe vocals</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>touchdesigner</legend>
+      <div class="row">
+        <button id="btnPush">Push to TD</button>
+        <button id="btnPull">Pull cues from TD</button>
+        <button id="btnSave">Save project</button>
+      </div>
+      <small>Pull recovers a cue table that only exists inside the .toe.</small>
+    </fieldset>
+
+    <fieldset>
+      <legend>render</legend>
+      <label>output <span></span></label>
+      <input id="out" value="~/Desktop/lyricfield.mp4">
+      <label>duration s<input id="dur" class="num" type="number" step="0.01" value="90.53"></label>
+      <label>fps<input id="fps" class="num" type="number" value="30"></label>
+      <div class="row" style="margin-top:10px">
+        <button id="btnRender">Render</button>
+        <button id="btnStills">Sample stills</button>
+      </div>
+      <small>Stills verify the encoded file, not just TD.</small>
+    </fieldset>
+  </section>
+
+  <section>
+    <div class="tabs">
+      <button data-tab="cues" class="sel">Cues</button>
+      <button data-tab="look">Look</button>
+      <button data-tab="beat">Beat</button>
+      <button data-tab="checks">Checks</button>
+    </div>
+
+    <div id="tab-cues">
+      <div class="row" style="margin-bottom:10px">
+        <button id="btnSaveCues">Save cues</button>
+        <button id="btnAddCue">Add row</button>
+        <small id="cuenote"></small>
+      </div>
+      <table><thead><tr><th>line</th><th>word</th><th>start</th><th></th></tr></thead>
+        <tbody id="cuebody"></tbody></table>
+    </div>
+
+    <div id="tab-look" class="hidden"></div>
+    <div id="tab-beat" class="hidden"></div>
+
+    <div id="tab-checks" class="hidden">
+      <div id="checks"></div>
+      <div class="stills" id="stills"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const api = async (path, opts) => {
+  const r = await fetch(path, {headers:{'Content-Type':'application/json'}, ...opts});
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(body.detail ? JSON.stringify(body.detail) : r.statusText);
+  return body;
+};
+let CFG = {}, CUES = [];
+
+// ---- config controls, generated from the schema the server returns ----
+const RANGES = {
+  level_min:[0,1,.01], level_max:[0,1,.01], ceil:[0,1,.01],
+  dim_hue:[0,1,.01], dim_sat:[0,1,.01],
+  drift_min:[0,12,.1], drift_max:[0,12,.1], dissolve:[0,6,.1],
+  glow_base:[0,2,.01], glow_lfo:[0,1,.01], glow_low:[0,1,.01],
+  glow_radius:[0,80,1], glow_lfo_hz:[0,.5,.005],
+  ripple_time:[0,2,.01], ripple_sigma:[.2,8,.1], ripple_lift:[0,1,.01],
+  spark_time:[0,2,.01], spark_peak:[0,1,.01], spark_frac:[0,.3,.005],
+  twinkle_frac_lo:[0,.4,.005], twinkle_frac_hi:[0,.4,.005],
+  twinkle_decay:[0,1,.01], twinkle_lift:[0,1,.01],
+  ramp_up:[0,1,.01], hold:[0,3,.01], ramp_dn:[0,2,.01], lead:[0,2,.01],
+  offset:[-5,5,.01], ambient_target:[0,500,1], ambient_cycle:[1,20,.5],
+  stanza_size:[1,12,1], gap_min:[0,8,1], gap_max:[0,10,1],
+};
+
+function controls(sections, host) {
+  host.innerHTML = '';
+  for (const name of sections) {
+    const vals = CFG[name] || {};
+    const fs = document.createElement('fieldset');
+    fs.innerHTML = `<legend>${name}</legend>`;
+    for (const [k, v] of Object.entries(vals)) {
+      if (typeof v !== 'number') continue;
+      const [min, max, step] = RANGES[k] || [0, Math.max(1, v * 3), .01];
+      const lab = document.createElement('label');
+      lab.innerHTML = `<span>${k}</span>`;
+      const box = document.createElement('input');
+      box.type = 'number'; box.step = step; box.value = v; box.className = 'num';
+      const sl = document.createElement('input');
+      sl.type = 'range'; sl.min = min; sl.max = max; sl.step = step; sl.value = v;
+      const set = nv => { CFG[name][k] = parseFloat(nv); box.value = nv; sl.value = nv; };
+      sl.oninput = e => set(e.target.value);
+      box.onchange = e => set(e.target.value);
+      lab.append(box);
+      fs.append(lab, sl);
+    }
+    host.append(fs);
+  }
+  const save = document.createElement('button');
+  save.textContent = 'Save + push';
+  save.onclick = async () => {
+    const r = await api('/api/config', {method:'POST', body:JSON.stringify(CFG)});
+    renderChecks(r.problems, 'config');
+    if (!r.problems.length) await api('/api/td/push', {method:'POST'}).catch(showErr);
+    poll();
+  };
+  host.append(save);
+}
+
+// ---- cue table ----
+function renderCues() {
+  const tb = $('#cuebody');
+  tb.innerHTML = '';
+  CUES.forEach((c, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td class="lineno"><input class="num" value="${c.line}"></td>
+      <td><input value="${c.word.replace(/"/g,'&quot;')}"></td>
+      <td><input class="num" type="number" step="0.01" value="${c.start.toFixed(2)}"></td>
+      <td><button>×</button></td>`;
+    const [ln, wd, st] = tr.querySelectorAll('input');
+    ln.onchange = e => CUES[i].line = parseInt(e.target.value) || 1;
+    wd.onchange = e => CUES[i].word = e.target.value;
+    st.onchange = e => CUES[i].start = parseFloat(e.target.value) || 0;
+    tr.querySelector('button').onclick = () => { CUES.splice(i,1); renderCues(); };
+    tb.append(tr);
+  });
+  $('#cuenote').textContent = `${CUES.length} words`;
+}
+
+function renderChecks(problems, label) {
+  const host = $('#checks');
+  const div = document.createElement('div');
+  div.className = 'msg ' + (problems.length ? 'warn' : 'ok');
+  div.textContent = problems.length
+    ? `${label}: ` + problems.join(' · ')
+    : `${label}: no problems`;
+  host.prepend(div);
+}
+
+const showErr = e => {
+  const d = document.createElement('div');
+  d.className = 'msg bad'; d.textContent = String(e.message || e);
+  $('#checks').prepend(d);
+  document.querySelector('[data-tab=checks]').click();
+};
+
+// ---- wiring ----
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.remove('sel'));
+  b.classList.add('sel');
+  ['cues','look','beat','checks'].forEach(t =>
+    $('#tab-' + t).classList.toggle('hidden', t !== b.dataset.tab));
+});
+
+// ---- songs ----
+async function loadSongs() {
+  const r = await api('/api/songs');
+  const sel = $('#song');
+  sel.innerHTML = '<option value="">— none (data/) —</option>';
+  for (const s of r.songs) {
+    const o = document.createElement('option');
+    o.value = s.slug;
+    o.textContent = `${s.name} · ${s.cues} words` + (s.has_project ? ' · toe' : '');
+    if (s.slug === r.current) o.selected = true;
+    sel.append(o);
+  }
+  $('#songinfo').textContent = r.songs.length
+    ? `${r.songs.length} song(s) under ${r.root}`
+    : `no songs yet — created under ${r.root}`;
+}
+
+$('#song').onchange = async e => {
+  const slug = e.target.value;
+  if (!slug) return;
+  const r = await api(`/api/songs/${slug}/select`, {method:'POST'}).catch(showErr);
+  if (r && !r.project_open_in_td) {
+    renderChecks([`TD has a different project open — open ${slug}/project.toe to edit it`], 'song');
+  }
+  await refreshAll();
+};
+
+$('#btnNewSong').onclick = async () => {
+  const name = $('#newsong').value.trim();
+  if (!name) return;
+  await api('/api/songs', {method:'POST', body:JSON.stringify({
+    name, source: $('#track').value || null, style: $('#style').value || null,
+  })}).catch(showErr);
+  $('#newsong').value = '';
+  await loadSongs(); await refreshAll();
+};
+
+$('#btnFork').onclick = () => {
+  const slug = $('#song').value;
+  if (!slug) return showErr(new Error('select or create a song first'));
+  api(`/api/songs/${slug}/fork-project`, {method:'POST'}).then(poll).catch(showErr);
+};
+
+// ---- styles ----
+let STYLES = [];
+async function loadStyles() {
+  const r = await api('/api/styles');
+  STYLES = r.styles;
+  const sel = $('#style');
+  const keep = sel.value;
+  sel.innerHTML = '<option value="">— none —</option>';
+  for (const s of STYLES) {
+    const o = document.createElement('option');
+    o.value = s.slug;
+    o.textContent = s.name + (s.has_preview ? '' : ' (no preview)');
+    sel.append(o);
+  }
+  if (keep) sel.value = keep;
+  showStylePreview();
+}
+
+function showStylePreview() {
+  const slug = $('#style').value;
+  const host = $('#stylePreview');
+  const s = STYLES.find(x => x.slug === slug);
+  if (!s) { host.innerHTML = ''; return; }
+  host.innerHTML = s.has_preview
+    ? `<video src="/styles/${s.slug}/preview.mp4?t=${Date.now()}" autoplay loop muted
+         playsinline style="width:100%;border-radius:3px;border:1px solid var(--line)"></video>
+       <small>${s.description || ''}</small>`
+    : `<small>no preview yet — apply it, then Capture preview</small>`;
+}
+$('#style').onchange = showStylePreview;
+
+$('#btnApplyStyle').onclick = async () => {
+  const slug = $('#style').value;
+  if (!slug) return;
+  const r = await api(`/api/styles/${slug}/apply`, {method:'POST'}).catch(showErr);
+  if (r) { renderChecks(r.problems, `applied ${slug}`); await refreshAll(); }
+};
+
+$('#btnSaveStyle').onclick = async () => {
+  const name = $('#stylename').value.trim();
+  if (!name) return;
+  await api('/api/styles', {method:'POST',
+    body:JSON.stringify({name, description:''})}).catch(showErr);
+  $('#stylename').value = '';
+  await loadStyles();
+};
+
+$('#btnPreviewStyle').onclick = () => {
+  const slug = $('#style').value;
+  if (!slug) return showErr(new Error('select a style first'));
+  // sample where something is actually happening, not an idle stretch
+  const at = CUES.length ? CUES[Math.floor(CUES.length / 3)].start : 0;
+  api(`/api/styles/${slug}/preview`, {method:'POST',
+    body:JSON.stringify({at, seconds:4})}).then(poll).catch(showErr);
+};
+
+const prepBody = () => JSON.stringify({
+  track: $('#track').value, model: $('#sepmodel').value,
+  groq_model: $('#model').value, language: $('#lang').value || null,
+  prompt: $('#prompt').value || null, api_key: $('#key').value || null,
+  force_separate: $('#fsep').checked, force_transcribe: $('#ftra').checked,
+});
+
+$('#btnPrepare').onclick = () => api('/api/prepare', {method:'POST', body:prepBody()})
+  .then(poll).catch(showErr);
+
+$('#btnSeparate').onclick = () => api('/api/separate', {method:'POST',
+  body:JSON.stringify({track: $('#track').value, model: $('#sepmodel').value,
+    force: $('#fsep').checked})}).then(poll).catch(showErr);
+
+$('#btnAnalyse').onclick = () => api('/api/analyse', {method:'POST',
+  body:JSON.stringify({instrumental: $('#instr').value})}).then(poll).catch(showErr);
+
+$('#btnTranscribe').onclick = () => api('/api/transcribe', {method:'POST',
+  body:JSON.stringify({audio: $('#vocals').value, model: $('#model').value,
+    language: $('#lang').value || null, prompt: $('#prompt').value || null,
+    api_key: $('#key').value || null})}).then(poll).catch(showErr);
+
+$('#btnPush').onclick = () => api('/api/td/push', {method:'POST'})
+  .then(r => renderChecks([], 'pushed ' + r.pushed.join(', '))).catch(showErr);
+$('#btnPull').onclick = () => api('/api/td/pull-cues', {method:'POST'})
+  .then(() => loadCues()).catch(showErr);
+$('#btnSave').onclick = () => api('/api/td/save', {method:'POST'}).then(poll).catch(showErr);
+
+$('#btnSaveCues').onclick = () => api('/api/cues', {method:'POST',
+  body:JSON.stringify({cues: CUES})}).then(r => renderChecks(r.problems, 'cues')).catch(showErr);
+$('#btnAddCue').onclick = () => { CUES.push({word:'', start:0, line:1}); renderCues(); };
+
+$('#btnRender').onclick = () => api('/api/render', {method:'POST',
+  body:JSON.stringify({output: $('#out').value, duration: parseFloat($('#dur').value),
+    vocals: $('#vocals').value || null, instrumental: $('#instr').value || null,
+    fps: parseInt($('#fps').value)})}).then(poll).catch(showErr);
+
+$('#btnStills').onclick = async () => {
+  const d = parseFloat($('#dur').value);
+  const times = [d*0.08, d*0.35, d*0.62, d*0.9].map(t => +t.toFixed(1));
+  const r = await api('/api/stills', {method:'POST',
+    body:JSON.stringify({video: $('#out').value, times})}).catch(showErr);
+  if (!r) return;
+  $('#stills').innerHTML = '';
+  for (const s of r.stills) {
+    const el = document.createElement('div');
+    el.className = 'still';
+    el.innerHTML = `<img src="${s.file}?t=${Date.now()}">
+      <div>${s.time}s<br>band max ${s.band.YMAX ?? '–'}<br>
+      lower max ${s.lower.YMAX ?? '–'}</div>`;
+    $('#stills').append(el);
+  }
+  document.querySelector('[data-tab=checks]').click();
+};
+
+async function loadCues() {
+  const r = await api('/api/cues');
+  CUES = r.cues; renderCues();
+  if (r.problems.length) renderChecks(r.problems, 'cues');
+}
+
+async function poll() {
+  try {
+    const s = await api('/api/status');
+    $('#tddot').classList.toggle('on', s.td_connected);
+    $('#tdtext').textContent = s.td_connected ? 'TD connected' : 'TD offline';
+    $('#counts').textContent = `${s.cues} words · ${s.lines} lines`;
+    const j = s.job;
+    $('#job').textContent = j.state === 'idle' ? ''
+      : `${j.name}: ${j.state} — ${j.message}`;
+    document.querySelectorAll('button').forEach(b => {
+      if (b.id && b.id.startsWith('btn')) b.disabled = (j.state === 'running');
+    });
+  } catch (e) { /* server restarting */ }
+}
+
+// Reload everything that changes when the song or style changes.
+async function refreshAll() {
+  const c = await api('/api/config');
+  CFG = c.config;
+  $('#vocals').value = CFG.track.vocals || '';
+  $('#instr').value = CFG.track.instrumental || '';
+  $('#track').value = CFG.track.source || $('#track').value || '';
+  if (CFG.track.duration) $('#dur').value = CFG.track.duration.toFixed(2);
+  $('#trackinfo').textContent = CFG.track.duration
+    ? `${CFG.track.duration.toFixed(1)}s · kick ${CFG.track.kick_in}s · ${CFG.track.hold_windows.length} silences`
+    : 'not analysed';
+  if (CFG.track.style) $('#style').value = CFG.track.style;
+  showStylePreview();
+  controls(['look','cueing'], $('#tab-look'));
+  controls(['beat','grid'], $('#tab-beat'));
+  await loadCues();
+  if (c.problems.length) renderChecks(c.problems, 'config');
+}
+
+(async function init() {
+  await loadStyles();
+  await loadSongs();
+  await refreshAll();
+  poll(); setInterval(poll, 2000);
+})();
+</script>

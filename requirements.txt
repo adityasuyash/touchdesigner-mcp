@@ -1,0 +1,9 @@
+# lyricfield
+numpy>=1.26        # audio analysis; also required inside TouchDesigner (bundled there)
+fastapi>=0.110     # control UI
+uvicorn>=0.27      # ASGI server for the UI
+pydantic>=2.6      # request models
+
+# Not required: Groq and TouchDesigner are both reached over plain HTTP with
+# stdlib urllib, so there is no SDK to keep in step with.
+# External tools: ffmpeg and ffprobe must be on PATH.

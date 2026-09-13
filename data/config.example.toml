@@ -1,0 +1,7 @@
+# Copy to data/config.toml and point the paths at your stems.
+# Run the UI (python -m lyricfield.ui.server) and hit Analyse to fill in the
+# [track] section automatically.
+
+[track]
+vocals = "/path/to/separated/htdemucs/SONG/vocals.wav"
+instrumental = "/path/to/separated/htdemucs/SONG/no_vocals.wav"

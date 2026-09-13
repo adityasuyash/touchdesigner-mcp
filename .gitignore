@@ -13,3 +13,22 @@ CrashAutoSave.*
 # Claude Code local state (keep .claude/skills/ tracked)
 .claude/settings.local.json
 .claude/projects/
+
+# lyricfield working data
+# Cue tables hold user-supplied lyric text and config holds local paths, so
+# neither belongs in a shared repo. Examples are tracked instead.
+data/cues.tsv
+data/config.toml
+data/stills/
+data/*.raw
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Style previews are renders of the live field, so they show whichever song was
+# loaded when they were captured. Until previews are generated from placeholder
+# text they stay local, or a shared style leaks the song's lyrics.
+styles/*/preview.*

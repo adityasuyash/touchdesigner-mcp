@@ -1,0 +1,57 @@
+# lyricfield style. Reusable across songs; contains no song data.
+
+[meta]
+name = "Calm Drift"
+slug = "calm-drift"
+description = "slow drift, soft ripple, wide dissolve"
+created = "2026-09-13T14:49:33+00:00"
+source_song = ""
+
+[grid]
+cols = 24
+vrows = 24
+band = 22
+band_top = 1
+font = "Courier New"
+font_px = 50.0
+width = 720
+height = 1280
+
+[look]
+dim_hue = 0.58
+dim_sat = 0.35
+level_min = 0.1
+level_max = 0.38
+ceil = 0.58
+drift_min = 3.0
+drift_max = 6.0
+dissolve = 2.5
+glow_base = 0.62
+glow_lfo = 0.08
+glow_low = 0.1
+glow_radius = 20.0
+glow_lfo_hz = 0.06
+
+[cueing]
+ramp_up = 0.12
+hold = 0.8
+ramp_dn = 0.25
+lead = 0.15
+offset = 0.0
+stanza_size = 5
+ambient_target = 190
+ambient_cycle = 6.0
+gap_min = 2
+gap_max = 4
+
+[beat]
+ripple_time = 0.55
+ripple_sigma = 2.2
+ripple_lift = 0.14
+spark_time = 0.25
+spark_peak = 0.52
+spark_frac = 0.055
+twinkle_frac_lo = 0.04
+twinkle_frac_hi = 0.11
+twinkle_decay = 0.22
+twinkle_lift = 0.2

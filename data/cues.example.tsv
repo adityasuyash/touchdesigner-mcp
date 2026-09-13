@@ -1,0 +1,7 @@
+# Copy to data/cues.tsv, or generate it by transcribing the vocal stem.
+# One row per word. Lines group words into sung phrases.
+word	start_seconds	line
+first	0.50	1
+word	0.90	1
+second	2.40	2
+phrase	2.80	2
