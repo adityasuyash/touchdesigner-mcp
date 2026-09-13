@@ -100,6 +100,12 @@ class Beat:
     twinkle_lift: float = 0.20
 
 
+# The loudness the gates below were tuned at: the 90th-percentile frame RMS of
+# the benchmark track's instrumental, measured at 0.333. It is a constant here
+# because it is a fact about a past measurement, not a setting.
+REFERENCE_LEVEL = 0.333
+
+
 @dataclass
 class Analysis:
     """Gates on the audioAnalysis palette component that feeds `v6_aa`.
@@ -108,6 +114,14 @@ class Analysis:
     shape the beat response as directly as anything in `Beat` does. They were
     hand-tuned inside the .toe and existed nowhere in the repo until build.py
     needed to reproduce the network; the defaults are those tuned values.
+
+    **They are absolute, and the component's input is the track.** Pushed
+    unchanged they therefore mean something different on every master: a quiet
+    one crosses none of them and gets no ripples and no sparks for the whole
+    song, a loud one crosses them constantly. Nothing measured it, and the
+    verifier could not see it either -- a field with no beat response is a
+    perfectly bright field. `scaled()` is how they stop being one song's
+    numbers; see `Track.level`.
     """
     kick_thresh: float = 0.209028
     snare_thresh: float = 0.311515
@@ -117,6 +131,31 @@ class Analysis:
     high_gain: float = 3.5
     low_lag_up: float = 0.08        # v8_low_lag, drives the glow's low-band term
     low_lag_dn: float = 0.22
+
+    def scaled(self, level: float) -> dict:
+        """These gates, adjusted for how loud this particular master is.
+
+        Only the three that gate *events* move. `low_thresh`, `high_gain` and
+        the lag times shape a continuous signal rather than deciding whether
+        something happened, and scaling those would change the look rather than
+        preserve it.
+
+        The factor is clamped: a track four times louder than the reference
+        should not get gates so high that nothing ever fires, and a nearly
+        silent one should not get gates at zero, where every frame is a kick.
+        """
+        factor = 1.0
+        if level and REFERENCE_LEVEL:
+            factor = min(3.0, max(0.25, float(level) / REFERENCE_LEVEL))
+        return {
+            "kick_thresh": round(self.kick_thresh * factor, 6),
+            "snare_thresh": round(self.snare_thresh * factor, 6),
+            "rythm_thresh": round(self.rythm_thresh * factor, 6),
+            "low_thresh": self.low_thresh,
+            "low_smooth": self.low_smooth,
+            "high_gain": self.high_gain,
+            "factor": round(factor, 4),
+        }
 
 
 # Slider bounds and step per tunable: (min, max, step). These live with the

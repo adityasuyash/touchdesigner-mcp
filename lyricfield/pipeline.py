@@ -124,7 +124,7 @@ def prepare(track: str | Path,
         res = analysis_mod.Analysis(
             duration=cfg.track.duration, kick_in=cfg.track.kick_in,
             high_in=cfg.track.high_in, beat_period=cfg.track.beat_period,
-            beat_anchor=cfg.track.beat_anchor,
+            beat_anchor=cfg.track.beat_anchor, level=cfg.track.level,
             hold_windows=[tuple(w) for w in cfg.track.hold_windows])
     else:
         say(f"analysing {'the instrumental' if stems else 'the mix'}")
@@ -137,6 +137,7 @@ def prepare(track: str | Path,
     cfg.track.duration = res.duration
     cfg.track.kick_in = res.kick_in
     cfg.track.high_in = res.high_in
+    cfg.track.level = res.level
     cfg.track.beat_period = res.beat_period
     cfg.track.beat_anchor = res.beat_anchor
     cfg.track.hold_windows = [list(w) for w in res.hold_windows]

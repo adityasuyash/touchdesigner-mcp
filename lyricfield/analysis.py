@@ -51,6 +51,10 @@ class Analysis:
     beat_period: float = 0.4615
     beat_anchor: float = 0.0
     bpm: float = 130.0
+    # How loud this master is: the 90th-percentile frame RMS. Every gate that
+    # the TouchDesigner side applies as an absolute number has to be scaled by
+    # this, or it means something different on every track.
+    level: float = 0.0
     kick_times: list[float] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -60,6 +64,7 @@ class Analysis:
             "segments": [[s.start, s.end] for s in self.segments],
             "kick_in": self.kick_in,
             "high_in": self.high_in,
+            "level": self.level,
             "beat_period": self.beat_period,
             "beat_anchor": self.beat_anchor,
             "bpm": self.bpm,
@@ -139,8 +144,21 @@ def find_hold_windows(x: np.ndarray, fps: float = 50.0,
                       floor: float = 2e-4, min_len: float = 0.6,
                       sr: int = SR) -> list[tuple[float, float]]:
     """Stretches of near-digital silence. These are splice points, and the visual
-    should hold its breath through them rather than sit inert."""
+    should hold its breath through them rather than sit inert.
+
+    `floor` is the absolute noise level below which audio counts as silence, and
+    it is also read *relative to the track*. On its own an absolute floor was
+    the least portable number in this module: a quietly mastered or very dynamic
+    recording has whole passages under it, and the renderer freezes its drift
+    and suppresses every ripple and spark through a "splice point" that is
+    really just a quiet verse. The relative term keeps a loud master's true
+    digital silence from being missed, while a quiet one is judged against
+    itself.
+    """
     env = _frame_rms(x, fps, sr)
+    if len(env):
+        typical = float(np.percentile(env, 50))
+        floor = max(floor, typical * 0.02)
     quiet = env < floor
     out: list[tuple[float, float]] = []
     i = 0
@@ -367,6 +385,9 @@ def analyse(instrumental: str | Path) -> Analysis:
     kick_in = _first_sustained(low_n, 50.0, thresh=0.22)
     high_in = high_entry(high, 50.0)
 
+    full = _frame_rms(x, 50.0)
+    level = float(np.percentile(full, 90)) if len(full) else 0.0
+
     period, bpm = estimate_tempo(x)
     anchor = lock_phase(x, period, search_from=max(0.0, kick_in - period))
     kicks = detect_kicks(x)
@@ -380,6 +401,7 @@ def analyse(instrumental: str | Path) -> Analysis:
         beat_period=period,
         beat_anchor=anchor,
         bpm=bpm,
+        level=level,
         kick_times=kicks,
     )
 

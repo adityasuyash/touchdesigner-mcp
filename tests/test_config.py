@@ -163,3 +163,61 @@ def test_a_backwards_hold_window_is_caught():
     c.track.duration = 90.0
     c.track.hold_windows = [[10.0, 5.0]]
     assert any("hold window" in s for s in c.validate())
+
+
+# --------------------------------------------------- gates that fit the track
+
+def test_the_reference_level_is_the_benchmarks():
+    from lyricfield.types.lyric_grid.params import REFERENCE_LEVEL
+    assert 0.3 < REFERENCE_LEVEL < 0.4
+
+
+def test_gates_are_unchanged_at_the_level_they_were_tuned_at():
+    from lyricfield.types.lyric_grid.params import Analysis, REFERENCE_LEVEL
+    a = Analysis()
+    g = a.scaled(REFERENCE_LEVEL)
+    assert g["kick_thresh"] == pytest.approx(a.kick_thresh, rel=1e-3)
+    assert g["factor"] == pytest.approx(1.0, rel=1e-3)
+
+
+def test_a_quiet_master_gets_lower_gates():
+    """Otherwise it crosses none of them and gets no ripples or sparks at all,
+    for the whole song, with nothing reporting it."""
+    from lyricfield.types.lyric_grid.params import Analysis, REFERENCE_LEVEL
+    a = Analysis()
+    quiet = a.scaled(REFERENCE_LEVEL / 2)
+    assert quiet["kick_thresh"] < a.kick_thresh
+    assert quiet["snare_thresh"] < a.snare_thresh
+
+
+def test_a_loud_master_gets_higher_gates():
+    from lyricfield.types.lyric_grid.params import Analysis, REFERENCE_LEVEL
+    a = Analysis()
+    loud = a.scaled(REFERENCE_LEVEL * 2)
+    assert loud["kick_thresh"] > a.kick_thresh
+
+
+def test_the_scale_is_clamped_at_both_ends():
+    """A nearly silent track must not end up with gates at zero, where every
+    frame is a kick; a very loud one must not end up gated past anything."""
+    from lyricfield.types.lyric_grid.params import Analysis
+    a = Analysis()
+    assert a.scaled(1e-6)["kick_thresh"] > 0
+    assert a.scaled(1000.0)["factor"] <= 3.0
+    assert a.scaled(1e-6)["factor"] >= 0.25
+
+
+def test_an_unmeasured_level_leaves_the_gates_alone():
+    from lyricfield.types.lyric_grid.params import Analysis
+    a = Analysis()
+    assert a.scaled(0.0)["kick_thresh"] == pytest.approx(a.kick_thresh)
+
+
+def test_only_the_event_gates_move():
+    """low_thresh, high_gain and the lags shape a continuous signal rather than
+    deciding whether something happened; scaling them would change the look."""
+    from lyricfield.types.lyric_grid.params import Analysis
+    a = Analysis()
+    g = a.scaled(0.1)
+    assert g["low_thresh"] == a.low_thresh
+    assert g["high_gain"] == a.high_gain

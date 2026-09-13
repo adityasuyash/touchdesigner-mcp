@@ -39,6 +39,10 @@ class Track:
     beat_anchor: float = 0.0
     beat_period: float = 0.4615
     high_in: float = 0.0
+    # How loud this master is (90th-percentile frame RMS), so the absolute gates
+    # TouchDesigner applies can be scaled to it rather than to whichever track
+    # they were originally tuned on.
+    level: float = 0.0
     hold_windows: list[list[float]] = field(default_factory=list)
 
 

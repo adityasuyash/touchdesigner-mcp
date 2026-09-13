@@ -199,11 +199,16 @@ def load_analysis_component(client, cfg, progress=None, container: str = ROOT) -
     """
     say = progress or (lambda m: None)
     an = cfg.analysis
-    say("loading the audioAnalysis palette component")
+    # Scaled to this master's measured loudness. Pushed raw, these gates are one
+    # song's numbers: a quiet track crosses none of them and gets no beat
+    # response at all, for its whole length, with nothing reporting it.
+    gates = an.scaled(getattr(cfg.track, "level", 0.0))
+    say(f"loading the audioAnalysis palette component "
+        f"(gates x{gates['factor']} for this master)")
     pars = {
-        "Kickthresh": an.kick_thresh, "Snarethresh": an.snare_thresh,
-        "Rythmthresh": an.rythm_thresh, "Lowthresh": an.low_thresh,
-        "Lowsmooth": an.low_smooth, "Highgain": an.high_gain,
+        "Kickthresh": gates["kick_thresh"], "Snarethresh": gates["snare_thresh"],
+        "Rythmthresh": gates["rythm_thresh"], "Lowthresh": gates["low_thresh"],
+        "Lowsmooth": gates["low_smooth"], "Highgain": gates["high_gain"],
         "Lowactive": True, "Midactive": True, "Highactive": True,
         "Kickactive": True, "Snareactive": True, "Rythmactive": True,
         "Ssdactive": True,
