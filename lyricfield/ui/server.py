@@ -11,6 +11,7 @@ because a render takes minutes and TD stalls while it works.
 
 from __future__ import annotations
 
+import os
 import threading
 import traceback
 from dataclasses import asdict, dataclass, field
@@ -138,6 +139,10 @@ class SeparateIn(BaseModel):
     force: bool = False
 
 
+class KeyIn(BaseModel):
+    api_key: str
+
+
 class PrepareIn(BaseModel):
     """One call: separate, analyse, transcribe, persist."""
     track: str
@@ -222,12 +227,40 @@ def set_cues(payload: CuesIn):
     return {"saved": len(table.cues), "problems": table.problems()}
 
 
+def _remember_key(key: str | None) -> str | None:
+    """A key typed into the UI is stored, not just used once.
+
+    Without this the field is a re-entry prompt rather than storage: the user
+    retypes the same secret on every page load. Supplying it once here is
+    enough forever after; transcribe.api_key() finds it on disk.
+    """
+    if key and key.strip():
+        transcribe.store_api_key(key)
+    return key
+
+
+@app.get("/api/key")
+def key_status():
+    """Does a key already exist, and where did it come from?"""
+    if os.environ.get("GROQ_API_KEY", "").strip():
+        return {"stored": True, "source": "environment"}
+    if transcribe.stored_api_key():
+        return {"stored": True, "source": str(transcribe.KEY_FILE)}
+    return {"stored": False, "source": ""}
+
+
+@app.post("/api/key")
+def key_store(payload: KeyIn):
+    path = transcribe.store_api_key(payload.api_key)
+    return {"stored": True, "source": str(path)}
+
+
 @app.post("/api/transcribe")
 def do_transcribe(payload: TranscribeIn):
     def job(say):
         say("uploading to Groq")
         table = transcribe.transcribe_to_cues(
-            payload.audio, key=payload.api_key, model=payload.model,
+            payload.audio, key=_remember_key(payload.api_key), model=payload.model,
             language=payload.language, prompt=payload.prompt)
         table.save(cues_path())
         say(f"{len(table.cues)} words")
@@ -260,7 +293,7 @@ def do_prepare(payload: PrepareIn):
         res = pipeline.prepare(
             payload.track, config_path(), cues_path(),
             stem_root=payload.stem_root, model=payload.model,
-            device=payload.device, groq_key=payload.api_key,
+            device=payload.device, groq_key=_remember_key(payload.api_key),
             groq_model=payload.groq_model, language=payload.language,
             prompt=payload.prompt, force_separate=payload.force_separate,
             force_transcribe=payload.force_transcribe, progress=say)

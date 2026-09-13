@@ -45,11 +45,41 @@ class Word:
     end: float
 
 
+KEY_FILE = Path.home() / ".config" / "lyricfield" / "groq.key"
+
+
+def store_api_key(key: str, path: Path = KEY_FILE) -> Path:
+    """Persist the key once, readable only by its owner.
+
+    A credential the user has supplied once should never be asked for again, so
+    the UI field writes through to here rather than holding the key for the life
+    of the page.
+    """
+    key = key.strip()
+    if not key:
+        raise TranscribeError("refusing to store an empty key")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    path.write_text(key + "\n")
+    path.chmod(0o600)
+    return path
+
+
+def stored_api_key(path: Path = KEY_FILE) -> str:
+    try:
+        return path.read_text().strip()
+    except OSError:
+        return ""
+
+
 def api_key(explicit: str | None = None) -> str:
-    key = explicit or os.environ.get("GROQ_API_KEY", "")
+    """Explicit argument, then environment, then the stored key file."""
+    key = (explicit or "").strip() or os.environ.get("GROQ_API_KEY", "").strip() \
+        or stored_api_key()
     if not key:
         raise TranscribeError(
-            "no Groq API key. Set GROQ_API_KEY in the environment or pass it in the UI."
+            f"no Groq API key. Save one with `python -m lyricfield.transcribe "
+            f"--set-key <key>` (stored at {KEY_FILE}), set GROQ_API_KEY in the "
+            f"environment, or enter it once in the UI."
         )
     return key
 
@@ -195,13 +225,22 @@ def transcribe_to_cues(audio: str | Path, key: str | None = None,
 def main(argv: list[str] | None = None) -> int:
     import argparse
     ap = argparse.ArgumentParser(description="Transcribe a vocal stem to a cue table.")
-    ap.add_argument("audio", help="vocal stem (not the full mix)")
+    ap.add_argument("audio", nargs="?", help="vocal stem (not the full mix)")
+    ap.add_argument("--set-key", dest="set_key", default=None, metavar="KEY",
+                    help="store the Groq key once and exit")
     ap.add_argument("-o", "--out", default="data/cues.tsv")
     ap.add_argument("--model", default=DEFAULT_MODEL)
     ap.add_argument("--language", default=None, help="ISO code, e.g. en, hi")
     ap.add_argument("--prompt", default=None,
                     help="known lyrics; improves proper nouns and spelling")
     a = ap.parse_args(argv)
+
+    if a.set_key:
+        path = store_api_key(a.set_key)
+        print(f"key stored at {path} (owner-only). No need to enter it again.")
+        return 0
+    if not a.audio:
+        ap.error("audio is required unless --set-key is given")
 
     table = transcribe_to_cues(a.audio, model=a.model,
                                language=a.language, prompt=a.prompt)

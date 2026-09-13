@@ -153,8 +153,9 @@
       <input id="lang" placeholder="auto (en, hi, …)">
       <small>Paste known lyrics to improve spelling and proper nouns:</small>
       <textarea id="prompt" placeholder="optional prompt"></textarea>
-      <label>api key <span></span></label>
-      <input id="key" type="password" placeholder="GROQ_API_KEY if not in env">
+      <label>api key <span id="keystate"></span></label>
+      <input id="key" type="password" placeholder="paste once — it is saved">
+      <small id="keynote"></small>
       <div class="row" style="margin-top:10px">
         <button id="btnTranscribe">Transcribe vocals</button>
       </div>
@@ -415,6 +416,15 @@ $('#btnPreviewStyle').onclick = () => {
   api(`/api/styles/${slug}/preview`, {method:'POST',
     body:JSON.stringify({at, seconds:4})}).then(poll).catch(showErr);
 };
+
+const refreshKey = () => api('/api/key').then(r => {
+  $('#keystate').textContent = r.stored ? 'saved' : 'not set';
+  $('#keynote').textContent = r.stored
+    ? `stored in ${r.source} — leave blank`
+    : 'paste it once; it is written to disk and reused from then on';
+  if (r.stored) $('#key').placeholder = 'already saved — leave blank';
+}).catch(() => {});
+refreshKey();
 
 const prepBody = () => JSON.stringify({
   track: $('#track').value, model: $('#sepmodel').value,
