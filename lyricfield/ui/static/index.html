@@ -580,6 +580,9 @@ const $ = s => document.querySelector(s);
 const GLYPH = {pending:'', running:'', done:'✓', skipped:'–', failed:'✕', stopped:'❙'};
 let CFG = {}, CFG_RANGES = {}, CFG_CONTROLS = [], CUES = [], STYLES = [], TYPES = [];
 let TAKE_FILE = '';        // basename of the take on screen, for Download
+// Which renderer the gallery currently has selected. A style implies one; a
+// built-in tile names one directly.
+let TYPE_SLUG = '';
 // The run's timestamps are the server's. Usually the same machine, but not
 // necessarily the same clock, so measure the difference rather than assume it.
 let NOW_SKEW = 0;
@@ -924,25 +927,43 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#browser'
 
 // ------------------------------------------------------------------ styles
 async function loadStyles() { STYLES = (await api('/api/styles')).styles; renderGallery(); }
+// The gallery is where a renderer gets chosen, so it has to show every
+// renderer. It used to group only the *styles* that exist, and with one lyric
+// style on disk that meant one row -- the beatsync heading below was
+// unreachable, and the only way to pick a second renderer was a <select> inside
+// a collapsed disclosure inside a container hidden until a song was selected.
 function renderGallery() {
   const host = $('#styleGallery'); host.innerHTML = '';
-  const builtin = {slug:'', name:'Built-in', family:'lyric', has_preview:false,
-                   description:"the renderer's own look, untouched"};
+
+  // One "Built-in" tile per registered renderer, in its own family row: the
+  // renderer with nothing applied on top.
+  const builtins = (TYPES || []).map(t => ({
+    slug: '', type: t.slug, name: t.name, family: t.family || 'lyric',
+    has_preview: false, builtin: true, description: t.description || ''}));
+  if (!builtins.length)
+    builtins.push({slug:'', type:'', name:'Built-in', family:'lyric',
+                   has_preview:false, builtin:true,
+                   description:"the renderer's own look, untouched"});
+
   const fams = {};
-  for (const st of [builtin, ...STYLES]) (fams[st.family || 'lyric'] ||= []).push(st);
-  for (const [fam, list] of Object.entries(fams)) {
+  for (const st of [...builtins, ...STYLES]) (fams[st.family || 'lyric'] ||= []).push(st);
+  const order = ['lyric', 'beatsync'];
+  for (const fam of Object.keys(fams).sort((a, b) => order.indexOf(a) - order.indexOf(b))) {
     const wrap = document.createElement('div'); wrap.className = 'famrow';
     const h = document.createElement('h3'); h.className = 'eyebrow';
     h.textContent = fam === 'beatsync' ? 'Beatsync · no lyrics needed' : 'Lyric';
     const grid = document.createElement('div'); grid.className = 'gallery';
-    for (const st of list) grid.append(styleCard(st));
+    for (const st of fams[fam]) grid.append(styleCard(st));
     if (fam === 'lyric') grid.append(customCard());
     wrap.append(h, grid); host.append(wrap);
   }
   showStyleNote();
 }
 function styleCard(st) {
-  const on = st.slug === STYLE_SLUG;
+  // A built-in tile is identified by its type, since every one of them has an
+  // empty style slug.
+  const on = st.builtin ? (!STYLE_SLUG && TYPE_SLUG === st.type)
+                        : st.slug === STYLE_SLUG;
   const b = document.createElement('button');
   b.type = 'button'; b.className = 'scard';
   b.setAttribute('role','radio'); b.setAttribute('aria-checked', String(on));
@@ -955,7 +976,13 @@ function styleCard(st) {
   else t.innerHTML = '<span class="noprev">no preview yet</span>';
   const c = document.createElement('span'); c.className = 'cap'; c.textContent = st.name;
   b.append(t, c);
-  b.onclick = () => { STYLE_SLUG = st.slug; renderGallery(); };
+  b.onclick = () => {
+    // Picking a look picks the renderer it belongs to. A style already carries
+    // its own type and that has always won; this makes the built-ins say so too.
+    STYLE_SLUG = st.slug || '';
+    TYPE_SLUG = st.type || TYPE_SLUG;
+    renderGallery();
+  };
   return b;
 }
 // Describe a look and have it made. The tile matches the others so it reads as
@@ -998,9 +1025,13 @@ async function customDescribe() {
   (r.ignored || []).forEach(x => note(x, 'warn'));
   CFG_CONTROLS = r.controls || CFG_CONTROLS;
   // the preview render is a background job; wait for it before offering Keep
-  await waitForJob();
+  const j = await waitForJob();
   const v = $('#customPreview');
-  v.src = `/styles/lyric_grid/${CUSTOM_SLUG}/preview.mp4?t=${Date.now()}`;
+  // The job knows where it wrote the preview; reconstructing the path here
+  // hardcoded one renderer and broke the moment a second one existed.
+  const url = (j && j.result && j.result.preview)
+    || `/styles/${TYPE_SLUG || 'lyric_grid'}/${CUSTOM_SLUG}/preview.mp4`;
+  v.src = `${url}?t=${Date.now()}`;
   v.hidden = false;
   $('#customKeep').disabled = false;
 }
@@ -1030,7 +1061,10 @@ async function customDiscard() {
 
 function showStyleNote() {
   const st = STYLES.find(x => x.slug === STYLE_SLUG);
-  $('#styleNote').textContent = st ? (st.description || '')
+  if (st) { $('#styleNote').textContent = st.description || ''; return; }
+  const t = (TYPES || []).find(x => x.slug === TYPE_SLUG);
+  $('#styleNote').textContent = t
+    ? `${t.name} — ${t.description}. Nothing applied on top.`
     : "The renderer's own look, with nothing applied on top.";
 }
 
@@ -1039,6 +1073,9 @@ function runBody(extra) {
   return JSON.stringify(Object.assign({
     name: songName(),
     source: $('#runSource').value.trim() || null,
+    // Without this every run became the default renderer whatever the gallery
+    // had selected, so a beatsync look silently rendered as lyric_grid.
+    type: TYPE_SLUG || null,
     style: STYLE_SLUG || null,
     language: $('#lang').value.trim() || null,
     prompt: $('#prompt').value.trim() || null,
@@ -1256,7 +1293,12 @@ function controls() {
 
 // ------------------------------------------------------------------- types
 async function loadTypes() {
-  TYPES = (await api('/api/types')).types;
+  const d = await api('/api/types');
+  TYPES = d.types;
+  // Something has to be selected before a song exists, or the gallery opens
+  // with no renderer chosen and the first Generate falls back to the default
+  // without ever having said so.
+  if (!TYPE_SLUG) TYPE_SLUG = d.default || (TYPES[0] || {}).slug || '';
   const sel = $('#vtype'); sel.innerHTML = '';
   for (const t of TYPES) {
     const o = document.createElement('option');
@@ -1277,6 +1319,7 @@ async function refreshAll() {
   CFG = c.config; CFG.__sections = c.sections; CFG_RANGES = c.ranges || {};
   CFG_CONTROLS = c.controls || [];
   $('#vtype').value = c.type;
+  TYPE_SLUG = c.type || TYPE_SLUG;
   const vt = TYPES.find(t => t.slug === c.type);
   $('#vtypenote').textContent = vt ? `${vt.description} · needs ${vt.needs.join(', ')}` : '';
   $('#typeField').hidden = TYPES.length < 2;

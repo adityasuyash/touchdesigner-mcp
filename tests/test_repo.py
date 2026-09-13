@@ -9,6 +9,7 @@ play range came to cap every later song's renders.
 
 from __future__ import annotations
 
+import re
 import subprocess
 from pathlib import Path
 
@@ -81,3 +82,28 @@ def test_the_template_carries_no_songs_timeline():
     # not happen is the template carrying a particular song's shape.
     assert values.get("end", 0) <= 1200, \
         "the template has a song-sized timeline baked into it"
+
+
+def test_the_control_ui_script_parses():
+    """One typo in the UI's script leaves a blank page and no error anywhere.
+
+    The whole interface is a single inline `<script>`; a syntax error in it
+    stops every handler from being defined, so the page loads, renders its
+    static markup and does nothing at all. That looks like a backend outage.
+    Parsing it here catches it before it is served.
+    """
+    import json
+    import shutil
+
+    deno = shutil.which("deno")
+    if not deno:
+        pytest.skip("no JavaScript engine available to parse with")
+
+    src = (REPO / "lyricfield" / "ui" / "static" / "index.html").read_text()
+    blocks = re.findall(r"<script[^>]*>(.*?)</script>", src, re.S)
+    assert blocks, "the control UI has no script at all"
+    for i, body in enumerate(blocks):
+        # `new Function` parses without running: no DOM is touched.
+        probe = f"try {{ new Function({json.dumps(body)}) }} catch (e) {{ console.log(e.message); Deno.exit(1) }}"
+        r = subprocess.run([deno, "eval", probe], capture_output=True, text=True)
+        assert r.returncode == 0, f"script block {i} does not parse: {r.stdout.strip()}"

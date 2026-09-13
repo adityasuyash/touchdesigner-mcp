@@ -185,7 +185,57 @@ def _workspace(ctx: Ctx, say) -> dict:
     if not cfg.track.title:
         cfg.track.title = ctx.name
         ctx.workspace.save_config(cfg)
-    return ctx.workspace.to_dict()
+    out = ctx.workspace.to_dict()
+    out.update(_honour_pick(ctx, say))
+    return out
+
+
+def _honour_pick(ctx: Ctx, say) -> dict:
+    """Make an existing song wear the renderer and look that were picked.
+
+    `Workspace.create` honours both, so a *new* song was always right. An
+    existing one ignored them entirely: the gallery would show a beatsync look
+    selected, the run would report success, and what came out was whatever
+    renderer the song was made with the first time. Same defect class as the UI
+    not sending the type at all -- the choice is accepted, acknowledged and
+    discarded -- so it is fixed at the stage that owns the config rather than in
+    the caller.
+
+    Provision re-verifies the network against the type it finds here and
+    rebuilds when they disagree, and push reads the type's field script, so
+    changing it at this point is enough to change the whole run.
+    """
+    from .styles import get_style
+
+    ws, cfg = ctx.workspace, ctx.workspace.load_config()
+    want_type, changed = ctx.video_type or "", {}
+
+    # A style carries its own type and it wins, exactly as it does on create.
+    st = None
+    if ctx.style:
+        try:
+            st = get_style(ctx.style)
+        except (KeyError, FileNotFoundError) as e:
+            say(f"no style {ctx.style!r}: {e}")
+        else:
+            want_type = st.type
+
+    if want_type and want_type != cfg.type:
+        try:
+            cfg = ws.set_type(want_type)
+        except KeyError:
+            say(f"no video type {want_type!r}; staying on {cfg.type}")
+        else:
+            say(f"switched to {cfg.video_type.name}")
+            changed["type"] = cfg.type
+
+    if st is not None and cfg.track.style != st.slug:
+        cfg = st.apply_to(cfg)
+        cfg.track.style = st.slug
+        ws.save_config(cfg)
+        say(f"applied the {st.name} look")
+        changed["style"] = st.slug
+    return changed
 
 
 def _ingest(ctx: Ctx, say) -> dict:
