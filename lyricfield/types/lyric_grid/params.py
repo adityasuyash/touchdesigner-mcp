@@ -26,13 +26,6 @@ class Grid:
     vrows: int = 24
     band: int = 22
     band_top: int = 1
-    # Share of the band's cells one stanza of lyrics may ask for. Letters sit on
-    # every other cell along a continuous path, so the hard ceiling is about
-    # half; contiguity costs more again, so the usable share is lower still.
-    # Stanzas are grouped to fit this rather than to a fixed line count -- five
-    # long lines wanted 488 of 528 cells, and the lines that would not place
-    # were dropped, so their words were sung with nothing on screen to light.
-    letter_frac: float = 0.28
     font: str = "Courier New"
     font_px: float = 50.0
     # Vertical em as a fraction of font_px. The hand-built network never set
@@ -53,7 +46,6 @@ class Look:
     ceil: float = 0.58          # hard cap for anything not cued
     drift_min: float = 3.0
     drift_max: float = 6.0
-    dissolve: float = 2.5
     # The glow chain. These are read by build.py, not field.py: they are the
     # literals that used to be baked into the v9_glow_* expressions, where they
     # drifted out of step with this file (config said radius 20, the network
@@ -67,6 +59,33 @@ class Look:
     glow_lfo_hz: float = 0.06       # v9_lfo frequency
     bloom_size: float = 9.0         # v7_bloom, the tight bloom on lit words
     bloom_bright: float = 0.35      # v7_bloom_lvl
+
+
+@dataclass
+class LyricGrid(Grid):
+    """`Grid` plus the one thing only a renderer with words needs.
+
+    `Grid` and `Look` describe the *network*, and all three video types share
+    one network, so the beatsync types import them rather than copying them.
+    But two of the values in them are read by this type's `field.py` alone --
+    the share of the band a stanza may ask for, and how long a word takes to
+    dissolve -- and a beatsync type that declared them would be offering two
+    knobs that report success and change nothing. That is the failure mode the
+    whole type system exists to prevent, so they live here instead.
+    """
+    # Share of the band's cells one stanza of lyrics may ask for. Letters sit on
+    # every other cell along a continuous path, so the hard ceiling is about
+    # half; contiguity costs more again, so the usable share is lower still.
+    # Stanzas are grouped to fit this rather than to a fixed line count -- five
+    # long lines wanted 488 of 528 cells, and the lines that would not place
+    # were dropped, so their words were sung with nothing on screen to light.
+    letter_frac: float = 0.28
+
+
+@dataclass
+class LyricLook(Look):
+    """`Look` plus the word crossfade, for the same reason."""
+    dissolve: float = 2.5
 
 
 @dataclass
@@ -216,8 +235,8 @@ RANGES: dict[str, tuple[float, float, float]] = {
 
 @dataclass
 class Params:
-    grid: Grid = field(default_factory=Grid)
-    look: Look = field(default_factory=Look)
+    grid: LyricGrid = field(default_factory=LyricGrid)
+    look: LyricLook = field(default_factory=LyricLook)
     cueing: Cueing = field(default_factory=Cueing)
     beat: Beat = field(default_factory=Beat)
     analysis: Analysis = field(default_factory=Analysis)

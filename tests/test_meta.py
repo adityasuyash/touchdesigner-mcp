@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import ast
 import collections
+import re
 from pathlib import Path
 
 import pytest
@@ -199,3 +200,61 @@ def test_every_registered_type_answers_the_contract():
 
 def test_the_default_type_exists():
     assert types_mod.get_type(types_mod.DEFAULT_TYPE) is not None
+
+
+# ------------------------------------------------- tunables nothing reads
+
+TYPES_DIR = REPO / "lyricfield" / "types"
+
+
+def _source_chain(slug: str, name: str, seen: set | None = None) -> str:
+    """`<slug>/<name>.py`, plus whatever it delegates to.
+
+    A type may reuse another type's builder -- both beatsync types construct
+    `lyric_grid`'s network, because it is the same network -- so the value is
+    consumed over there, and reading only the local file would report it as
+    unread.
+    """
+    seen = set() if seen is None else seen
+    if (slug, name) in seen:
+        return ""
+    seen.add((slug, name))
+    path = TYPES_DIR / slug / f"{name}.py"
+    if not path.exists():
+        return ""
+    src = path.read_text()
+    for other in re.findall(rf"from \.\.(\w+)\.{name} import", src):
+        src += _source_chain(other, name, seen)
+    return src
+
+
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_every_tunable_is_read_by_something(vt):
+    """A value TouchDesigner ignores is worse than no knob at all.
+
+    It reports success and changes nothing: the UI offers it, the config stores
+    it, the push says it went in, and the render is identical. That was true of
+    45 of the 51 values pushed before video types existed, and it came back the
+    moment a second type reused the first one's sections -- both beatsync types
+    inherited `letter_frac` and `dissolve`, which only a renderer with words can
+    mean anything by.
+
+    `field.py` reads what changes per frame, and reads it by the uppercased
+    name; `build.py` bakes what belongs to the network, and reads it by the
+    dataclass attribute.
+    """
+    field_src = _source_chain(vt.slug, "field")
+    build_src = _source_chain(vt.slug, "build")
+    both = field_src + build_src
+    unread = []
+    for name in _declared_fields(vt):
+        if re.search(rf"\b{name.upper()}\b", field_src):
+            continue
+        if re.search(rf"\b{name}\b", build_src):
+            continue
+        if re.search(rf"""['"]{name}['"]""", both):
+            continue
+        unread.append(name)
+    assert not unread, (
+        f"{vt.slug} declares tunables nothing reads: {unread}. "
+        "Either consume them or stop offering them.")

@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from .. import CUES, INSTRUMENTAL, LYRIC, VideoType
 from .build import build as _build, verify as _verify
-from .params import Analysis, Beat, Cueing, Grid, Look, Params
+from .params import (Analysis, Beat, Cueing, Grid, Look, LyricGrid, LyricLook,
+                     Params)
 
 TYPE = VideoType(
     slug="lyric_grid",
@@ -28,4 +29,5 @@ TYPE = VideoType(
     verify=_verify,
 )
 
-__all__ = ["TYPE", "Params", "Grid", "Look", "Cueing", "Beat", "Analysis"]
+__all__ = ["TYPE", "Params", "Grid", "Look", "LyricGrid", "LyricLook",
+           "Cueing", "Beat", "Analysis"]
