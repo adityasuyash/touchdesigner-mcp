@@ -221,3 +221,23 @@ def test_only_the_event_gates_move():
     g = a.scaled(0.1)
     assert g["low_thresh"] == a.low_thresh
     assert g["high_gain"] == a.high_gain
+
+
+def test_a_band_flush_to_the_bottom_reports_no_region_below_it():
+    """`band == vrows - band_top` is legal and leaves nothing underneath. The
+    clamped one-pixel crop it used to emit starts at the frame's bottom edge,
+    which ffmpeg rejects -- so the letters-below-the-band check silently became
+    a no-op, and that check exists because letters escaping the band shipped
+    three times."""
+    p = Params()
+    p.grid.band = p.grid.vrows - p.grid.band_top
+    assert p.validate() == []
+    assert "lower" not in p.regions()
+
+
+def test_every_region_is_a_legal_crop():
+    p = Params()
+    for name, (x, y, w, h) in p.regions().items():
+        assert w >= 1 and h >= 1, name
+        assert 0 <= x and x + w <= p.grid.width, name
+        assert 0 <= y and y + h <= p.grid.height, name

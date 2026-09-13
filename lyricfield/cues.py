@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -118,7 +119,10 @@ class CueTable:
             return ["cue table is empty"]
 
         times = [c.start for c in self.cues]
-        dupes = {t for t in times if times.count(t) > 1}
+        # Counted once rather than rescanned per cue: the nested scan cost
+        # seconds on a long, wordy track, on every config load.
+        counts = Counter(times)
+        dupes = {t for t in times if counts.get(t) > 1}
         if dupes:
             out.append(
                 f"{len(dupes)} duplicate timestamp(s): {sorted(dupes)[:5]} — "

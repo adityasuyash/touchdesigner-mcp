@@ -239,8 +239,13 @@ def render(client: TDClient, out_path: str | Path, duration: float,
                 top=top, fps=fps)
     resume_playback(client)
 
-    say("waiting for TD to finish writing")
-    if not wait_for_container(raw, should_stop=should_stop):
+    # TouchDesigner cooks slower than real time, so the wait has to scale with
+    # the recording. A fixed 900s budget meant any full-length render of a track
+    # over about six minutes was abandoned and renamed .failed.mp4 while it was
+    # still being written.
+    patience = max(900.0, (duration + pad) * 6.0 + 120.0)
+    say(f"waiting for TD to finish writing (up to {patience / 60:.0f} min)")
+    if not wait_for_container(raw, timeout=patience, should_stop=should_stop):
         # The automatic finalize is scheduled in timeline frames, so anything
         # that pauses playback leaves the recording stranded: operators in the
         # network, frames on disk, and the next render refusing to start.

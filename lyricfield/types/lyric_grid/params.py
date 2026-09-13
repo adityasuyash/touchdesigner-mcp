@@ -216,10 +216,17 @@ class Params:
         g = self.grid
         y0 = int(g.band_top * g.height / g.vrows)
         y1 = int((g.band_top + g.band) * g.height / g.vrows)
-        return {
-            "band": (0, y0, g.width, max(1, y1 - y0)),
-            "lower": (0, y1, g.width, max(1, g.height - y1)),
-        }
+        out = {"band": (0, y0, g.width, max(1, y1 - y0))}
+        # Only report the area below the band when there actually is one.
+        # `band == vrows - band_top` is legal and leaves nothing underneath, and
+        # the clamped one-pixel crop it used to emit starts at the frame's
+        # bottom edge -- ffmpeg rejects it, `region_stats` returns {}, and the
+        # letters-below-the-band check silently becomes a no-op. That check
+        # exists because letters escaping the band shipped three times.
+        below = g.height - y1
+        if below >= 2:
+            out["lower"] = (0, y1, g.width, below)
+        return out
 
     def validate(self) -> list[str]:
         out: list[str] = []

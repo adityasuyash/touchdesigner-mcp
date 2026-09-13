@@ -288,12 +288,17 @@ def preview_window(cfg, cues, seconds: float) -> float:
     dur = float(getattr(cfg.track, "duration", 0.0) or 0.0)
     limit = max(0.0, dur - seconds) if dur else None
 
-    best_at, best_n = 0.0, sum(1 for t in times if t < seconds)
+    # A sliding count rather than a rescan per candidate. The nested version
+    # cost seconds on a wordy ten-minute track, on every run and every config
+    # load, for a number that never changes.
+    import bisect
+
+    best_at, best_n = 0.0, bisect.bisect_left(times, seconds)
     for t in times:
         at = max(0.0, t - 0.75)          # open just before a word, not on it
         if limit is not None:
             at = min(at, limit)
-        n = sum(1 for x in times if at <= x < at + seconds)
+        n = bisect.bisect_left(times, at + seconds) - bisect.bisect_left(times, at)
         if n > best_n:
             best_at, best_n = at, n
     return round(best_at, 2)
@@ -398,6 +403,11 @@ def _verify(ctx: Ctx, say) -> dict:
     # 0. Comparing raw YAVGs made every frame look guilty: 16.0 below the band
     # against 16.5 inside it is black against black.
     floor = 16.0
+    if "lower" in regions and any(not (e.get("lower") or {}) for e in out):
+        # A crop that could not be measured is not a crop that measured clean.
+        problems.append(
+            "the area below the band could not be measured, so nothing checked "
+            "whether letters are escaping it")
     for e in out:
         lower, band = e.get("lower") or {}, e.get("band") or {}
         lo_avg = max(0.0, lower.get("YAVG", floor) - floor)

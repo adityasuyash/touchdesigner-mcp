@@ -178,6 +178,14 @@ def transcribe_words(audio: str | Path, key: str | None = None,
     offset = _upload_start(src)
     tmp = _compress(src, offset)
     src = tmp
+    # MAX_UPLOAD_MB was declared and never consulted, so an over-long track got
+    # a raw HTTP error from Groq instead of a sentence explaining it.
+    size_mb = src.stat().st_size / 1048576
+    if size_mb > MAX_UPLOAD_MB:
+        raise TranscribeError(
+            f"the vocal stem compresses to {size_mb:.1f}MB, over the "
+            f"{MAX_UPLOAD_MB}MB upload limit (about {MAX_UPLOAD_MB * 60 / 16:.0f} "
+            f"minutes of audio). Split the track and transcribe the parts.")
 
     try:
         fields = [

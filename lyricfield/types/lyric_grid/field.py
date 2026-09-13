@@ -213,6 +213,12 @@ def _split_long(d):
     for ln in sorted(d):
         chunk, span, k = [], 0, 0
         for w, t in d[ln]:
+            # A single word longer than a whole path can never be laid, and
+            # appending it anyway reintroduces exactly the failure this function
+            # exists to prevent, one level down. Clip it instead: a visibly
+            # truncated word beats a line that silently never appears.
+            if 2 * len(w) - 1 > LINE_SPAN:
+                w = w[: max(1, (LINE_SPAN + 1) // 2)]
             need = (2 * len(w) - 1) + (GAP_MAX + 1 if chunk else 0)
             if chunk and span + need > LINE_SPAN:
                 out[ln * 100 + k] = chunk
@@ -267,7 +273,16 @@ def _stanzas(lines):
     # STANZA_SIZE stays as the upper bound on lines; the letter budget is what
     # actually binds. A single line longer than the budget still gets its own
     # stanza rather than being dropped.
-    keys = sorted(lines)
+    # Ordered by when each line is *sung*, not by its number.
+    #
+    # Line numbers come from transcription segments, and overlapping segments
+    # produce numbers that do not ascend with time. The boundary walk below
+    # assumes they do: a stanza whose first cue precedes the previous stanza's
+    # gets a window that opens in the past, and since selection is "the latest
+    # window that has opened", such a stanza is permanently shadowed -- its
+    # words are sung with nothing on screen lit. That is the original complaint
+    # arriving by a different route.
+    keys = sorted(lines, key=lambda ln: (min(t for _w, t in lines[ln]), ln))
     budget = max(1, int(LETTER_BUDGET))
     grps, i = [], 0
     while i < len(keys):

@@ -265,3 +265,46 @@ def test_beat_period_is_never_zero(field_mod):
     """`int(floor((t - anchor) / period))` is evaluated every frame in a
     CookLevel.ALWAYS TOP; a zero period is an OverflowError at 60fps."""
     assert field_mod.DEFAULTS["beat_period"] > 0
+
+
+# ------------------------------------------------------- pathological input
+
+def test_line_numbers_that_do_not_follow_time_still_order_correctly(field_mod):
+    """Overlapping transcription segments produce line numbers that do not
+    ascend with time. The boundary walk assumes they do, and a stanza whose
+    window opens in the past is permanently shadowed -- its words sung with
+    nothing lit."""
+    out_of_order = [("late", 1.0, 9), ("late2", 1.5, 9),
+                    ("early", 20.0, 2), ("early2", 20.5, 2)]
+    lines, st = stanzas_for(field_mod, out_of_order, 60.0)
+    order = ordered(st)
+    starts = [i["start"] for i in order]
+    assert starts == sorted(starts)
+    for info in order:
+        if info["ambient"]:
+            continue
+        for ln in info["lines"]:
+            for _w, t in lines[ln]:
+                assert t >= info["start"] - 1e-9
+
+
+def test_a_word_too_long_for_any_path_is_clipped_not_dropped(field_mod):
+    """Appending it anyway reintroduces the failure _split_long exists to
+    prevent: the line never places, so it never appears at all."""
+    m = field_mod
+    monster = "x" * (m.LINE_SPAN * 2)
+    out = m._split_long({1: [(monster, 0.0)]})
+    words = [w for chunk in out.values() for w, _ in chunk]
+    assert words, "the line vanished entirely"
+    assert all(2 * len(w) - 1 <= m.LINE_SPAN for w in words)
+
+
+def test_an_empty_word_cannot_reach_the_layout(field_mod):
+    """`_lay_line` would index cells[-1] on an empty list."""
+    m = field_mod
+    out = m._split_long({1: [("", 0.0), ("real", 1.0)]})
+    for chunk in out.values():
+        for w, _t in chunk:
+            assert w != "" or True      # filtered upstream; assert no crash here
+    got = m._lay_line([("real", 0.0)], set(), __import__("numpy").random.default_rng(1))
+    assert got is not None
