@@ -5,7 +5,7 @@ name = "Calm Drift"
 slug = "calm-drift"
 type = "lyric_grid"
 description = "slow drift, soft ripple, wide dissolve"
-created = "2026-09-13T14:49:33+00:00"
+created = "2026-09-13T23:02:41+00:00"
 source_song = ""
 
 [grid]
@@ -13,8 +13,10 @@ cols = 24
 vrows = 24
 band = 22
 band_top = 1
+letter_frac = 0.28
 font = "Courier New"
 font_px = 50.0
+glyph_aspect = 0.8
 width = 720
 height = 1280
 
@@ -30,29 +32,44 @@ dissolve = 2.5
 glow_base = 0.62
 glow_lfo = 0.08
 glow_low = 0.1
+glow_low_knee = 0.32
 glow_radius = 20.0
+glow_radius_lfo = 5.0
 glow_lfo_hz = 0.06
+bloom_size = 9.0
+bloom_bright = 0.35
 
 [cueing]
 ramp_up = 0.12
-hold = 0.8
-ramp_dn = 0.25
+hold = 1.05
+ramp_dn = 0.32
 lead = 0.15
+letter_spread = 0.06
 offset = 0.0
 stanza_size = 5
 ambient_target = 190
 ambient_cycle = 6.0
 gap_min = 2
-gap_max = 4
+gap_max = 7
 
 [beat]
 ripple_time = 0.55
 ripple_sigma = 2.2
-ripple_lift = 0.14
+ripple_lift = 0.2
 spark_time = 0.25
-spark_peak = 0.52
-spark_frac = 0.055
+spark_peak = 0.58
+spark_frac = 0.075
 twinkle_frac_lo = 0.04
 twinkle_frac_hi = 0.11
 twinkle_decay = 0.22
 twinkle_lift = 0.2
+
+[analysis]
+kick_thresh = 0.209028
+snare_thresh = 0.311515
+rythm_thresh = 49.4591
+low_thresh = 0.1
+low_smooth = 0.0
+high_gain = 3.5
+low_lag_up = 0.08
+low_lag_dn = 0.22

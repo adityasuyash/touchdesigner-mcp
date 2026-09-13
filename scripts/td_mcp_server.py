@@ -685,10 +685,28 @@ def handle_render(args):
     if action == 'status':
         if not _active_recording:
             return {"recording": False}
+        # How far along, in frames actually written rather than in wall clock.
+        # The recording writes one PNG per captured frame into tmp_dir, so
+        # counting them is the only honest measure of progress: TouchDesigner
+        # cooks slower than real time and by a factor that varies with the
+        # network, so elapsed seconds say nothing about how much is done.
+        import os as _os
+        tmp_dir = _active_recording.get('tmp_dir')
+        fps = float(_active_recording.get('fps') or 0)
+        duration = float(_active_recording.get('duration') or 0)
+        written = 0
+        try:
+            written = sum(1 for n in _os.listdir(tmp_dir) if n.endswith('.png'))
+        except Exception:
+            pass
+        expected = int(fps * duration) if fps and duration else 0
         return {"recording": True,
                 "output": _active_recording.get('output'),
                 "top": _active_recording.get('top_path'),
-                "tmp_dir": _active_recording.get('tmp_dir')}
+                "tmp_dir": tmp_dir,
+                "frames": written,
+                "expected": expected,
+                "fraction": round(min(1.0, written / expected), 4) if expected else None}
     return _handle_render_realtime(args)
 
 

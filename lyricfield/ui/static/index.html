@@ -150,6 +150,15 @@
   .progress { height: 3px; background: var(--sunken); }
   .progress > i { display: block; height: 100%; width: 0%; background: var(--accent);
                   transition: width .45s var(--ease); }
+  /* A stage that cannot say how far along it is still says it is alive. */
+  .progress.working > i {
+    background-image: linear-gradient(90deg, transparent 0 40%,
+                      color-mix(in srgb, var(--accent-text) 45%, transparent) 50%,
+                      transparent 60% 100%);
+    background-size: 240px 100%;
+    animation: sheen 1.4s linear infinite;
+  }
+  @keyframes sheen { from { background-position: -240px 0 } to { background-position: 240px 0 } }
   .stages { list-style: none; margin: 0; padding: 0; }
   .stage {
     display: grid; grid-template-columns: 22px minmax(0,1fr) auto;
@@ -227,6 +236,31 @@
   .check > summary::after { content: "›"; margin-left: auto; color: var(--faint);
                             transition: transform .25s var(--ease); }
   .check[open] > summary::after { transform: rotate(90deg); }
+  .resulthead { display: flex; align-items: flex-start; gap: var(--s-3);
+                margin-bottom: var(--s-3); }
+  .resulthead .spacer { flex: 1; }
+  .resulthead .title { margin: 0; }
+  .resulthead .sub { margin: 2px 0 0; }
+  /* The ready badge. Deliberately the same shape as the render-check verdict,
+     because they are saying related things. */
+  #readyBadge { display: inline-flex; align-items: center; gap: 6px;
+                padding: 6px 12px; border-radius: 999px; font-size: var(--t-sm);
+                font-weight: 560; white-space: nowrap; }
+  #readyBadge.ok  { color: var(--ok);   background: color-mix(in srgb, var(--ok) 12%, transparent); }
+  #readyBadge.warn{ color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+  #readyBadge.bad { color: var(--bad);  background: color-mix(in srgb, var(--bad) 12%, transparent); }
+  /* Anything the run needs to say, where it cannot be missed. It used to go
+     into a collapsed drawer inside a container that is hidden until a song is
+     selected, which meant no message ever reached anyone. */
+  .banner { border-radius: var(--r-s); padding: var(--s-3) var(--s-4);
+            margin-bottom: var(--s-4); font-size: var(--t-md); line-height: 1.5; }
+  .banner.bad  { background: color-mix(in srgb, var(--bad) 10%, transparent);
+                 color: var(--bad); }
+  .banner.warn { background: color-mix(in srgb, var(--warn) 12%, transparent);
+                 color: var(--warn); }
+  .banner ul { margin: var(--s-2) 0 0; padding-left: 1.1em; }
+  .banner li { margin-top: 2px; }
+  .banner b { font-weight: 620; }
   .check .verdict { font-weight: 560; }
   .check .verdict.ok { color: var(--ok); }
   .check .verdict.bad { color: var(--bad); }
@@ -395,14 +429,23 @@
   </section>
 
   <section class="group" id="resultGroup" hidden><div class="pad">
-    <h2 class="title">Preview</h2>
-    <p class="sub" id="resultSub"></p>
+    <div class="resulthead">
+      <div>
+        <h2 class="title">Preview</h2>
+        <p class="sub" id="resultSub"></p>
+      </div>
+      <span class="spacer"></span>
+      <!-- The badge and the way to keep the file belong together: one says the
+           video is done, the other is what you do about it. -->
+      <span class="verdict" id="readyBadge" hidden></span>
+      <button class="btn primary-quiet" id="btnDownload" hidden>Download</button>
+    </div>
+    <div class="banner" id="resultBanner" hidden></div>
     <div class="result">
       <div class="player"><video class="preview" id="resultVideo" controls loop playsinline></video></div>
       <div>
         <div class="row">
-          <button class="btn primary-quiet" id="btnDownload">Download video</button>
-          <button class="btn" id="btnSaveStyleFromTake">Save as a style</button>
+          <button class="btn quiet" id="btnSaveStyleFromTake">Save as a style</button>
           <button class="btn quiet" id="btnRejectTake">Reject</button>
         </div>
 
@@ -537,6 +580,9 @@ const $ = s => document.querySelector(s);
 const GLYPH = {pending:'', running:'', done:'✓', skipped:'–', failed:'✕', stopped:'❙'};
 let CFG = {}, CFG_RANGES = {}, CFG_CONTROLS = [], CUES = [], STYLES = [], TYPES = [];
 let TAKE_FILE = '';        // basename of the take on screen, for Download
+// The run's timestamps are the server's. Usually the same machine, but not
+// necessarily the same clock, so measure the difference rather than assume it.
+let NOW_SKEW = 0;
 let STYLE_SLUG = '', CURRENT_SLUG = '', LAST = {id:null, state:null};
 
 async function api(path, opts) {
@@ -568,9 +614,18 @@ function renderStages(run) {
   const host = $('#stages'), bar = $('#progress');
   if (!run || !run.stages || !run.stages.length) { host.innerHTML = ''; bar.hidden = true; return; }
   bar.hidden = false;
+
+  // Stages finished is a poor measure: the render is one stage of nine and it
+  // takes minutes, so the bar used to freeze for the whole time that matters.
+  // Give each stage an equal share and fill the running one by its own reported
+  // progress, which the render knows because it counts frames written.
   const total = run.stages.length;
   const settled = run.stages.filter(s => s.state === 'done' || s.state === 'skipped').length;
-  $('#progressFill').style.width = Math.round(settled / total * 100) + '%';
+  const live = run.stages.find(s => s.state === 'running');
+  const within = live && typeof live.fraction === 'number' ? live.fraction : 0;
+  const pct = Math.min(100, (settled + within) / total * 100);
+  $('#progressFill').style.width = pct.toFixed(1) + '%';
+  bar.classList.toggle('working', !!live && !within);
 
   host.innerHTML = '';
   for (const st of run.stages) {
@@ -592,7 +647,16 @@ function renderStages(run) {
       body.append(n);
     }
     const s = document.createElement('span');
-    s.className = 'secs'; s.textContent = st.seconds ? st.seconds.toFixed(1) + 's' : '';
+    s.className = 'secs';
+    // A running stage ticks. It used to show nothing at all until it finished,
+    // which is exactly when you most want to know it is still alive.
+    if (st.state === 'running' && st.started) {
+      const live_s = Math.max(0, NOW_SKEW + Date.now() / 1000 - st.started);
+      s.textContent = live_s < 1 ? '' : clock(live_s);
+      if (typeof st.fraction === 'number') s.textContent += ` · ${Math.round(st.fraction * 100)}%`;
+    } else {
+      s.textContent = st.seconds ? st.seconds.toFixed(1) + 's' : '';
+    }
     li.append(g, body, s);
     host.append(li);
   }
@@ -614,23 +678,78 @@ function setControls(run) {
 async function poll() {
   try {
     const s = await api('/api/status');
+    if (typeof s.now === 'number') NOW_SKEW = s.now - Date.now() / 1000;
     $('#tddot').classList.toggle('on', s.td_connected);
     $('#tdtext').textContent = s.td_connected ? 'TouchDesigner ready' : 'TouchDesigner offline';
     renderStages(s.run);
     setControls(s.run);
     const busy = s.run && s.run.state === 'running';
+    if (busy) {
+      const live = (s.run.stages || []).find(x => x.state === 'running');
+      const pc = live && typeof live.fraction === 'number'
+        ? ` ${Math.round(live.fraction * 100)}%` : '';
+      document.title = `● lyricfield${pc}`;
+    }
     document.querySelectorAll('button.btn').forEach(b => {
-      if (b.id !== 'btnPrimary') b.disabled = busy;
+      // The previous take is still on disk and still downloadable while the
+      // next one renders; there is no reason to lock it.
+      if (b.id !== 'btnPrimary' && b.id !== 'btnDownload') b.disabled = busy;
     });
     if (s.run && (s.run.id !== LAST.id || s.run.state !== LAST.state)) {
       const finished = LAST.state === 'running' && s.run.state !== 'running';
       LAST = {id: s.run.id, state: s.run.state};
-      if (finished) { await loadSongs(); await refreshAll(); showResult(s.run); }
+      if (finished) {
+        await loadSongs(); await refreshAll();
+        // Including a failure. This used to return silently from showResult and
+        // nothing visible happened at all -- the run simply stopped.
+        $('#resultGroup').hidden = false;
+        showResult(s.run);
+      }
     }
   } catch (e) { /* the server may be restarting */ }
 }
 
+// Anything the run has to say, in the result area rather than in a drawer.
+function showBanner(run) {
+  const host = $('#resultBanner');
+  const problems = run.problems || [], warnings = run.warnings || [];
+  const bad = run.state === 'failed' || problems.length;
+  if (!run.error && !problems.length && !warnings.length) { host.hidden = true; return; }
+
+  const list = items => '<ul>' + items.map(t =>
+    `<li>${String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;')}</li>`).join('') + '</ul>';
+  let html = '';
+  if (run.error) html += `<b>The run failed.</b> ${String(run.error).split('\n')[0]}`;
+  if (problems.length) html += (html ? '' : '<b>This render cannot be trusted.</b>') + list(problems);
+  if (warnings.length) html += `${html ? '' : '<b>Worth knowing.</b>'}${list(warnings)}`;
+  host.className = 'banner ' + (bad ? 'bad' : 'warn');
+  host.innerHTML = html;
+  host.hidden = false;
+}
+
+function setReady(run) {
+  const badge = $('#readyBadge'), dl = $('#btnDownload');
+  const v = (run.stages || []).find(s => s.key === 'verify');
+  const ready = v && v.detail && v.detail.ready;
+  const failed = run.state === 'failed';
+  badge.hidden = false;
+  if (failed) {
+    badge.className = 'verdict bad'; badge.textContent = '✕  failed';
+    dl.hidden = true;
+  } else if (ready) {
+    badge.className = 'verdict ok'; badge.textContent = '✓  ready';
+    dl.hidden = false;
+  } else {
+    badge.className = 'verdict warn'; badge.textContent = '!  rendered, not verified';
+    dl.hidden = false;      // the file is still there and still yours
+  }
+  // Visible from another tab, which is where you are during a long render.
+  document.title = failed ? '✕ lyricfield' : (ready ? '✓ lyricfield' : 'lyricfield');
+}
+
 function showResult(run) {
+  showBanner(run);
+  setReady(run);
   const prev = (run.stages || []).find(s => s.key === 'preview');
   if (!prev || !prev.detail || !prev.detail.path) return;
   const name = prev.detail.path.split('/').pop();
@@ -667,15 +786,21 @@ function showResult(run) {
 // its own render rather than trusting TouchDesigner's word for it. They used to
 // sit unlabelled under the Generate button, where they read as three broken
 // buttons. Shut by default: the numbers only matter when something is off.
-// mm:ss, for labelling a frame by where it sits in the song.
-// "2:44", "164", "164.8" -- all reasonable things to type into a start box.
+// A timestamp, as minutes:seconds or as bare seconds.
+//
+// Returns a number, or null for empty, or NaN for something that is neither --
+// and that third case matters. The old version fell back to parseFloat, which
+// stops at the first character it does not understand rather than failing, so
+// "2:64" quietly meant *2 seconds* and "12:30:00" meant 12. A typo silently
+// rendered the wrong part of the song, which is the exact class of bug this
+// system has spent two sessions removing.
 function parseTime(v) {
   v = (v || '').trim();
   if (!v) return null;
   const m = v.match(/^(\d+):([0-5]?\d(?:\.\d+)?)$/);
   if (m) return parseInt(m[1], 10) * 60 + parseFloat(m[2]);
-  const n = parseFloat(v);
-  return isFinite(n) && n >= 0 ? n : null;
+  if (/^\d+(\.\d+)?$/.test(v)) return parseFloat(v);
+  return NaN;
 }
 function clock(t) {
   t = Math.max(0, Math.round(t));
@@ -931,6 +1056,21 @@ $('#btnPrimary').onclick = () => {
 $('#btnSecondary').onclick = () =>
   api('/api/run/restart', {method:'POST'}).then(poll).catch(showErr);
 
+$('#startAt').oninput = () => {
+  const raw = $('#startAt').value.trim();
+  const at = parseTime(raw);
+  const hint = $('#startHint'), box = $('#startAt');
+  if (raw === '') {
+    hint.textContent = 'minutes:seconds, e.g. 2:44. Empty picks the busiest stretch.';
+    hint.style.color = ''; box.style.borderColor = '';
+  } else if (Number.isNaN(at)) {
+    hint.textContent = `"${raw}" is not a timestamp — try 2:44 or 164`;
+    hint.style.color = 'var(--bad)'; box.style.borderColor = 'var(--bad)';
+  } else {
+    hint.textContent = `from ${clock(at)} (${at.toFixed(at % 1 ? 1 : 0)}s)`;
+    hint.style.color = 'var(--ok)'; box.style.borderColor = '';
+  }
+};
 $('#lenopts').onchange = () => {
   document.querySelectorAll('#lenopts .lenopt').forEach(l =>
     l.classList.toggle('on', !!l.querySelector('input[type=radio]:checked')));
@@ -944,6 +1084,12 @@ $('#btnGenerate').onclick = () => {
   if (mode === 'full') body.length = 'full';
   else if (mode === 'custom') body.preview_seconds = parseFloat($('#customLen').value) || 30;
   const at = parseTime($('#startAt').value);
+  if (Number.isNaN(at)) {
+    note(`"${$('#startAt').value.trim()}" is not a timestamp. Use minutes:seconds, `
+         + `like 2:44, or a number of seconds.`, 'bad');
+    $('#startAt').focus();
+    return;
+  }
   if (at !== null) body.start_seconds = at;
   if (tweak) body.describe = tweak;
   api('/api/run', {method:'POST', body: runBody(body)}).then(poll).catch(showErr);

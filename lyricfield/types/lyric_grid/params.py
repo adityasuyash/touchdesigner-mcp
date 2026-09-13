@@ -72,9 +72,15 @@ class Look:
 @dataclass
 class Cueing:
     ramp_up: float = 0.12
-    hold: float = 0.80
-    ramp_dn: float = 0.25
+    hold: float = 1.05          # how long a word sits at full brightness
+    ramp_dn: float = 0.32
     lead: float = 0.15
+    # Per-letter jitter on when a letter lights, in seconds. Without it every
+    # letter of a word lights on the same frame, which reads as a word being
+    # switched on rather than sung. This cannot reuse the existing per-letter
+    # `stag`, which staggers only the dim layer's crossfade and deliberately
+    # does not touch lighting.
+    letter_spread: float = 0.06
     offset: float = 0.0         # global nudge, applied to every cue
     stanza_size: int = 5
     ambient_target: int = 190
@@ -82,18 +88,28 @@ class Cueing:
     # stays with the stanza before it rather than recomposing the whole field
     # for three seconds. See field.py::_stanzas.
     ambient_cycle: float = 6.0
+    # Blank cells between one word and the next along a line's path. The range
+    # is the randomness: 2..4 laid words out at an almost even pitch, which read
+    # as a grid rather than a scattering.
     gap_min: int = 2
-    gap_max: int = 4
+    gap_max: int = 7
 
 
 @dataclass
 class Beat:
     ripple_time: float = 0.55
     ripple_sigma: float = 2.2
-    ripple_lift: float = 0.14
+    # Kick. Clamped to `ceil` where it is applied, so raising this makes more
+    # cells reach the ceiling rather than pushing past it -- but past about 0.20
+    # every rippled cell pins there and the ring flattens into a disc.
+    ripple_lift: float = 0.20
     spark_time: float = 0.25
-    spark_peak: float = 0.52
-    spark_frac: float = 0.055
+    # Snare. `spark_peak` replaces a cell's level rather than adding to it and
+    # `reconcile` clamps it to `ceil`, so 0.58 is the whole of the available
+    # headroom without giving up glow. `spark_frac` is the unconstrained lever:
+    # it changes how many cells answer, not how bright they get.
+    spark_peak: float = 0.58
+    spark_frac: float = 0.075
     twinkle_frac_lo: float = 0.04
     twinkle_frac_hi: float = 0.11
     twinkle_decay: float = 0.22
@@ -180,6 +196,7 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "bloom_size": (0, 60, 1), "bloom_bright": (0, 2, 0.01),
     # cueing
     "ramp_up": (0, 1, 0.01), "hold": (0, 3, 0.01), "ramp_dn": (0, 2, 0.01),
+    "letter_spread": (0, 0.4, 0.01),
     "lead": (0, 2, 0.01), "offset": (-5, 5, 0.01),
     "stanza_size": (1, 12, 1), "ambient_target": (0, 500, 1),
     "ambient_cycle": (1, 20, 0.5), "gap_min": (0, 8, 1), "gap_max": (0, 10, 1),
@@ -355,7 +372,8 @@ CONTROLS: tuple[Control, ...] = (
         {"cueing.ramp_up": (0.05, 0.25),
          "cueing.hold":    (0.35, 1.60),
          "cueing.ramp_dn": (0.10, 0.45),
-         "cueing.lead":    (0.05, 0.35)},
+         "cueing.lead":    (0.05, 0.35),
+         "cueing.letter_spread": (0.0, 0.16)},
     ),
 )
 

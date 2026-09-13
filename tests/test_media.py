@@ -252,3 +252,33 @@ def test_compress_trims_from_the_start(stereo_wav):
     a = float(whole["format"]["duration"])
     b = float(trimmed["format"]["duration"])
     assert a - b == pytest.approx(3.0, abs=0.4)
+
+
+def test_the_plateau_window_follows_the_configuration(flashes_mp4):
+    """The window a word is bright in comes from `cueing`, not a constant.
+
+    Hardcoding it meant that lengthening `hold` moved genuinely lit frames
+    outside the window the check looked in, and the check then reported that
+    the picture did not follow the words -- of a render that was correct.
+    """
+    narrow = R.measure_output(flashes_mp4, [1.0, 5.0], 0.0, plateau=(0.12, 0.92))
+    wide = R.measure_output(flashes_mp4, [1.0, 5.0], 0.0, plateau=(0.12, 1.17))
+    assert narrow["outside_frames"] > wide["outside_frames"]
+
+
+def test_a_densely_cued_song_is_still_judged(flashes_mp4):
+    """With a cue every moment there are no frames between words to compare
+    against, so the ratio abstains -- and a check that abstains catches
+    nothing. The correlation still discriminates."""
+    dense = [t / 10 for t in range(0, 100)]
+    out = R.measure_output(flashes_mp4, dense, 0.0)
+    assert out["ratio"] is None or out["outside_frames"] < 10
+    assert "follows_words" in out
+
+
+def test_the_correlation_tells_right_from_wrong(flashes_mp4):
+    """The fixture is bright only at 1-2s and 5-6s."""
+    right = R.measure_output(flashes_mp4, [1.0, 5.0], 0.0)["follows_words"]
+    wrong = R.measure_output(flashes_mp4, [2.6, 7.4], 0.0)["follows_words"]
+    assert right is not None and wrong is not None
+    assert right > wrong

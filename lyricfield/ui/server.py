@@ -391,6 +391,10 @@ def status():
     cfg = load_config()
     table = load_cues()
     return {
+        # The browser ticks a live timer against stage start times, which are
+        # this process's clock. Send ours so it can measure the difference
+        # rather than assume the two agree.
+        "now": time.time(),
         "td_connected": _td_connected(),
         "type": cfg.type,
         "td_url": client.url,

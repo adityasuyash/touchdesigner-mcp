@@ -42,13 +42,14 @@ DEFAULTS = {
     'level_min': 0.10, 'level_max': 0.38, 'ceil': 0.58,
     'drift_min': 3.0, 'drift_max': 6.0, 'dissolve': 2.5,
     # cueing
-    'ramp_up': 0.12, 'hold': 0.80, 'ramp_dn': 0.25, 'lead': 0.15,
+    'ramp_up': 0.12, 'hold': 1.05, 'ramp_dn': 0.32, 'lead': 0.15,
+    'letter_spread': 0.06,
     'offset': 0.0, 'stanza_size': 5,
     'ambient_target': 190, 'ambient_cycle': 6.0,
-    'gap_min': 2, 'gap_max': 4,
+    'gap_min': 2, 'gap_max': 7,
     # beat
-    'ripple_time': 0.55, 'ripple_sigma': 2.2, 'ripple_lift': 0.14,
-    'spark_time': 0.25, 'spark_peak': 0.52, 'spark_frac': 0.055,
+    'ripple_time': 0.55, 'ripple_sigma': 2.2, 'ripple_lift': 0.20,
+    'spark_time': 0.25, 'spark_peak': 0.58, 'spark_frac': 0.075,
     'twinkle_frac_lo': 0.04, 'twinkle_frac_hi': 0.11,
     'twinkle_decay': 0.22, 'twinkle_lift': 0.20,
     # Track structure, measured per song by lyricfield.analysis and pushed in.
@@ -483,13 +484,25 @@ def _build(si, t, rng):
             for cl in got.values():
                 claimed.update(cl); letters += len(cl)
     stag = {}
+    # Two independent per-letter offsets, for two different things.
+    #
+    # `stag` staggers the dim layer's crossfade at a stanza change, and by
+    # design has nothing to do with lighting -- the lit branch in `draw` runs
+    # before the fade gate precisely so that a word being sung is lit whatever
+    # the crossfade is doing.
+    #
+    # `lit_stag` is the one that makes a word light raggedly rather than all on
+    # one frame. It is small: tens of milliseconds, enough to read as a word
+    # being sung rather than switched on.
+    lit_stag = {}
     for tag, grp in (('c', paths), ('a', apaths)):
         for ln, pth in grp.items():
             for wi, cells in pth.items():
                 for j in range(len(cells)):
                     stag[(tag, ln, wi, j)] = float(rng.uniform(0.0, DISSOLVE * 0.55))
+                    lit_stag[(tag, ln, wi, j)] = float(rng.uniform(0.0, LETTER_SPREAD))
     return {'si': si, 'paths': paths, 'apaths': apaths, 't0': t, 'stag': stag,
-            'letters': letters}
+            'lit_stag': lit_stag, 'letters': letters}
 
 
 def _lit_weight(t, cue):
@@ -667,8 +680,13 @@ def onCook(scriptOp):
             words = S['lines'][ln]
             for wi, cells in pth.items():
                 word, wt = words[wi]
-                w_lit = _lit_weight(t, wt + off) if allow_lit else 0.0
+                cue_at = wt + off
+                spread = group.get('lit_stag') or {}
                 for j, (r, c) in enumerate(cells):
+                    # Each letter lights a moment after its neighbour, so a word
+                    # arrives rather than appears.
+                    w_lit = (_lit_weight(t, cue_at + spread.get((tag, ln, wi, j), 0.0))
+                             if allow_lit else 0.0)
                     # A word is lit because the song is singing it, not because
                     # its cell happens to have finished dissolving in. Gating
                     # the lit layer on the crossfade is what made the last line

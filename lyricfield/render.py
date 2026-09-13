@@ -53,6 +53,24 @@ def _ffprobe(path: Path) -> dict | None:
         return None
 
 
+def _reporter(progress):
+    """Wrap a progress callback so it may be called with a fraction.
+
+    Most callers pass a plain `say(message)`. The render wants to report how far
+    along it is as well, and rather than change every caller, this forwards two
+    arguments where the callback accepts them and one where it does not.
+    """
+    if progress is None:
+        return lambda m, frac=None: None
+
+    def say(m, frac=None):
+        try:
+            progress(m, frac)
+        except TypeError:
+            progress(m)
+    return say
+
+
 class SeekFailed(RuntimeError):
     """The timeline did not go where it was told."""
 
@@ -179,11 +197,41 @@ def resume_playback(client: TDClient) -> None:
     client.run("me.time.play = 1\nprint('playing at frame %d' % op('/local/time').frame)")
 
 
+def recording_progress(client: TDClient) -> dict:
+    """How far the recording in flight has got, in frames written.
+
+    Frames, not seconds: TouchDesigner cooks slower than real time by a factor
+    that varies with the network, so elapsed time says nothing about how much is
+    done. One PNG lands per captured frame, and the server counts them.
+    """
+    try:
+        out = client.call("render", action="status")
+    except Exception:
+        return {}
+    if isinstance(out, dict):
+        return out
+    # The tool answers with a JSON document as text rather than a mapping.
+    try:
+        import json
+        parsed = json.loads(str(out))
+    except Exception:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def wait_for_container(path: Path, timeout: float = 900.0,
                        settle: float = 5.0, poll: float = 4.0,
-                       should_stop=None) -> bool:
-    """Stable size AND a parseable container. Size alone is not enough."""
+                       should_stop=None, client: TDClient | None = None,
+                       progress=None) -> bool:
+    """Stable size AND a parseable container. Size alone is not enough.
+
+    Reports progress while it waits, when given a client to ask. This is the
+    multi-minute step of the whole run, and without it the UI sat on one frozen
+    message with a progress bar that could not move.
+    """
+    say = _reporter(progress)
     deadline = time.time() + timeout
+    last_said = 0.0
     while time.time() < deadline:
         if should_stop is not None and should_stop():
             return False
@@ -193,6 +241,12 @@ def wait_for_container(path: Path, timeout: float = 900.0,
             b = path.stat().st_size if path.exists() else -1
             if a == b and b > 50_000 and _ffprobe(path) is not None:
                 return True
+        elif client is not None and time.time() - last_said > 3.0:
+            last_said = time.time()
+            st = recording_progress(client)
+            if st.get("recording") and st.get("expected"):
+                say(f"recording {st['frames']} of {st['expected']} frames",
+                    st.get("fraction"))
         time.sleep(poll)
     return False
 
@@ -248,7 +302,7 @@ def render(client: TDClient, out_path: str | Path, duration: float,
     """Capture `duration` seconds and return a finished MP4 with stem audio."""
     out_path = Path(out_path)
     raw = out_path.with_name(out_path.stem + "_raw.mp4")
-    say = progress or (lambda m: None)
+    say = _reporter(progress)
 
     # `covers` so the timeline and its play range are wide enough for the whole
     # recording, not just its first frame -- a render that runs off the end of
@@ -266,8 +320,9 @@ def render(client: TDClient, out_path: str | Path, duration: float,
     # over about six minutes was abandoned and renamed .failed.mp4 while it was
     # still being written.
     patience = max(900.0, (duration + pad) * 6.0 + 120.0)
-    say(f"waiting for TD to finish writing (up to {patience / 60:.0f} min)")
-    if not wait_for_container(raw, timeout=patience, should_stop=should_stop):
+    say(f"recording {duration + pad:.0f}s (up to {patience / 60:.0f} min)")
+    if not wait_for_container(raw, timeout=patience, should_stop=should_stop,
+                              client=client, progress=say):
         # The automatic finalize is scheduled in timeline frames, so anything
         # that pauses playback leaves the recording stranded: operators in the
         # network, frames on disk, and the next render refusing to start.
@@ -335,7 +390,8 @@ def sample_frames(video: str | Path, times: list[float],
 
 
 def measure_output(video: str | Path, cue_times, start: float,
-                   fps: float = 10.0, lit: int = 200, ink: int = 8) -> dict:
+                   fps: float = 10.0, lit: int = 200, ink: int = 8,
+                   plateau: tuple[float, float] = (0.12, 0.92)) -> dict:
     """Measure a finished render against the song it is supposed to be.
 
     This exists because a 30-second render of *entirely the wrong part of the
@@ -412,9 +468,15 @@ def measure_output(video: str | Path, cue_times, start: float,
     if times:
         b = np.array(bright, float)
         t = float(start) + np.arange(n) / fps
+        # When a word is at full brightness, taken from the configuration rather
+        # than assumed. Hardcoding it meant that lengthening `hold` moved real
+        # lit frames *outside* the window the check was looking in, and the
+        # check then reported that the picture did not follow the words -- of a
+        # render that was perfectly correct.
+        lo, hi = float(plateau[0]), float(plateau[1])
         inside = np.zeros(n, bool)
         for c in times:
-            inside |= (t >= c + 0.12) & (t <= c + 0.92)
+            inside |= (t >= c + lo) & (t <= c + hi)
         ins = float(b[inside].mean()) if inside.any() else 0.0
         outside = float(b[~inside].mean()) if (~inside).any() else 0.0
         out.update({
@@ -426,6 +488,20 @@ def measure_output(video: str | Path, cue_times, start: float,
             # little. Reported either way; the caller decides.
             "ratio": round(ins / outside, 2) if outside > 1.0 else None,
         })
+
+        # When there is nothing outside to compare against -- a densely sung
+        # song, especially with long holds -- the ratio abstains, and a check
+        # that abstains catches nothing. How *many* words are lit still varies
+        # frame to frame, so correlate brightness against that instead. A
+        # picture that belongs to this song tracks it; one from elsewhere does
+        # not, and neither does one that is not lighting words at all.
+        active = np.zeros(n, float)
+        for c in times:
+            active += ((t >= c + lo) & (t <= c + hi)).astype(float)
+        if active.std() > 1e-9 and b.std() > 1e-9:
+            out["follows_words"] = round(float(np.corrcoef(active, b)[0, 1]), 3)
+        else:
+            out["follows_words"] = None
     return out
 
 

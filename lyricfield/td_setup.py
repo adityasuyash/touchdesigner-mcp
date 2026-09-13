@@ -393,6 +393,29 @@ def launch_touchdesigner(client: TDClient, project: Path = TEMPLATE,
     return client.wait_until_ready(seconds=timeout)
 
 
+def rebuild_tox(client: TDClient, say=print) -> dict:
+    """Push the repo's server source into TouchDesigner and re-export the .tox.
+
+    The documented ritual used to be `exec(open(project.folder +
+    '/scripts/rebuild_tox.py').read())`, which assumed the open project *was*
+    the repo. It has not been since songs moved to ~/lyricfield-projects, and
+    the variable meant to carry the repo path does not survive the nested exec
+    either, so the script silently looked for its own source inside whichever
+    song was loaded. Doing it from here needs neither.
+    """
+    changed = refresh_server(client, say=say)
+    tox = REPO / "td_mcp_server.tox"
+    _run(client, f"""
+    comp = op({ROOT + '/' + SERVER_COMP!r})
+    if comp is None:
+        return 'no server component to export'
+    comp.save({str(tox)!r})
+    return 'exported'
+""", timeout=120.0)
+    say(f"exported {tox}")
+    return {"source_changed": changed, "tox": str(tox)}
+
+
 def refresh_server(client: TDClient, say=print) -> bool:
     """Push the repo's server source into the running project's handler DAT.
 

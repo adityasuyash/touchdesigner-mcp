@@ -1,8 +1,16 @@
 """
 Rebuild td_mcp_server.tox from the latest scripts/td_mcp_server.py.
 
-Run inside TouchDesigner via:
+Prefer the package entry point, which needs no path juggling:
+
+    python -c "from lyricfield.td_client import TDClient; from lyricfield import td_setup; td_setup.rebuild_tox(TDClient())"
+
+Or, inside TouchDesigner, with the repo path spelled out:
     td_run: REPO = '/path/to/touchdesigner-mcp'; exec(open(REPO + '/scripts/rebuild_tox.py').read())
+
+Note that `REPO` does not always survive the nested exec -- when it does not,
+this falls back to `project.folder`, which is a *song* folder and wrong. The
+package entry point above is the reliable route.
 
 This syncs the server script into the td_mcp_server component's handler DAT
 and re-exports the .tox file.

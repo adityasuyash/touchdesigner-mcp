@@ -54,6 +54,12 @@ class Stage:
     message: str = ""
     detail: dict = field(default_factory=dict)
     seconds: float = 0.0
+    # 0..1 while this stage is running, when it can say. Only the render knows
+    # its own progress -- it counts frames written -- and without it the UI
+    # could only fill a bar by counting finished stages, which does not move at
+    # all through the one step that takes minutes.
+    fraction: float | None = None
+    started: float = 0.0
 
 
 @dataclass
@@ -432,14 +438,20 @@ def _verify(ctx: Ctx, say) -> dict:
     cues = CueTable.load(ws.cues_path).cues if ws.cues_path.exists() else []
     prev_detail = ctx.run.stage("preview").detail if ctx.run else {}
     start = float(prev_detail.get("start") or 0.0)
+    # The window in which a word is at full brightness, from this song's own
+    # cueing rather than from a constant that only matched one configuration.
+    cue = getattr(cfg.params, "cueing", None)
+    plateau = ((cue.ramp_up, cue.ramp_up + cue.hold) if cue is not None
+               else (0.12, 0.92))
     try:
-        match = render_mod.measure_output(prev, [c.start for c in cues], start)
+        match = render_mod.measure_output(prev, [c.start for c in cues], start,
+                                          plateau=plateau)
     except Exception as e:
         say(f"could not measure the finished file: {e}")
         problems.append(f"the finished file could not be measured: {e}")
 
     if match.get("checked"):
-        ratio = match.get("ratio")
+        ratio, follows = match.get("ratio"), match.get("follows_words")
         if ratio is not None:
             say(f"lit {match['bright_in_cue']:.0f} px during words against "
                 f"{match['bright_outside']:.0f} px between them")
@@ -450,6 +462,18 @@ def _verify(ctx: Ctx, say) -> dict:
                     f"being sung against {match['bright_outside']:.0f} between "
                     f"words. The render is probably showing a different part of "
                     f"the song than the audio.")
+        elif follows is not None:
+            # Densely sung, so there are no frames between words to compare
+            # against. How many words are lit still varies, and the picture
+            # should track that.
+            say(f"brightness tracks the words at {follows:+.2f}")
+            if follows < 0.1:
+                problems.append(
+                    f"the picture does not follow the words: brightness tracks "
+                    f"how many words are being sung at only {follows:+.2f}, "
+                    f"where a render of this song scores well above zero. It is "
+                    f"probably showing a different part of the song than the "
+                    f"audio.")
 
         black = match.get("black_fraction", 0.0)
         if black > 0.02:
@@ -563,11 +587,14 @@ def execute(run: Run, ctx: Ctx, on_change=None, from_stage: str | None = None) -
         st = run.stage(key)
         st.state = RUNNING
         st.message = ""
+        st.fraction = None
+        st.started = t0 = time.time()
         notify()
-        t0 = time.time()
 
-        def say(m, _st=st, _run=run):
+        def say(m, frac=None, _st=st, _run=run):
             _st.message = str(m)
+            if frac is not None:
+                _st.fraction = max(0.0, min(1.0, float(frac)))
             _run.log.append(f"[{_st.key}] {m}")
             del _run.log[:-400]
             notify()
