@@ -353,6 +353,38 @@ def detect_kicks(x: np.ndarray, thresh_pct: float = 88.0, min_gap: float = 0.22,
     return out
 
 
+def busiest_window(source: str | Path, seconds: float = 4.0,
+                   avoid: float = 1.0) -> float:
+    """Where in this track to look if you want to see it answering the drums.
+
+    A style preview is a few seconds long, and the moment it is taken from
+    decides whether it shows the style at all. Taking it from a fixed fraction
+    of the duration put five beatsync previews on a stretch of one song where
+    the low band never crossed its gate: the renders came back as still frames,
+    and a still frame of a beat renderer is indistinguishable from a beat
+    renderer that does not work.
+
+    So pick by measuring -- the window holding the most kicks, ties to the
+    earliest, which is the same rule `preview_window` uses over the cue table
+    for a lyric type.
+    """
+    x = decode_mono(source)
+    dur = len(x) / SR
+    if dur <= seconds:
+        return 0.0
+    kicks = detect_kicks(x)
+    latest = max(0.0, dur - seconds - avoid)
+    if not kicks:
+        return min(latest, dur * 0.4)
+    best, best_n = 0.0, -1
+    for start in kicks:
+        start = min(max(avoid, start - 0.25), latest)
+        n = sum(1 for k in kicks if start <= k < start + seconds)
+        if n > best_n:
+            best, best_n = start, n
+    return round(best, 3)
+
+
 def analyse(instrumental: str | Path) -> Analysis:
     path = Path(instrumental)
     x = decode_mono(path)

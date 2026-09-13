@@ -14,10 +14,11 @@ per type and applying one across types is refused rather than silently partial.
         preview.mp4     a short loop -- drift, dissolve, ripple and twinkle are
         preview.png     all motion, and two styles can look identical frozen
 
-Styles are tracked in the repo; they are the reusable output of the work. The
-previews are not: they are renders of the live field, so they show whichever
-song was loaded when they were captured, and a shared preview would leak that
-song's lyrics. `.gitignore` excludes `styles/*/preview.*` for that reason.
+Styles are tracked in the repo; they are the reusable output of the work, and so
+are their previews. A lyric preview is rendered from the placeholder words in
+`data/preview_cues.tsv` and a beatsync one has no words at all, so neither
+carries anything of the song that happened to be loaded -- which is what makes
+them shippable rather than remade on every machine.
 """
 
 from __future__ import annotations
@@ -165,6 +166,10 @@ class Style:
             "name": self.name,
             "slug": self.slug,
             "type": self.type,
+            # The gallery groups by family, and a style with none defaulted to
+            # "lyric" -- which put every beatsync look in the lyric row, under
+            # a heading saying it needed words.
+            "family": self.video_type.family,
             "description": self.description,
             "created": self.created,
             "source_song": self.source_song,
@@ -230,17 +235,37 @@ def delete_style(slug: str, root: str | Path = DEFAULT_ROOT,
 PREVIEW_CUES = Path(__file__).parent / "data" / "preview_cues.tsv"
 
 
+class StillPreview(RuntimeError):
+    """A capture came back as the same frame repeated.
+
+    Its own class because it is recoverable in a way a failed render is not:
+    the style is fine, the moment was wrong, and the caller can try another.
+    """
+
+
 def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
                     root: str | Path = DEFAULT_ROOT, fps: int = 24,
                     width: int = 240, progress=None,
-                    restore_cues: bool = True) -> Path:
-    """Render this style's preview from placeholder words, once.
+                    restore_cues: bool = True, live: Config | None = None) -> Path:
+    """Render this style's preview, once.
 
-    The words come from `data/preview_cues.tsv`, never from the song that
-    happens to be loaded -- that is what makes a preview song-independent, and
-    therefore storable and shareable rather than remade on every machine.
+    For a lyric style the words come from `data/preview_cues.tsv`, never from
+    the song that happens to be loaded -- that is what makes a preview
+    song-independent, and therefore storable and shareable rather than remade on
+    every machine. A style whose type needs no lyrics is given none: pushing a
+    cue table for a renderer that never reads one would only mean restoring it
+    afterwards for nothing.
 
-    The song's own cue table is pushed back afterwards.
+    Pass `live` -- the config the project is actually wearing -- to preview a
+    style the project is *not* wearing. This function used to record whatever
+    happened to be pushed, which quietly made it useless for any style but the
+    one just applied: asked for five looks it would have produced five copies of
+    the current one and reported success each time. With `live` it pushes the
+    style's own params and its type's field script, and puts the song's back
+    when it is done.
+
+    Everything it changes in the live project is restored in `finally`, so an
+    interrupted or failed capture does not leave the song wearing a preview.
     """
     from . import render as render_mod
     from . import sync
@@ -248,20 +273,38 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
     from .sync import OUT_TOP
 
     say = progress or (lambda m: None)
+    wants_words = style.video_type.needs_lyrics
 
     before = None
-    if restore_cues:
+    if restore_cues and wants_words:
         try:
             before = sync.pull_cues(client)
         except Exception:
             before = None
-    # The placeholder words are pushed into the live project, so the song's own
-    # cue table has to come back even when the render fails or is interrupted --
-    # otherwise the next preview of the *song* silently shows "lorem ipsum".
-    try:
-        say("pushing the placeholder words")
-        sync.push_cues(client, CueTable.load(PREVIEW_CUES))
+
+    # The style's own look has to be in the project before anything is recorded,
+    # and it has to come back out afterwards. The measured facts stay the song's
+    # -- a beat renderer previewed against a neutral 120bpm fallback would be
+    # showing its timing against nothing.
+    restore_cfg = None
+    if live is not None:
+        import copy
+        restore_cfg = copy.deepcopy(live)
+        shown = style.apply_to(Config(type=style.type))
+        shown.track = copy.deepcopy(live.track)
+        say(f"pushing the {style.name} look")
+        sync.push_field(client, shown)
+        sync.push_params(client, shown)
         sync.reset_field_state(client)
+
+    # Anything pushed into the live project has to come back even when the
+    # render fails or is interrupted -- otherwise the next preview of the *song*
+    # silently shows "lorem ipsum", or another style's look.
+    try:
+        if wants_words:
+            say("pushing the placeholder words")
+            sync.push_cues(client, CueTable.load(PREVIEW_CUES))
+            sync.reset_field_state(client)
         d = style.dir(root)
         d.mkdir(parents=True, exist_ok=True)
         raw = d / "_raw.mp4"
@@ -297,6 +340,18 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
             check=True,
         )
         raw.unlink(missing_ok=True)
+
+        # A preview exists to show motion. If it came back as one frame
+        # repeated, it is not a calm style -- it is a broken capture, and every
+        # other check passes it: the container parses, the brightness is in
+        # range, the band is filled. Say so rather than shipping a still.
+        moved = render_mod.measure_motion(style.preview_video(root))
+        say(f"{moved['frames']} frames, motion {moved['motion']}")
+        if not moved["moving"]:
+            raise StillPreview(
+                f"the {style.name} preview is a still frame "
+                f"(motion {moved['motion']} over {moved['frames']} frames); "
+                f"nothing moved in the {seconds:g}s from {at:.1f}s")
     finally:
         if before is not None and before.cues:
             say("restoring the song's own words")
@@ -305,5 +360,13 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
                 sync.reset_field_state(client)
             except Exception as e:
                 say(f"could not restore the cue table: {e}")
+        if restore_cfg is not None:
+            say("restoring the song's own look")
+            try:
+                sync.push_field(client, restore_cfg)
+                sync.push_params(client, restore_cfg)
+                sync.reset_field_state(client)
+            except Exception as e:
+                say(f"could not restore the song's settings: {e}")
     say("preview ready")
     return style.preview_video(root)

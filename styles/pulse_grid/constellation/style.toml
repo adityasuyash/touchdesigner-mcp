@@ -1,10 +1,10 @@
 # lyricfield style. Reusable across songs; contains no song data.
 
 [meta]
-name = "Calm Drift"
-slug = "calm-drift"
-type = "lyric_grid"
-description = "longer dissolves, slower drift and a softer beat than the default"
+name = "Constellation"
+slug = "constellation"
+type = "pulse_grid"
+description = "sparse, slow and wide — few points, held a long time"
 created = "2026-09-13T23:38:15+00:00"
 source_song = ""
 
@@ -18,16 +18,15 @@ font_px = 50.0
 glyph_aspect = 0.8
 width = 720
 height = 1280
-letter_frac = 0.28
 
 [look]
-dim_hue = 0.58
+dim_hue = 0.68
 dim_sat = 0.35
-level_min = 0.1
+level_min = 0.08
 level_max = 0.38
 ceil = 0.58
-drift_min = 4.5
-drift_max = 9.0
+drift_min = 3.0
+drift_max = 6.0
 glow_base = 0.62
 glow_lfo = 0.08
 glow_low = 0.1
@@ -37,32 +36,6 @@ glow_radius_lfo = 5.0
 glow_lfo_hz = 0.06
 bloom_size = 9.0
 bloom_bright = 0.35
-dissolve = 3.6
-
-[cueing]
-ramp_up = 0.12
-hold = 1.25
-ramp_dn = 0.45
-lead = 0.15
-letter_spread = 0.09
-offset = 0.0
-stanza_size = 5
-ambient_target = 190
-ambient_cycle = 6.0
-gap_min = 2
-gap_max = 7
-
-[beat]
-ripple_time = 0.55
-ripple_sigma = 2.2
-ripple_lift = 0.12
-spark_time = 0.25
-spark_peak = 0.45
-spark_frac = 0.05
-twinkle_frac_lo = 0.04
-twinkle_frac_hi = 0.11
-twinkle_decay = 0.22
-twinkle_lift = 0.14
 
 [analysis]
 kick_thresh = 0.209028
@@ -73,3 +46,20 @@ low_smooth = 0.0
 high_gain = 3.5
 low_lag_up = 0.08
 low_lag_dn = 0.22
+
+[pulse]
+wave_beats = 12.0
+wave_width = 7.0
+wave_lift = 0.3
+vertical = false
+density = 0.22
+glyphs = ".:*+"
+lit_at = 0.52
+kick_lift = 0.22
+kick_time = 0.9
+kick_sigma = 3.0
+snare_frac = 0.03
+snare_peak = 0.5
+snare_time = 0.25
+high_lift = 0.1
+reroll = 45.0

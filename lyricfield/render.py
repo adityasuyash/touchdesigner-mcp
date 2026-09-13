@@ -389,6 +389,48 @@ def sample_frames(video: str | Path, times: list[float],
     return made
 
 
+def measure_motion(video: str | Path, width: int = 96) -> dict:
+    """How much a finished clip actually moves, frame to frame.
+
+    A preview exists to show motion -- it is the whole reason a style ships a
+    video and not just a still. But a render can come back as the same frame
+    repeated and every other check will pass it: the container parses, the
+    brightness is in range, the band is filled. Five beatsync previews shipped
+    that way, taken from a stretch of one song where the low band never crossed
+    its gate, and a frozen picture of a beat renderer looks exactly like a beat
+    renderer that does not work.
+
+    `moving` is the honest question: are any two frames different at all.
+    """
+    import numpy as np
+
+    video = Path(video)
+    proc = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(video), "-vf", f"scale={width}:-2",
+         "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        capture_output=True)
+    raw = proc.stdout
+    probe = _ffprobe(video) or {}
+    # `_ffprobe` returns the whole ffprobe document; the size is on the video
+    # stream, not at the top level.
+    stream = next((s for s in probe.get("streams", [])
+                   if s.get("codec_type") == "video"), {})
+    h = int(stream.get("height") or 0)
+    w = int(stream.get("width") or 0)
+    if not (raw and h and w):
+        return {"frames": 0, "motion": 0.0, "mean": 0.0, "moving": False}
+    height = max(1, round(width * h / w / 2) * 2)
+    n = len(raw) // (width * height)
+    if n < 2:
+        return {"frames": n, "motion": 0.0, "mean": 0.0, "moving": False}
+    a = (np.frombuffer(raw, np.uint8)[:n * width * height]
+         .reshape(n, height, width).astype(np.float32))
+    motion = float(np.abs(np.diff(a, axis=0)).mean())
+    return {"frames": n, "motion": round(motion, 4),
+            "mean": round(float(a.mean()), 3),
+            "moving": motion > 0.005}
+
+
 def measure_output(video: str | Path, cue_times, start: float,
                    fps: float = 10.0, lit: int = 200, ink: int = 8,
                    plateau: tuple[float, float] = (0.12, 0.92)) -> dict:
