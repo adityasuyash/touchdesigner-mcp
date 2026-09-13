@@ -64,7 +64,11 @@ class Run:
     state: str = PENDING
     log: list[str] = field(default_factory=list)
     # Problems reported by any stage, not only the one that measures the output.
+    # A problem means the render cannot be trusted; a warning means the material
+    # is imperfect -- a transcription that missed a line -- which is worth
+    # showing and does not make the render wrong.
     problems: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     error: str = ""
     started: float = 0.0
     finished: float = 0.0
@@ -583,6 +587,8 @@ def execute(run: Run, ctx: Ctx, on_change=None, from_stage: str | None = None) -
             # run would still write "verified with no problems" beside the file.
             for note in st.detail.get("problems") or []:
                 run.problems.append(f"{st.key}: {note}")
+            for note in st.detail.get("warnings") or []:
+                run.warnings.append(f"{st.key}: {note}")
 
             if (key == "verify" and st.detail.get("problems")
                     and not retried and not ctx.should_stop()):

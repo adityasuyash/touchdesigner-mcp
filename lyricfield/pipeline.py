@@ -44,7 +44,13 @@ class Prepared:
     lines: int = 0
     vocal_in: float = 0.0
     skipped: list[str] = field(default_factory=list)
+    # Two kinds of bad news, deliberately separated. `problems` means the
+    # machinery is wrong and the render cannot be trusted. `warnings` means the
+    # *material* is imperfect -- a transcription that missed a line, words at an
+    # identical timestamp -- which the user should see and can fix, but which
+    # says nothing about whether the render itself came out right.
     problems: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     analysis: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -58,6 +64,7 @@ class Prepared:
             "vocal_in": self.vocal_in,
             "skipped": self.skipped,
             "problems": self.problems,
+            "warnings": self.warnings,
             "analysis": self.analysis,
         }
 
@@ -175,7 +182,7 @@ def prepare(track: str | Path,
     # render.
     out.problems = list(cfg.validate())
     if CUES in needs:
-        out.problems = table.problems(res.duration) + out.problems
+        out.warnings = list(table.problems(res.duration))
 
     # Did transcription drop any lines? Compare the cue table against the stem
     # itself: sustained singing with no word cued against it means words were
@@ -190,7 +197,7 @@ def prepare(track: str | Path,
             gaps = []
         for a, b, sung in gaps[:3]:
             where = "before the first cued word" if a == 0.0 else f"from {a:.1f}s"
-            out.problems.append(
+            out.warnings.append(
                 f"{sung:.1f}s of singing {where} (to {b:.1f}s) has no words "
                 f"cued against it -- transcription probably dropped a line; "
                 f"add the words to cues.tsv or re-run transcription")
