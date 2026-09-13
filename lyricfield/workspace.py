@@ -62,6 +62,22 @@ class Workspace:
         return self.dir / "project.toe"
 
     @property
+    def current_project(self) -> Path:
+        """The newest project*.toe in this folder.
+
+        TouchDesigner increments the version on every save, so the file being
+        written is project.toe, then project.1.toe, then project.2.toe. The
+        highest number is the live one; the rest are free backups. Use this
+        whenever you mean "this song's project as it stands now".
+        """
+        def version(path: Path) -> int:
+            parts = path.name.split(".")
+            return int(parts[1]) if len(parts) == 3 and parts[1].isdigit() else 0
+
+        takes = sorted(self.dir.glob("project*.toe"), key=version)
+        return takes[-1] if takes else self.project
+
+    @property
     def config_path(self) -> Path:
         return self.dir / "config.toml"
 
@@ -184,21 +200,42 @@ class Workspace:
                 f"TD reported saving but {self.project} does not exist. "
                 "Check the path is writable."
             )
+        # TD increments on save: it wrote project.toe and its live project is
+        # now project.1.toe. Hand back the one it will keep writing to.
+        live = self.live_project_in(client)
+        if live is not None and live.parent.resolve() == self.dir.resolve():
+            return live
         return self.project
 
-    def is_open_in(self, client) -> bool:
-        """Is TD actually running this workspace's project?"""
+    def live_project_in(self, client) -> Path | None:
+        """The .toe TouchDesigner actually has open, or None if it cannot say."""
         try:
             out = client.run(
-                "import os\n"
                 "def main():\n"
+                "    import os\n"
                 "    return os.path.join(project.folder, project.name)\n"
                 "print(main())"
             ).strip()
         except Exception:
+            return None
+        return Path(out) if out else None
+
+    def is_open_in(self, client) -> bool:
+        """Is TD actually running this workspace's project?
+
+        Matches on the folder, not the exact filename. TouchDesigner increments
+        the version on every save -- ask it to write project.toe and its live
+        project becomes project.1.toe, then project.2.toe -- so an exact-name
+        comparison reports "wrong project" forever and the guard that should
+        stop a push landing in the wrong song refuses every push instead.
+        Any project*.toe inside this workspace is this song.
+        """
+        live = self.live_project_in(client)
+        if live is None:
             return False
         try:
-            return Path(out).resolve() == self.project.resolve()
+            return (live.parent.resolve() == self.dir.resolve()
+                    and live.name.startswith("project") and live.suffix == ".toe")
         except OSError:
             return False
 
