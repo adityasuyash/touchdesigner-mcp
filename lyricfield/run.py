@@ -63,6 +63,8 @@ class Run:
     stages: list[Stage]
     state: str = PENDING
     log: list[str] = field(default_factory=list)
+    # Problems reported by any stage, not only the one that measures the output.
+    problems: list[str] = field(default_factory=list)
     error: str = ""
     started: float = 0.0
     finished: float = 0.0
@@ -324,7 +326,22 @@ def _preview(ctx: Ctx, say) -> dict:
     dur = float(getattr(cfg.track, "duration", 0.0) or 0.0)
     if dur:
         start = min(start, max(0.0, dur - seconds))
+        # A preview longer than the song records silence past the end and then
+        # muxes full-length audio against it.
+        seconds = min(seconds, max(1.0, dur - start))
     say(f"{seconds:.0f}s from {int(start//60)}:{int(start%60):02d} ({why})")
+
+    # Check what the render is about to lean on, and repair what can be
+    # repaired. This runs here rather than only in provisioning because the
+    # Generate button resumes at `push`, skipping provisioning entirely -- which
+    # is why a re-render could never fix its own timeline.
+    from . import preflight
+    pre = preflight.run(ctx.client, cfg, ws, covers=start + seconds + 3.0,
+                        progress=say)
+    for what in pre.repaired:
+        say(f"repaired {what}")
+    if not pre.ok:
+        raise ValueError("not ready to render: " + "; ".join(pre.problems))
     res = attempt(lambda: render_mod.render(
         ctx.client, out, seconds,
         vocals=cfg.track.vocals or None,
@@ -332,7 +349,8 @@ def _preview(ctx: Ctx, say) -> dict:
         should_stop=ctx.should_stop, start=start,
         progress=say), say, tries=2)
     return {"path": str(res.path), "duration": res.duration, "start": start,
-            "start_why": why,
+            "start_why": why, "requested_seconds": seconds,
+            "preflight": pre.to_dict(),
             "width": res.width, "height": res.height, "fps": res.fps}
 
 
@@ -388,42 +406,79 @@ def _verify(ctx: Ctx, say) -> dict:
             problems.append(
                 f"{e['time']}s: letters below the band "
                 f"(YAVG {lo_avg:.1f} against {band_avg:.1f} inside)")
-    # Does the picture belong to this song? Nothing here used to ask, which is
-    # how a render of a completely different part of the track was written out
-    # as "verified with no problems" -- every regional brightness check passed,
-    # because the frames were perfectly good frames of the wrong thing.
+    # Does the picture belong to this song, and is it all there? Nothing here
+    # used to ask either question, which is how a render of a completely
+    # different part of the track was written out as "verified with no
+    # problems" -- every regional brightness check passed, because the frames
+    # were perfectly good frames of the wrong thing.
     match = {}
     cues = CueTable.load(ws.cues_path).cues if ws.cues_path.exists() else []
-    if cues:
-        start = float(ctx.run.stage("preview").detail.get("start") or 0.0)
-        try:
-            match = render_mod.picture_matches_cues(
-                prev, [c.start for c in cues], start)
-        except Exception as e:
-            say(f"could not measure the picture against the cues: {e}")
-        if match.get("checked"):
-            ratio, black = match.get("ratio"), match.get("black_fraction", 0.0)
+    prev_detail = ctx.run.stage("preview").detail if ctx.run else {}
+    start = float(prev_detail.get("start") or 0.0)
+    try:
+        match = render_mod.measure_output(prev, [c.start for c in cues], start)
+    except Exception as e:
+        say(f"could not measure the finished file: {e}")
+        problems.append(f"the finished file could not be measured: {e}")
+
+    if match.get("checked"):
+        ratio = match.get("ratio")
+        if ratio is not None:
             say(f"lit {match['bright_in_cue']:.0f} px during words against "
                 f"{match['bright_outside']:.0f} px between them")
-            if ratio is not None and ratio < 1.5:
+            if ratio < 1.5:
                 problems.append(
-                    f"the picture does not follow the words: {match['bright_in_cue']:.0f} "
-                    f"lit pixels while a word is being sung against "
-                    f"{match['bright_outside']:.0f} between words. The render is "
-                    f"probably showing a different part of the song than the audio."
-                )
-            if black > 0.02:
-                problems.append(
-                    f"{100 * black:.0f}% of the frames are completely black "
-                    f"(longest run {match['longest_black_seconds']:.1f}s)")
+                    f"the picture does not follow the words: "
+                    f"{match['bright_in_cue']:.0f} lit pixels while a word is "
+                    f"being sung against {match['bright_outside']:.0f} between "
+                    f"words. The render is probably showing a different part of "
+                    f"the song than the audio.")
 
-    # Record the settings that produced this preview, and whether it passed.
+        black = match.get("black_fraction", 0.0)
+        if black > 0.02:
+            problems.append(
+                f"{100 * black:.0f}% of the frames are completely black "
+                f"(longest run {match['longest_black_seconds']:.1f}s)")
+
+        # Geometry drift shows here and nowhere else: a lost text calibration
+        # dropped the row pitch from 53px to 40px, so the grid drew short and
+        # the bottom third of every frame was empty, while every brightness
+        # measurement of the part that *was* drawn stayed perfect.
+        fill = match.get("frame_fill", 1.0)
+        if fill < 0.75:
+            problems.append(
+                f"only {100 * fill:.0f}% of the frame height has anything drawn "
+                f"in it; the grid is not filling the frame, which usually means "
+                f"the text geometry is wrong")
+
+        # A slow cook yields fewer frames than asked for, and the movie is built
+        # from however many landed at a fixed rate -- so the picture is time
+        # compressed against full-length audio and drifts further out all the
+        # way through.
+        wanted = float(prev_detail.get("requested_seconds") or 0.0)
+        got = float(match.get("seconds") or 0.0)
+        if wanted and got and abs(got - wanted) > max(1.0, wanted * 0.05):
+            problems.append(
+                f"the render is {got:.1f}s long but {wanted:.1f}s was asked for; "
+                f"the picture is stretched or compressed against its audio")
+
+    # Record the settings that produced this take, and whether it is trustworthy.
+    #
+    # "Trustworthy" now means the whole run was clean, not just this stage.
+    # Earlier problems -- a build that could not calibrate the glyph geometry,
+    # say -- used to land in a dict nobody read, and the file still got a marker
+    # reading "verified with no problems".
+    earlier = list(getattr(ctx.run, "problems", []) or [])
+    ready = not problems and not earlier
+    if earlier and not problems:
+        say(f"not marking this take verified: {len(earlier)} earlier problem(s)")
     try:
-        ws.write_take(Path(prev), ready=not problems)
+        ws.write_take(Path(prev), ready=ready)
     except Exception as e:
         say(f"could not record the take: {e}")
+
     return {"stills": out, "regions": list(regions), "problems": problems,
-            "match": match}
+            "earlier_problems": earlier, "ready": ready, "match": match}
 
 
 STAGES: list[tuple[str, str, Callable]] = [
@@ -472,7 +527,17 @@ def execute(run: Run, ctx: Ctx, on_change=None, from_stage: str | None = None) -
             sk.message = "not needed for this update"
         notify()
 
-    for key, _title, fn in STAGES[start_at:]:
+    # A verify that fails is usually repairable state -- a lost calibration, a
+    # stranded recorder, a timeline someone shrank. Preflight fixes exactly
+    # those, and it runs at the top of the preview stage, so re-rendering once
+    # is worth more than reporting a bad take. Once: a second failure is a real
+    # one, and a loop would hide it.
+    retried = False
+    ordered = list(STAGES[start_at:])
+    i = 0
+    while i < len(ordered):
+        key, _title, fn = ordered[i]
+        i += 1
         if ctx.should_stop():
             run.state = STOPPED
             run.finished = time.time()
@@ -499,6 +564,33 @@ def execute(run: Run, ctx: Ctx, on_change=None, from_stage: str | None = None) -
             # it had separated a track and transcribed 380 words.
             st.state = SKIPPED if st.detail.get("stage_skipped") else DONE
             st.message = st.message or ("nothing to do" if st.state == SKIPPED else "done")
+            # Every stage's problems, not just the verifier's. Build failures
+            # used to be recorded in a dict nobody read: the calibration could
+            # report "glyph placement may not line up with the frame" and the
+            # run would still write "verified with no problems" beside the file.
+            for note in st.detail.get("problems") or []:
+                run.problems.append(f"{st.key}: {note}")
+
+            if (key == "verify" and st.detail.get("problems")
+                    and not retried and not ctx.should_stop()):
+                # Most ways a finished file measures badly are repairable state
+                # -- a lost calibration, a stranded recorder, a timeline someone
+                # shrank -- and preflight repairs exactly those at the top of
+                # the preview stage. So render once more before giving up.
+                # Once, deliberately: a second failure is a real one, and a loop
+                # would hide it behind minutes of rendering.
+                retried = True
+                say("the finished file did not measure well; repairing and "
+                    "rendering once more")
+                run.problems.clear()
+                redo = ("preview", "verify", "save")
+                for again in redo:
+                    back = run.stage(again)
+                    back.state, back.message, back.detail = PENDING, "", {}
+                ordered = [s for s in STAGES if s[0] in redo]
+                i = 0
+                notify()
+                continue
         except Stopped:
             st.state = STOPPED
             st.message = "stopped"

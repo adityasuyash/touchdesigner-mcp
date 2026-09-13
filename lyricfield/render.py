@@ -128,6 +128,23 @@ def park(client: TDClient, at_seconds: float = 0.0,
     return landed / rate
 
 
+def recorder_present(client: TDClient) -> bool:
+    """Is a Movie File Out still sitting in the network from an earlier render?
+
+    Its presence is what makes the *next* render refuse to start, so one
+    aborted preview silently breaks every render after it.
+    """
+    try:
+        out = client.run(
+            "def main():\n"
+            "    return repr(op('/project1/_mcp_movieout') is not None)\n"
+            "print(main())"
+        ).strip()
+    except Exception:
+        return False
+    return out == "True"
+
+
 def stop_recording(client: TDClient) -> str:
     """Tear down a recording that is still in the network, whatever its state.
 
@@ -281,24 +298,32 @@ def sample_frames(video: str | Path, times: list[float],
     return made
 
 
-def picture_matches_cues(video: str | Path, cue_times, start: float,
-                         fps: float = 10.0, lit: int = 200) -> dict:
-    """Does the picture light up when the song sings? Measured, not assumed.
+def measure_output(video: str | Path, cue_times, start: float,
+                   fps: float = 10.0, lit: int = 200, ink: int = 8) -> dict:
+    """Measure a finished render against the song it is supposed to be.
 
     This exists because a 30-second render of *entirely the wrong part of the
     song* was written to disk marked "verified with no problems". Everything
     the verifier looked at -- brightness per region, letters staying inside the
-    band -- was perfectly fine. The one thing nobody checked was whether the
-    picture had anything to do with the audio playing over it.
+    band -- was fine. Nobody checked whether the picture had anything to do with
+    the audio playing over it.
 
-    The measurement is simple: count bright pixels per frame, and compare the
-    frames that fall inside a cued word's plateau against the frames that do
-    not. When the picture is the song, lit words only happen during cues, so
-    the ratio is large. When it is not, the two are indistinguishable -- the
-    failing render measured *more* bright pixels outside cues than inside.
+    Three things are measured in one decode:
 
-    Returns the ratio, the black-frame fraction, and enough of the raw numbers
-    to argue with.
+      * **does the picture follow the words** -- bright pixels during a cued
+        word's plateau against bright pixels between words. When the picture is
+        the song, light only happens on cue. The failing render measured *more*
+        light between words than during them.
+      * **is the frame filled** -- how much of the frame's height has anything
+        drawn in it. This is what catches geometry drift: a lost text
+        calibration dropped the row pitch from 53px to 40px, so the grid drew
+        short and the bottom third of every frame was empty, and nothing
+        noticed.
+      * **black frames** -- how many, and the longest unbroken run.
+
+    Frames are streamed and reduced one at a time. Buffering the decode held
+    2.4GB for a four-minute track and 5.5GB for ten minutes, so the check that
+    was meant to make long renders trustworthy could not be run on them.
     """
     import numpy as np
 
@@ -306,44 +331,70 @@ def picture_matches_cues(video: str | Path, cue_times, start: float,
     vs = next((s for s in info.get("streams", []) if s.get("codec_type") == "video"), {})
     w, h = int(vs.get("width", 0)), int(vs.get("height", 0))
     times = sorted(float(t) for t in cue_times)
-    if not (w and h and times):
-        return {"checked": False, "why": "no video stream or no cues"}
+    if not (w and h):
+        return {"checked": False, "why": "no video stream"}
 
-    raw = subprocess.run(
+    frame_bytes = w * h
+    proc = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-i", str(video), "-vf", f"fps={fps:g}",
          "-f", "rawvideo", "-pix_fmt", "gray", "-"],
-        capture_output=True,
-    ).stdout
-    n = len(raw) // (w * h)
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    )
+    bright: list[int] = []
+    dark: list[bool] = []
+    rows_seen = np.zeros(h, dtype=bool)
+    try:
+        while True:
+            buf = proc.stdout.read(frame_bytes)
+            if not buf or len(buf) < frame_bytes:
+                break
+            f = np.frombuffer(buf, dtype=np.uint8).reshape(h, w)
+            bright.append(int((f > lit).sum()))
+            dark.append(bool(f.max() < 2))
+            rows_seen |= (f > ink).any(axis=1)
+    finally:
+        if proc.stdout:
+            proc.stdout.close()
+        proc.wait()
+
+    n = len(bright)
     if n < 4:
         return {"checked": False, "why": "too few frames to measure"}
-    frames = np.frombuffer(raw[:n * w * h], dtype=np.uint8).reshape(n, h * w)
 
-    bright = np.array([(f > lit).sum() for f in frames], float)
-    dark = np.array([f.mean() for f in frames]) < 0.05
-
-    # A word is at full weight between its ramp-up and its ramp-down. Those
-    # spans are the only times anything should be bright.
-    t = float(start) + np.arange(n) / fps
-    inside = np.zeros(n, bool)
-    for c in times:
-        inside |= (t >= c + 0.12) & (t <= c + 0.92)
-
-    ins = float(bright[inside].mean()) if inside.any() else 0.0
-    out = float(bright[~inside].mean()) if (~inside).any() else 0.0
-    return {
+    out = {
         "checked": True,
         "frames": n,
-        "bright_in_cue": round(ins, 1),
-        "bright_outside": round(out, 1),
-        # Guard the ratio: a song can be dense enough that almost every frame is
-        # inside a cue, and then "outside" is a handful of frames and its mean
-        # says little. Reported either way; the caller decides.
-        "ratio": round(ins / out, 2) if out > 1.0 else None,
-        "outside_frames": int((~inside).sum()),
-        "black_fraction": round(float(dark.mean()), 4),
+        "seconds": round(n / fps, 2),
+        "black_fraction": round(float(np.mean(dark)), 4),
         "longest_black_seconds": round(_longest_run(dark) / fps, 2),
     }
+
+    # How much of the frame's height ever has anything in it.
+    used = np.flatnonzero(rows_seen)
+    out["frame_fill"] = round(float(used[-1] - used[0]) / h, 3) if len(used) > 1 else 0.0
+
+    if times:
+        b = np.array(bright, float)
+        t = float(start) + np.arange(n) / fps
+        inside = np.zeros(n, bool)
+        for c in times:
+            inside |= (t >= c + 0.12) & (t <= c + 0.92)
+        ins = float(b[inside].mean()) if inside.any() else 0.0
+        outside = float(b[~inside].mean()) if (~inside).any() else 0.0
+        out.update({
+            "bright_in_cue": round(ins, 1),
+            "bright_outside": round(outside, 1),
+            "outside_frames": int((~inside).sum()),
+            # A song can be dense enough that nearly every frame is inside a
+            # cue, and then "outside" is a handful of frames whose mean says
+            # little. Reported either way; the caller decides.
+            "ratio": round(ins / outside, 2) if outside > 1.0 else None,
+        })
+    return out
+
+
+# The name this was introduced as. Kept so nothing that already calls it breaks.
+picture_matches_cues = measure_output
 
 
 def _longest_run(mask) -> int:

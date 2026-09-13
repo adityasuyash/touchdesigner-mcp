@@ -183,8 +183,46 @@ def test_an_all_black_video_is_reported_as_black(black_mp4):
     assert out["longest_black_seconds"] > 4
 
 
-def test_no_cues_means_the_check_declines_rather_than_guesses(flashes_mp4):
-    assert R.picture_matches_cues(flashes_mp4, [], start=0.0)["checked"] is False
+def test_with_no_cues_it_still_measures_what_it_can(flashes_mp4):
+    """A video type that needs no lyrics still deserves checking. What it
+    cannot do without cues is judge whether the picture follows the words, so
+    that one number is absent rather than invented."""
+    out = R.measure_output(flashes_mp4, [], start=0.0)
+    assert out["checked"] is True
+    assert "ratio" not in out
+    assert "black_fraction" in out and "frame_fill" in out
+
+
+def test_frame_fill_notices_a_picture_that_draws_short(media, tmp_path):
+    """A lost text calibration dropped the row pitch from 53px to 40px, so the
+    grid drew short and the bottom third of every frame was empty -- and every
+    brightness check still passed, because the part that was drawn was fine."""
+    import subprocess
+    full = media / "fill_full.mp4"
+    short = media / "fill_short.mp4"
+    if not full.exists():
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+                        "-i", "color=white:size=64x64:rate=10:duration=2",
+                        "-pix_fmt", "yuv420p", str(full)], check=True)
+    if not short.exists():
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi",
+                        "-i", "color=black:size=64x64:rate=10:duration=2",
+                        "-vf", "drawbox=0:0:64:20:white:fill",
+                        "-pix_fmt", "yuv420p", str(short)], check=True)
+    assert R.measure_output(full, [], start=0.0)["frame_fill"] > 0.9
+    assert R.measure_output(short, [], start=0.0)["frame_fill"] < 0.5
+
+
+def test_a_long_render_is_measured_without_buffering_it(black_mp4):
+    """Frames are streamed and reduced one at a time. Buffering the decode held
+    2.4GB for a four-minute track, so the check meant to make long renders
+    trustworthy could not be run on them."""
+    import tracemalloc
+    tracemalloc.start()
+    R.measure_output(black_mp4, [1.0], start=0.0)
+    _cur, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    assert peak < 20 * 1024 * 1024, f"peaked at {peak / 1e6:.0f} MB"
 
 
 def test_longest_run_is_pure_and_correct():
