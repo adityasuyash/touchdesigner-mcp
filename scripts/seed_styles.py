@@ -545,8 +545,10 @@ def main(argv: list[str]) -> int:
 
     failed = []
     for st in made:
-        if st.preview_video(root).exists():
-            print(f"{st.name}: preview already there")
+        # Current, not merely present. Skipping on existence meant a look
+        # could be re-tuned and keep the video of the look it used to be.
+        if st.preview_is_current(root):
+            print(f"{st.name}: preview already matches this look")
             continue
         for at in moments_for(types_mod.get_type(st.type).family):
             print(f"{st.name}: recording from {at:.1f}s")

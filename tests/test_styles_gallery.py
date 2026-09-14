@@ -288,3 +288,33 @@ def test_a_preview_over_the_words_gets_past_that_check():
     with pytest.raises(Exception) as e:
         S.capture_preview(None, st, at=3.55, seconds=4.0)
     assert not isinstance(e.value, S.WordlessPreview), str(e.value)
+
+
+# ----------------------------------------- a preview of the look it is of
+
+def test_a_style_fingerprints_the_look_its_preview_was_recorded_from():
+    """Nothing bound a preview to its parameters. `seed_styles` skipped on the
+    file merely existing and the only test was that it moves, so re-tuning a
+    look silently kept the video of the look it used to be -- the same class of
+    lie as a still preview, and harder to notice.
+    """
+    import copy
+    # A copy: `SHIPPED` is module-level and shared with every parametrised test
+    # below it, so mutating it here made one of those fail with a stale look.
+    st = copy.deepcopy(SHIPPED[0])
+    before = st.fingerprint()
+    assert len(before) == 16
+    look = getattr(st.params, "look", None)
+    assert look is not None
+    look.glow = round(look.glow + 0.17, 4)
+    assert st.fingerprint() != before, (
+        "the fingerprint did not follow a change to the look")
+
+
+@pytest.mark.parametrize("st", SHIPPED, ids=[s.slug for s in SHIPPED])
+def test_every_shipped_preview_is_of_the_look_beside_it(st):
+    if not st.preview_video(ROOT).exists():
+        pytest.skip(f"{st.slug} has no preview recorded")
+    assert st.preview_is_current(ROOT), (
+        f"{st.slug}'s preview was recorded from different parameters; "
+        f"re-record it with scripts/seed_styles.py --preview")

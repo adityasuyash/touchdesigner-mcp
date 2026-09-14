@@ -103,6 +103,40 @@ class Style:
     def dir(self, root: str | Path = DEFAULT_ROOT) -> Path:
         return Path(root) / self.type / self.slug
 
+    def fingerprint(self) -> str:
+        """A short hash of exactly the values this look sets.
+
+        Nothing bound a preview to the parameters it was recorded from, so
+        re-tuning a look kept the old video: `seed_styles` skips on the file
+        merely existing, and the only test is that it moves. A stale preview is
+        the same class of lie as a still one -- the tile promises something the
+        render will not deliver -- and this is what lets it be noticed.
+        """
+        import hashlib
+
+        parts = []
+        for section in self.sections:
+            for k, v in sorted(asdict(getattr(self.params, section)).items()):
+                parts.append(f"{section}.{k}={v!r}")
+        return hashlib.sha256("\n".join(parts).encode()).hexdigest()[:16]
+
+    def preview_is_current(self, root: str | Path = DEFAULT_ROOT) -> bool:
+        """Is the preview on disk a recording of THIS look?"""
+        video = self.preview_video(root)
+        if not video.exists():
+            return False
+        stamp = self.dir(root) / "preview.fingerprint"
+        if not stamp.exists():
+            return False
+        return stamp.read_text(encoding="utf-8").strip() == self.fingerprint()
+
+    def stamp_preview(self, root: str | Path = DEFAULT_ROOT) -> None:
+        """Record which look the preview beside it is of."""
+        d = self.dir(root)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "preview.fingerprint").write_text(self.fingerprint() + "\n",
+                                               encoding="utf-8")
+
     def save(self, root: str | Path = DEFAULT_ROOT) -> Path:
         d = self.dir(root)
         d.mkdir(parents=True, exist_ok=True)
@@ -461,5 +495,6 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
         # which retires a restore path that had to be right on every failure
         # and interruption, and once left a song wearing "lorem ipsum".
         _drop_scratch(client)
+    style.stamp_preview(root)
     say("preview ready")
     return style.preview_video(root)
