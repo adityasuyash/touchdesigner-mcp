@@ -64,10 +64,57 @@ class Config:
     type: str = types_mod.DEFAULT_TYPE
     track: Track = field(default_factory=Track)
     params: Any = None
+    # What sits BEHIND the words, as a renderer in its own right.
+    #
+    # It used to be a section of `lyric_grid`'s own tunables, filled in from a
+    # beat renderer's params -- which could only work when the beat renderer WAS
+    # that character grid, so five of seven could never be a layer. Here it is
+    # simply a second renderer with its own params, composited under the first,
+    # and any of them can be either a layer or the whole picture.
+    back_type: str = ""
+    back_params: Any = None
+    # How present that layer is, 0..1. It belongs to the mix rather than to
+    # either renderer, and it is bounded so the words stay the brightest thing
+    # on screen -- brightness stacking is the defect this project has fixed
+    # three times.
+    back_strength: float = 0.6
 
     def __post_init__(self) -> None:
         if self.params is None:
             self.params = self.video_type.default_params()
+        if self.back_type and self.back_params is None:
+            self.back_params = self.back_video_type.default_params()
+        if not self.back_type:
+            self.back_params = None
+
+    # ---------- the layer behind ----------
+
+    @property
+    def back_video_type(self):
+        return types_mod.get_type(self.back_type)
+
+    def with_back(self, slug: str | None) -> "Config":
+        """Choose what sits behind, or clear it with None or ""."""
+        if not slug:
+            self.back_type, self.back_params = "", None
+            return self
+        t = types_mod.get_type(slug)
+        if slug != self.back_type:
+            self.back_type, self.back_params = slug, t.default_params()
+        return self
+
+    def back_as_params(self) -> dict:
+        """The flat dict for the layer's own container.
+
+        The measured facts go in too: a beat renderer with no beat grid under it
+        is answering nothing.
+        """
+        if not self.back_type:
+            return {}
+        p = flatten(self.back_params)
+        p.update(asdict(self.track))
+        p["hold_windows"] = [tuple(w) for w in self.track.hold_windows]
+        return p
 
     # ---------- type ----------
 
@@ -117,7 +164,24 @@ class Config:
             vt = types_mod.get_type(types_mod.DEFAULT_TYPE)
             slug = vt.slug
         track = build_sections(_TrackHolder, {"track": data.get("track", {})}).track
-        return cls(type=slug, track=track, params=vt.params_from(data))
+
+        # The layer behind, if there is one. Its sections live under [back.*] so
+        # they cannot collide with the front renderer's -- both flatten into one
+        # namespace when they are pushed, but into *different containers*.
+        back = data.get("back") or {}
+        back_slug = back.get("type") or ""
+        back_params, strength = None, float(back.get("strength", 0.6))
+        if back_slug:
+            try:
+                bt = types_mod.get_type(back_slug)
+            except KeyError:
+                back_slug = ""
+            else:
+                back_params = bt.params_from(
+                    {k: v for k, v in back.items() if isinstance(v, dict)})
+        return cls(type=slug, track=track, params=vt.params_from(data),
+                   back_type=back_slug, back_params=back_params,
+                   back_strength=strength)
 
     def save(self, path: str | Path) -> None:
         path = Path(path)
@@ -140,6 +204,22 @@ class Config:
             out.append(f"{k} = {toml_value(v)}")
         out.append("")
         out.append(sections_toml(self.params))
+        if self.back_type:
+            out += [
+                "",
+                "# What sits behind the words: a second renderer, composited",
+                "# under the first. Its sections are namespaced so they cannot",
+                "# collide with the front renderer's.",
+                "[back]",
+                f"type = {toml_value(self.back_type)}",
+                f"strength = {toml_value(round(self.back_strength, 4))}",
+                "",
+            ]
+            body = sections_toml(self.back_params)
+            # `[grid]` -> `[back.grid]`, so a section name means one thing.
+            out.append("\n".join(
+                f"[back.{ln[1:]}" if ln.startswith("[") else ln
+                for ln in body.splitlines()))
         return "\n".join(out)
 
     def as_params(self) -> dict:

@@ -33,6 +33,18 @@ DIM_DAT = f"{ROOT}/v7_chars_dim"
 LIT_DAT = f"{ROOT}/v7_chars_lit"
 OUT_TOP = f"{ROOT}/out"
 
+# The two sub-containers a composed render lives in. The module-level paths
+# above stay pointed at `/project1` because that is still where a single
+# renderer is built and where `render` records from; the pushes below take a
+# container so the same code can fill either half.
+WORDS_BOX = f"{ROOT}/words"
+BEAT_BOX = f"{ROOT}/beat"
+
+
+def dat(container: str, name: str) -> str:
+    """`/project1/beat/params`, from ("/project1/beat", "params")."""
+    return f"{container}/{name}"
+
 
 def _py_repr(v) -> str:
     if isinstance(v, str):
@@ -68,9 +80,9 @@ def params_text(cfg: Config) -> str:
     return "\n".join(body)
 
 
-def push_params(client: TDClient, cfg: Config) -> None:
+def push_params(client: TDClient, cfg: Config, container: str = ROOT) -> None:
     """Write the config as a Python dict into the params DAT."""
-    client.write(PARAMS_DAT, params_text(cfg))
+    client.write(dat(container, "params"), params_text(cfg))
     _seed_cue_offset(client, cfg.as_params().get("offset", 0.0))
 
 
@@ -87,7 +99,7 @@ def _seed_cue_offset(client: TDClient, offset) -> None:
         pass                        # network built without the par yet
 
 
-def push_field(client: TDClient, cfg: Config) -> None:
+def push_field(client: TDClient, cfg: Config, container: str = ROOT) -> None:
     """Push the active video type's field script into the Script TOP's callbacks DAT.
 
     Then check it actually runs. Writing the text is not the same as the script
@@ -98,25 +110,40 @@ def push_field(client: TDClient, cfg: Config) -> None:
     src = cfg.video_type.field_source()
     if src is None:
         return                      # a type with no in-TD code is legitimate
-    client.write(CALLBACKS, src)
-    bad = field_errors(client)
+    client.write(dat(container, "v7_script_callbacks"), src)
+    bad = field_errors(client, container)
     if bad:
         raise TDError(f"the field script does not run:\n{bad}")
 
 
-def field_errors(client: TDClient) -> str:
+def all_field_errors(client: TDClient) -> str:
+    """What TouchDesigner says is wrong with ANY of the field scripts.
+
+    A composed render has two, and a layer that raises on every cook is just as
+    fatal as a front renderer that does -- the picture stops either way.
+    """
+    out = []
+    for box in field_containers(client):
+        bad = field_errors(client, box)
+        if bad:
+            out.append(f"{box}: {bad}")
+    return "\n".join(out)
+
+
+def field_errors(client: TDClient, container: str = ROOT) -> str:
     """What TouchDesigner says is wrong with the Script TOP, or "".
 
     Cooks it first, because a script that has not been asked to run yet has no
     errors to report. This is the cheapest possible question -- one round trip,
     no rendering -- and it is the one nothing was asking.
     """
+    top = dat(container, "v7_script")
     try:
-        client.run(f"def go():\n    o = op({SCRIPT_TOP!r})\n"
+        client.run(f"def go():\n    o = op({top!r})\n"
                    "    if o is not None:\n        o.cook(force=True)\ngo()")
     except TDError:
         pass
-    return client.op_errors(SCRIPT_TOP)
+    return client.op_errors(top)
 
 
 def params_were_read(client: TDClient, container: str = ROOT) -> bool | None:
@@ -149,28 +176,28 @@ def params_were_read(client: TDClient, container: str = ROOT) -> bool | None:
     return bool(int(out)) if out.strip() in ("0", "1") else None
 
 
-def push_cues(client: TDClient, table: CueTable) -> None:
-    client.write(CUE_DAT, table.to_dat_text())
+def push_cues(client: TDClient, table: CueTable, container: str = ROOT) -> None:
+    client.write(dat(container, "lyrics"), table.to_dat_text())
 
 
-def push_drums(client: TDClient, table) -> None:
+def push_drums(client: TDClient, table, container: str = ROOT) -> None:
     """Write the detected drum hits into the network.
 
     The field scripts look these up by time instead of evaluating the analysis
     CHOP, so the beat response is the same in a preview as in a render and does
     not depend on how fast TouchDesigner happens to be cooking.
     """
-    client.write(DRUM_DAT, table.to_dat_text())
+    client.write(dat(container, "drums"), table.to_dat_text())
 
 
-def push_bands(client: TDClient, table) -> None:
+def push_bands(client: TDClient, table, container: str = ROOT) -> None:
     """Write the measured spectrum into the network.
 
     Measured offline for the same reason the drums are: a spectrum taken live
     inside TouchDesigner depends on how fast it happens to be cooking, so a
     preview and a render of the same second would not agree.
     """
-    client.write(BAND_DAT, table.to_dat_text())
+    client.write(dat(container, "bands"), table.to_dat_text())
 
 
 def pull_bands(client: TDClient, dat: str = BAND_DAT):
@@ -192,19 +219,49 @@ def pull_cues(client: TDClient, dat: str = CUE_DAT) -> CueTable:
     return CueTable.from_dat_text(client.dat_text(dat))
 
 
+# Where a field script can live. A composed render has one per half; a project
+# built before compositing has one at the root. Asking TouchDesigner which of
+# them exist is cheaper than threading the config through `render`, and it is
+# right for both shapes.
+FIELD_BOXES = (WORDS_BOX, BEAT_BOX, ROOT)
+
+
+def field_containers(client: TDClient) -> list[str]:
+    """The containers that actually hold a Script TOP, nearest half first."""
+    want = list(FIELD_BOXES)
+    try:
+        out = client.run(
+            "def go():\n"
+            f"    boxes = {want!r}\n"
+            "    print([b for b in boxes if op(b + '/v7_script') is not None])\n"
+            "go()")
+    except TDError:
+        return [ROOT]
+    try:
+        found = [b for b in eval(out.strip()) if isinstance(b, str)]
+    except Exception:
+        found = []
+    return found or [ROOT]
+
+
 def reset_field_state(client: TDClient) -> None:
-    """Clear the field script's cached layout so the next cook rebuilds."""
-    client.run(
-        "def main():\n"
-        f"    d = op({CALLBACKS!r})\n"
-        "    if d is None:\n"
-        "        return 'no callbacks DAT'\n"
-        "    m = d.module\n"
-        "    if hasattr(m, 'S'):\n"
-        "        m.S.clear()\n"
-        "    return 'cleared'\n"
-        "print(main())"
-    )
+    """Clear every field script's cached layout so the next cook rebuilds.
+
+    Every one, because a composed render has two and clearing only the root's
+    would leave the layer drawing from a stale grid.
+    """
+    for box in field_containers(client):
+        client.run(
+            "def main():\n"
+            f"    d = op({dat(box, 'v7_script_callbacks')!r})\n"
+            "    if d is None:\n"
+            "        return 'no callbacks DAT'\n"
+            "    m = d.module\n"
+            "    if hasattr(m, 'S'):\n"
+            "        m.S.clear()\n"
+            "    return 'cleared'\n"
+            "print(main())"
+        )
 
 
 def quiesce(client: TDClient) -> None:
@@ -451,6 +508,66 @@ def timeline_state(client: TDClient) -> dict:
     # What the playhead can actually reach, which is the range, not the length.
     d["covers_seconds"] = round(min(d["end"], d["range_end"]) / rate, 2)
     return d
+
+
+def push_composed(client: TDClient, cfg: Config, table: CueTable | None = None,
+                  drums=None, bands=None) -> list[str]:
+    """Fill both halves of a composed render, or just the one that exists.
+
+    Each container gets its OWN params and field script, which is the whole
+    point: the layer is a renderer in its own right rather than a section of
+    somebody else's tunables. The tables are shared where they mean the same
+    thing -- the drums are the song's drums whichever half is answering them --
+    and the cues go only where words are drawn.
+    """
+    from . import types as types_mod
+
+    if not cfg.back_type:
+        return push_all(client, cfg, table, drums, bands)
+
+    done: list[str] = []
+    for box, conf, slug in ((WORDS_BOX, cfg, cfg.type),
+                            (BEAT_BOX, _Behind(cfg), cfg.back_type)):
+        if not slug:
+            continue
+        push_params(client, conf, box)
+        push_field(client, conf, box)
+        done.append(f"{slug} into {box.rsplit('/', 1)[-1]}")
+        if drums is not None:
+            push_drums(client, drums, box)
+        if table is not None and conf.video_type.needs_lyrics:
+            push_cues(client, table, box)
+            done.append(f"{len(table.cues)} cues")
+        if bands is not None and types_mod.BANDS in conf.video_type.needs:
+            push_bands(client, bands, box)
+            done.append(f"{len(bands)} band slices")
+    if drums is not None:
+        done.append(f"{len(drums)} drum hits")
+    reset_field_state(client)
+    done.append("state reset")
+    return done
+
+
+class _Behind:
+    """The config as the layer's renderer sees it.
+
+    `push_params` and `push_field` read `cfg.as_params()` and
+    `cfg.video_type`; handed the real Config they would fill the layer's
+    container with the FRONT renderer's tunables and field script, which is
+    exactly the confusion compositing exists to end.
+    """
+
+    def __init__(self, cfg: Config):
+        self._cfg = cfg
+        self.type = cfg.back_type
+        self.track = cfg.track
+
+    @property
+    def video_type(self):
+        return self._cfg.back_video_type
+
+    def as_params(self) -> dict:
+        return self._cfg.back_as_params()
 
 
 def push_all(client: TDClient, cfg: Config, table: CueTable | None = None,

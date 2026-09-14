@@ -253,58 +253,54 @@ def _honour_pick(ctx: Ctx, say) -> dict:
 
 
 def _apply_backdrop(cfg, back_type: str, back_style: str, say) -> bool:
-    """Put a beatsync look behind the words.
+    """Put a beat look behind the words.
 
-    The choice is a (renderer, style) pair rather than a preset key, because the
-    thing being chosen is one of the looks already on screen -- inventing a
-    parallel vocabulary for them was the mistake this replaces.
+    It is simply a second renderer now, with its own tunables, composited under
+    the first. It used to be translated into a `backdrop` section of
+    `lyric_grid`'s own parameters -- which could only work when the beat
+    renderer WAS that character grid, so five of seven could never be a layer
+    and the gallery had to change the meaning of its second row to say so.
 
-    Nothing forbids *reading* a style of another type; only `Style.apply_to`
-    refuses to apply one across types, and that refusal is right. This
-    translates instead.
+    The choice is a (renderer, style) pair because that is what is on screen.
     """
-    from .styles import get_style
+    from .styles import AmbiguousStyle, get_style
     from .types import get_type
-
-    mod = cfg.video_type._params_module()
-    translate = getattr(mod, "backdrop_from", None)
-    if translate is None:
-        say(f"{cfg.video_type.name} cannot carry anything behind it")
-        return False
 
     cfg.track.back_type = back_type
     cfg.track.back_style = back_style
     if not back_type:
-        translate(cfg.params, None)
+        cfg.with_back(None)
         say("nothing behind the words")
         return True
 
     try:
         vt = get_type(back_type)
     except KeyError:
-        say(f"no video type {back_type!r}; leaving the backdrop alone")
+        say(f"no video type {back_type!r}; leaving the layer alone")
         return False
-    source = vt.default_params()
+
+    cfg.with_back(vt.slug)
     if back_style:
         try:
-            source = get_style(back_style, type=back_type).params
-        except (KeyError, FileNotFoundError) as e:
+            st = get_style(back_style, type=back_type)
+        except (KeyError, FileNotFoundError, AmbiguousStyle) as e:
             say(f"no {back_type} style {back_style!r}: {e}")
             return False
+        import copy
+        cfg.back_params = copy.deepcopy(st.params)
 
-    clamped = translate(cfg.params, source)
-    mod.reconcile(cfg.params)
-    problems = cfg.params.validate()
+    problems = cfg.back_params.validate()
     if problems:
-        say(f"that backdrop does not fit this look: {'; '.join(problems)}")
+        # Reconciled rather than refused: the layer's own tunables are valid for
+        # it as the whole picture, and it is the mix that dims it.
+        mod = vt._params_module()
+        reconcile = getattr(mod, "reconcile", None)
+        if reconcile is not None:
+            reconcile(cfg.back_params)
+        problems = cfg.back_params.validate()
+    if problems:
+        say(f"that look is not valid: {'; '.join(problems)}")
         return False
-    # `reconcile` runs before `validate`, so a backdrop can never fail -- it is
-    # quietly clipped instead. Say what had to give, or a look renders at half
-    # strength and nothing reports it.
-    for line in clamped:
-        say(line)
-    for note in getattr(cfg.params, "notes", list)():
-        say(note)
     say(f"put {back_style or vt.name} behind the words")
     return True
 

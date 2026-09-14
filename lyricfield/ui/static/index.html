@@ -1711,11 +1711,6 @@ function nameOfType(slug) {
   return (t && t.name) || 'This renderer';
 }
 
-function carriesBackdrop(slug) {
-  if (!slug) return false;
-  const t = (TYPES || []).find(x => x.slug === slug);
-  return !!(t && t.carries_backdrop);
-}
 
 function renderGallery() {
   const host = $('#styleGallery'); host.innerHTML = '';
@@ -1758,21 +1753,17 @@ function renderGallery() {
     const head = document.createElement('header'); head.className = 'picker-head';
     const num = document.createElement('span'); num.className = 'n';
     num.textContent = fam === 'beatsync' ? '2' : '1';
-    // The beat row means two different things, and which one depends on the
-    // pick above it. Only `lyric_grid` can carry a look behind its words; every
-    // other lyric renderer draws its own picture, so a beat look there is not a
-    // layer underneath but an alternative instead. Saying "Behind the words"
-    // over an alternative is how a person picks a combination the run will
-    // refuse.
-    const layered = fam === 'beatsync' && carriesBackdrop(TYPE_SLUG);
-    const alt = fam === 'beatsync' && TYPE_SLUG && !layered;
+    // The beat row means ONE thing now. It used to change meaning with the pick
+    // above it, because a layer was a section of `lyric_grid`'s own tunables and
+    // only the two renderers that share its character field could fill one --
+    // so for the other six the row had to say "or instead of the words". The
+    // two halves are composited now, so any beat look goes under any lyric
+    // look, or stands alone.
     const h = document.createElement('h3');
-    h.textContent = fam !== 'beatsync' ? 'The words'
-                  : alt ? 'Or instead of the words' : 'Behind the words';
+    h.textContent = fam !== 'beatsync' ? 'The words' : 'Behind the words';
     const sub = document.createElement('span'); sub.className = 'sub';
     sub.textContent = fam !== 'beatsync' ? 'how the lyrics are drawn'
-                  : alt ? `${nameOfType(TYPE_SLUG)} draws its own picture, so a beat look replaces it`
-                        : 'or the whole picture on its own';
+                                         : 'or the whole picture on its own';
     const pick = document.createElement('span'); pick.className = 'pick';
     pick.textContent = chosen ? chosen.name : 'None';
     head.append(num, h, sub, pick);
@@ -1794,12 +1785,9 @@ function pickedIn(fam) {
 
 function setPick(fam, type, style) {
   if (fam === 'beatsync') {
-    // If the picked lyric renderer cannot carry a backdrop, a beat look is an
-    // ALTERNATIVE to it rather than a layer under it -- so choosing one clears
-    // the lyric pick instead of forming a pair the run would refuse.
-    if (type && TYPE_SLUG && !carriesBackdrop(TYPE_SLUG)) {
-      TYPE_SLUG = ''; STYLE_SLUG = '';
-    }
+    // The two rows are independent: every pairing renders. Choosing a beat look
+    // used to clear the lyric pick whenever that renderer could not carry a
+    // backdrop, which was true of six of the eight.
     BACK_TYPE = type; BACK_STYLE = style;
   }
   else {
@@ -1892,12 +1880,11 @@ function styleCard(st, fam) {
   // file that is never made -- and all thirteen did for the five lyric
   // renderers that carry no backdrop at all. The client cannot know what is on
   // disk. The server looks, and says.
-  let src = st.preview, shown = st.has_preview;
-  if (fam === 'beatsync' && !st.builtin && carriesBackdrop(TYPE_SLUG)
-      && st.backdrop_preview) {
-    src = st.backdrop_preview;
-    shown = true;
-  }
+  // The look's own preview, always. A beatsync tile used to swap in a
+  // "behind the words" capture when one existed, because a layer was then a
+  // rescaled version of the look rather than the look itself. Composited, what
+  // lands behind the words IS this picture, dimmed by the mix.
+  const src = st.preview, shown = st.has_preview;
   const poster = src ? src.replace(/\.mp4$/, '.png') : '';
   // The poster is always there, so the grid is whole on first paint -- it used
   // to show one moving tile among twenty empty rectangles. The video mounts on

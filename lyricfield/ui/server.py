@@ -915,48 +915,27 @@ class PreviewIn(BaseModel):
 # style's slug alone meant `_backdrops/lyric_grid/tide` stood for "the backdrop
 # for some style called tide" -- one same-named style away from two tiles
 # showing one video.
-def backdrop_url(lyric_type: str, st) -> str:
-    return f"/styles/_backdrops/{lyric_type}/{st.type}/{st.slug}/preview.mp4"
-
-
 def style_payload(st) -> dict:
-    """One style, as the gallery needs to see it.
-
-    `backdrop_preview` is answered by LOOKING. The client cannot know what is
-    on disk, and when it guessed -- building a backdrop path for every beatsync
-    tile and trusting it -- six of thirteen tiles requested a file that is
-    never generated, and all thirteen did for five of the six lyric renderers.
-    """
+    """One look, as the gallery needs to see it."""
     d = st.to_dict(STYLES_ROOT)
     try:
-        vt = types_mod.get_type(st.type)
-        d["family"] = vt.family
+        d["family"] = types_mod.get_type(st.type).family
     except KeyError:
         d["family"] = "lyric"
-
-    from lyricfield.types.lyric_grid.params import can_back_words
-    d["can_back_words"] = bool(d["family"] == types_mod.BEATSYNC
-                               and can_back_words(st.params))
-    d["backdrop_preview"] = None
-    if d["can_back_words"]:
-        # Only lyric_grid carries a backdrop at all, so that is the only
-        # namespace there can be a capture under.
-        url = backdrop_url(types_mod.DEFAULT_TYPE, st)
-        if (STYLES_ROOT / url[len("/styles/"):]).exists():
-            d["backdrop_preview"] = url
     return d
 
 
 def type_payload(t) -> dict:
-    """One renderer, as the gallery needs to see it."""
+    """One renderer, as the gallery needs to see it.
+
+    No `carries_backdrop` any more. It used to say whether a beat look could sit
+    behind this renderer's words, which only `lyric_grid` could -- the layer was
+    a section of its own tunables. The two halves are composited now, so every
+    renderer can carry every other and the question has no answer to give.
+    """
     d = t.to_dict()
     d["has_preview"] = (STYLES_ROOT / "_builtin" / t.slug / t.slug
                         / "preview.mp4").exists()
-    # Whether a beat look can sit behind this renderer's words. Only a renderer
-    # that declares `backdrop_from` can carry one; the rest draw their own
-    # picture and a beat look can only replace them, never layer under them.
-    mod = t._params_module()
-    d["carries_backdrop"] = bool(getattr(mod, "backdrop_from", None))
     return d
 
 

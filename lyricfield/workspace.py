@@ -354,7 +354,20 @@ class Workspace:
             out["opened"] = "already open"
 
         # ---- 2. the network ----
-        if vt.can_build:
+        # Composed: the words in `/project1/words`, whatever is behind them in
+        # `/project1/beat`, and `/project1/out` the mix of the two. One layout
+        # whether or not there is a layer, because two layouts means two code
+        # paths and the one that is rarely taken is the one that rots.
+        if cfg.back_type:
+            from . import compose
+            say(f"composing {vt.name} over {cfg.back_video_type.name}")
+            res = compose.build(client, cfg, progress=say)
+            out["built"] = 2
+            out["problems"] = res.get("problems")
+            out["composed"] = {"words": res.get("words"),
+                               "beat": res.get("beat")}
+            out["discrepancies"] = []
+        elif vt.can_build:
             found = vt.verify(client, cfg) if not rebuild else ["forced"]
             # "note:" entries are observations, not faults -- unrelated operators
             # left in the project are none of the builder's business.
@@ -403,10 +416,16 @@ class Workspace:
         if self.drums_path.exists():
             from .drums import DrumTable
             drums = DrumTable.load(self.drums_path)
+        bands = None
+        if cfg.back_type or types_mod_needs_bands(cfg):
+            from .bands import BandTable
+            if self.bands_path.exists():
+                bands = BandTable.load(self.bands_path)
         say("pushing params, field script"
             + (", cues" if wants_words else "")
-            + (", drums" if drums is not None else ""))
-        out["pushed"] = sync.push_all(client, cfg, cues, drums)
+            + (", drums" if drums is not None else "")
+            + (", and the layer behind" if cfg.back_type else ""))
+        out["pushed"] = sync.push_composed(client, cfg, cues, drums, bands)
 
         # ---- 4. persist ----
         # A built network that is only in TouchDesigner's memory is one crash
@@ -482,3 +501,18 @@ def list_workspaces(root: str | Path = DEFAULT_ROOT) -> list[Workspace]:
         if (d / "config.toml").exists():
             out.append(Workspace(root=root, slug=d.name, name=d.name))
     return out
+
+
+def types_mod_needs_bands(cfg) -> bool:
+    """Does either half of this config draw a spectrum?
+
+    Only `spectrum` reads the band table, and pushing one into a network with no
+    `bands` DAT is a write to an operator that is not there -- which
+    `TDClient.write` reports as an error rather than ignoring.
+    """
+    from . import types as types_mod
+
+    if types_mod.BANDS in cfg.video_type.needs:
+        return True
+    return bool(cfg.back_type
+                and types_mod.BANDS in cfg.back_video_type.needs)

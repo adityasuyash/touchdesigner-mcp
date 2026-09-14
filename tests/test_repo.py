@@ -33,8 +33,10 @@ REQUIRED = [
     # the project every new song is forked from, in its diffable text form
     "templates/_template.toe.toc",
     "templates/_template.toe.dir/local/time.parm",
-    # the one shipped style, and the preview that makes it choosable
-    "styles/lyric_grid/calm-drift/style.toml",
+    # a shipped look, so a fresh clone has something choosable in the gallery.
+    # It used to name `calm-drift`, which was culled with the rest of the
+    # near-duplicate tiles -- naming one file made this a test of that file
+    # rather than of the property, which is that SOME look ships.
     # the package itself
     "lyricfield/run.py",
     "lyricfield/describe.py",
@@ -43,6 +45,7 @@ REQUIRED = [
     "lyricfield/types/__init__.py",
     "lyricfield/types/lyric_grid/build.py",
     "lyricfield/types/lyric_grid/params.py",
+    "lyricfield/compose.py",
     "lyricfield/types/lyric_grid/field.py",
 ]
 
@@ -277,3 +280,14 @@ def test_no_render_call_can_ship_a_silent_file():
             assert "source=" in call, (
                 f"{f.relative_to(REPO)} renders without source=, so a song "
                 f"with no stems gets a silent file and is told it worked")
+
+
+def test_a_fresh_clone_has_at_least_one_shipped_look():
+    """Named as a property rather than as a filename.
+
+    This was `styles/lyric_grid/calm-drift/style.toml` in the required list, so
+    culling that look broke a test about clones rather than about that look.
+    """
+    shipped = [p for p in _tracked() if p.endswith("/style.toml")
+               and p.startswith("styles/")]
+    assert shipped, "a fresh clone would have an empty gallery"

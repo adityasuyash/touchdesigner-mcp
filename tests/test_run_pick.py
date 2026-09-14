@@ -111,22 +111,24 @@ def test_no_pick_at_all_leaves_the_song_alone(song):
     assert song.load_config().type == types_mod.DEFAULT_TYPE
 
 
-# --------------------------------------------------------- the backdrop
+# ------------------------------------------------------- the layer behind
 
 BEATSYNC_STYLES = [st for st in S.list_styles()
                    if types_mod.get_type(st.type).family == types_mod.BEATSYNC]
-
-# Only the beat looks that draw into the grid's own character field can become
-# the layer BEHIND lyric_grid's words. `rings`, `strata` and `scope` have their
-# own networks; there is no sense in which one renderer's picture is another
-# renderer's ambient layer. This was free to assume while every beatsync type
-# WAS the grid.
-BACKABLE = [st for st in BEATSYNC_STYLES if P.can_back_words(st.params)]
+BEAT_TYPES = [t.slug for t in types_mod.list_types()
+              if t.family == types_mod.BEATSYNC]
 
 
-@pytest.mark.parametrize("st", BACKABLE, ids=[s.slug for s in BACKABLE])
-def test_a_grid_beat_style_can_go_behind_the_words(st, tmp_path):
-    """The thing that was asked for: a lyric look AND a beat look, together."""
+@pytest.mark.parametrize("st", BEATSYNC_STYLES, ids=[s.slug for s in BEATSYNC_STYLES])
+def test_any_beat_look_can_go_behind_the_words(st, tmp_path):
+    """The thing that was asked for: a lyric look AND a beat look, together.
+
+    EVERY beat look, which is the change. A layer used to be a section of
+    `lyric_grid`'s own tunables filled in from a beat renderer's, so only the
+    two that share its character field could ever be one -- `rings`, `strata`,
+    `scope`, `halftone` and `spectrum` draw pictures that are not made of cells
+    and could not be translated into one.
+    """
     ws = Workspace.create(f"Behind {st.slug}", root=tmp_path, copy_source=False)
     said = []
     changed = run_mod._honour_pick(
@@ -136,60 +138,62 @@ def test_a_grid_beat_style_can_go_behind_the_words(st, tmp_path):
     cfg = ws.load_config()
     assert cfg.type == types_mod.DEFAULT_TYPE      # still the lyric renderer
     assert cfg.video_type.needs_lyrics             # still draws the words
-    assert cfg.backdrop.back_level > 0             # and a field behind them
+    assert cfg.back_type == st.type                # and a renderer behind it
     assert cfg.track.back_style == st.slug
     assert cfg.validate() == []
 
 
-def test_the_five_looks_stay_distinguishable_behind_words():
-    """They collapsed into about three under the first translation: the kick was
-    normalised away so every style got the same beat, and only geometry
-    survived. Each must still differ from every other in what it emphasises."""
-    from lyricfield.types.lyric_grid.params import Params, backdrop_from
+@pytest.mark.parametrize("slug", BEAT_TYPES)
+def test_every_beat_renderer_can_be_a_layer_without_a_style(slug, tmp_path):
+    ws = Workspace.create(f"Bare {slug}", root=tmp_path, copy_source=False)
+    run_mod._honour_pick(
+        _ctx(ws, video_type=types_mod.DEFAULT_TYPE, back_type=slug),
+        lambda m: None)
+    cfg = ws.load_config()
+    assert cfg.back_type == slug
+    assert cfg.back_params is not None
+
+
+def test_the_layer_keeps_its_own_look_rather_than_being_translated():
+    """The old mechanism rescaled a beat look into the grid's vocabulary, and
+    five looks collapsed into about three doing it. Now the layer simply IS the
+    renderer, so nothing is lost in between."""
+    import copy
+
+    from lyricfield.config import Config
 
     seen = {}
-    for st in BACKABLE:
-        p = Params()
-        backdrop_from(p, st.params)
-        b = p.backdrop
-        seen[st.slug] = (round(b.back_wave, 2), round(b.back_kick, 2),
-                         round(b.back_snare, 2), round(b.back_high, 2),
-                         round(b.back_density, 2))
-    assert len(set(seen.values())) == len(seen), f"looks collapsed: {seen}"
+    for st in BEATSYNC_STYLES:
+        c = Config(type=types_mod.DEFAULT_TYPE).with_back(st.type)
+        c.back_params = copy.deepcopy(st.params)
+        seen[f"{st.type}/{st.slug}"] = c.back_as_params()
+    # `repr`, because a params dict holds lists (hold_windows) and a tuple of
+    # those is not hashable.
+    flat = {k: repr(sorted(v.items(), key=str)) for k, v in seen.items()}
+    assert len(set(flat.values())) == len(flat), "looks collapsed into each other"
 
 
-def test_the_kick_led_look_is_still_kick_led():
-    from lyricfield.types.lyric_grid.params import Params, backdrop_from
-    p = Params()
-    backdrop_from(p, S.get_style("heartbeat", type="pulse_grid").params)
-    assert p.backdrop.back_kick > p.backdrop.back_wave * 3, (
-        "heartbeat is 'the kick is the whole picture'; it must not arrive as a sweep")
-
-
-def test_the_hat_led_look_keeps_its_hats():
-    from lyricfield.types.lyric_grid.params import Params, backdrop_from
-    p = Params()
-    backdrop_from(p, S.get_style("shimmer", type="pulse_grid").params)
-    assert p.backdrop.back_high > p.backdrop.back_wave, (
-        "shimmer has no sweep; the hats and snare carry it")
-
-
-def test_a_beatsync_style_brings_its_own_colour():
+def test_the_layer_brings_its_own_colour():
     """Per the decision: the tile you clicked is what lands."""
-    from lyricfield.types.lyric_grid.params import Params, backdrop_from
-    p = Params()
+    import copy
+
+    from lyricfield.config import Config
+
     st = S.get_style("heartbeat", type="pulse_grid")
-    backdrop_from(p, st.params)
-    assert p.backdrop.back_hue == st.params.look.dim_hue
+    c = Config(type=types_mod.DEFAULT_TYPE).with_back("pulse_grid")
+    c.back_params = copy.deepcopy(st.params)
+    assert c.back_as_params()["dim_hue"] == st.params.look.dim_hue
 
 
 def test_no_backdrop_clears_it(tmp_path):
     ws = Workspace.create("No backdrop", root=tmp_path, copy_source=False)
     run_mod._honour_pick(_ctx(ws, back_type="pulse_grid", back_style="shimmer"),
                          lambda m: None)
-    assert ws.load_config().backdrop.back_level > 0
+    assert ws.load_config().back_type == "pulse_grid"
     run_mod._honour_pick(_ctx(ws, back_type="", back_style=""), lambda m: None)
-    assert ws.load_config().backdrop.back_level == 0
+    cfg = ws.load_config()
+    assert cfg.back_type == ""
+    assert cfg.back_params is None
 
 
 def test_an_unknown_backdrop_is_reported_rather_than_applied(tmp_path):

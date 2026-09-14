@@ -24,7 +24,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .sync import OUT_TOP, SCRIPT_TOP, field_errors, reset_field_state
+from .sync import (OUT_TOP, SCRIPT_TOP, all_field_errors, field_errors,
+                   field_containers, reset_field_state)
 from .td_client import TDClient, TDUnavailable
 
 
@@ -125,9 +126,12 @@ def park(client: TDClient, at_seconds: float = 0.0,
         "def main():\n"
         "    me.time.play = 0\n"
         f"    op('/local/time').frame = {want}\n"
-        f"    sc = op({SCRIPT_TOP!r})\n"
-        "    if sc is not None:\n"
-        "        sc.bypass = False\n"
+        # Every field script, not just the root's: a composed render has one
+        # per half and a bypassed layer is an invisible one.
+        "    for _b in ('/project1/words', '/project1/beat', '/project1'):\n"
+        "        sc = op(_b + '/v7_script')\n"
+        "        if sc is not None:\n"
+        "            sc.bypass = False\n"
         f"    o = op({OUT_TOP!r})\n"
         "    if o is not None:\n"
         "        o.cook(force=True)\n"
@@ -295,7 +299,7 @@ def wait_for_container(path: Path, timeout: float = 900.0,
             # change, or the first kick. Waiting out the full timeout to then
             # report a missing file is the wrong answer when TouchDesigner has
             # been holding the traceback the whole time.
-            bad = client.op_errors(SCRIPT_TOP)
+            bad = all_field_errors(client)
             if bad:
                 raise FieldBroken(
                     "the field script started raising during the render, so "
