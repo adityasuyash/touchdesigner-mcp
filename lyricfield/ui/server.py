@@ -757,9 +757,20 @@ def do_stills(payload: StillsIn):
 
 @app.get("/api/types")
 def list_video_types():
-    """The renderers a song can be made as. Ingest is shared; these differ."""
-    return {"types": [t.to_dict() for t in types_mod.list_types()],
-            "default": types_mod.DEFAULT_TYPE}
+    """The renderers a song can be made as. Ingest is shared; these differ.
+
+    `has_preview` is answered by looking, not asserted. The gallery used to
+    hardcode it true for every built-in tile, which was fine while there were
+    three renderers and all three had one -- and put eight broken images on the
+    screen the moment there were eleven.
+    """
+    builtin = styles_mod.DEFAULT_ROOT / "_builtin"
+    out = []
+    for t in types_mod.list_types():
+        d = t.to_dict()
+        d["has_preview"] = (builtin / t.slug / t.slug / "preview.mp4").exists()
+        out.append(d)
+    return {"types": out, "default": types_mod.DEFAULT_TYPE}
 
 
 @app.post("/api/songs/{slug}/type")

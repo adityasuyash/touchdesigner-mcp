@@ -1688,7 +1688,11 @@ function renderGallery() {
   const builtins = (TYPES || []).map(t => ({
     slug: '', type: t.slug, name: t.name, family: t.family || 'lyric',
     preview: `/styles/_builtin/${t.slug}/${t.slug}/preview.mp4`,
-    has_preview: true, builtin: true, description: t.description || ''}));
+    // Answered by the server, which looks on disk. Hardcoding this true was
+    // harmless while every renderer had a preview and put eight broken images
+    // on the screen the moment one did not.
+    has_preview: !!t.has_preview, builtin: true,
+    description: t.description || ''}));
 
   const fams = {};
   for (const st of [...builtins, ...STYLES]) (fams[st.family || 'lyric'] ||= []).push(st);
