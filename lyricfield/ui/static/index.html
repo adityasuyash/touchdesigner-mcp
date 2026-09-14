@@ -1013,10 +1013,18 @@ function styleCard(st, fam) {
   b.type = 'button'; b.className = 'scard';
   b.setAttribute('role','radio'); b.setAttribute('aria-checked', String(on));
   const t = document.createElement('div'); t.className = 'thumb';
-  const poster = st.preview ? st.preview.replace(/\.mp4$/, '.png') : '';
-  if (st.has_preview && on)
-    t.innerHTML = `<video src="${st.preview}" autoplay loop muted playsinline poster="${poster}"></video>`;
-  else if (st.has_preview)
+  // A beatsync look behind words is dimmer and thinner than the same look as
+  // the whole picture, so its own preview would promise something the render
+  // cannot deliver. Show the backdrop capture whenever words are also chosen.
+  let src = st.preview, shown = st.has_preview;
+  if (fam === 'beatsync' && TYPE_SLUG && !st.builtin) {
+    src = `/styles/_backdrops/${TYPE_SLUG}/${st.slug}/preview.mp4`;
+    shown = true;
+  }
+  const poster = src ? src.replace(/\.mp4$/, '.png') : '';
+  if (shown && on)
+    t.innerHTML = `<video src="${src}" autoplay loop muted playsinline poster="${poster}"></video>`;
+  else if (shown)
     t.innerHTML = `<img src="${poster}" alt="${st.name}">`;
   else t.innerHTML = '<span class="noprev">no preview yet</span>';
   const c = document.createElement('span'); c.className = 'cap'; c.textContent = st.name;

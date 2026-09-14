@@ -104,61 +104,55 @@ def build_styles() -> list[styles_mod.Style]:
 
 
 def backdrop_previews(client, live, root, moments) -> list[str]:
-    """One short capture per backdrop, so the row can show what it does.
+    """One capture per beatsync look, as it appears BEHIND WORDS.
 
-    These are not styles -- they set a handful of one type's tunables and have
-    no `style.toml` -- so they live under `styles/_backdrops/<key>/`, which the
+    Its own preview will not do. `styles/pulse_grid/heartbeat/preview.mp4` was
+    captured with that style as the whole picture, at a peak and a density it
+    is not allowed behind lyrics -- so the tile would promise something the
+    render cannot deliver, which is the same class of lie as a still preview of
+    a moving style.
+
+    These are not styles: they set a handful of one type's tunables and have no
+    `style.toml`. They live under `styles/_backdrops/<type>/<slug>/`, which the
     existing /styles mount serves, the `!styles/**/preview.mp4` negation tracks,
     and `_style_dirs` skips because it yields only folders holding a style file.
-
-    Captured through the same `capture_preview` as everything else, so they get
-    the placeholder words, the restore-on-failure, and the refusal to write a
-    still frame.
     """
     import importlib
 
-    failed = []
-    for vt in types_mod.list_types():
-        P = importlib.import_module(f"lyricfield.types.{vt.slug}.params")
-        failed += _one_types_backdrops(client, vt, P, live, moments)
-    return failed
-
-
-def _one_types_backdrops(client, vt, P, live, moments) -> list[str]:
     from lyricfield import styles as S
 
+    lyric = types_mod.get_type(types_mod.DEFAULT_TYPE)
+    P = importlib.import_module(f"lyricfield.types.{lyric.slug}.params")
+    if not hasattr(P, "backdrop_from"):
+        return []
+
     failed = []
-    for key, label, why, deltas in getattr(P, "BACKDROPS", ()):
-        # From the TYPE's defaults, not from whatever the open project happens
-        # to be wearing -- it may well be another renderer entirely, whose
-        # sections these paths do not exist in.
-        params = vt.default_params()
-        for path, value in deltas.items():
-            section, name = path.split(".")
-            setattr(getattr(params, section), name, value)
-        # The placeholder words run 0.4s to 7.5s, but the capture is parked
-        # wherever the drums are -- around 70s on this song. Without shifting
-        # the cues to meet it, every backdrop preview is a field with no words
-        # in it, which is the one thing these are meant to show. `offset` is the
-        # knob for exactly this and already exists.
-        if getattr(params, "cueing", None) is not None and moments:
+    for st in S.list_styles():
+        vt = types_mod.get_type(st.type)
+        if vt.family != types_mod.BEATSYNC:
+            continue
+        params = lyric.default_params()
+        clamped = P.backdrop_from(params, st.params)
+        for line in clamped:
+            print(f"    {st.name}: {line}")
+        # The words have to be where the capture is parked, or the preview shows
+        # a field with no lyrics in it -- which is the one thing it must show.
+        if moments:
             params.cueing.offset = round(float(moments[0]), 3)
         P.reconcile(params)
-        problems = params.validate()
-        if problems:
-            print(f"{label}: not a valid config: {problems}")
-            failed.append(label)
+        if params.validate():
+            print(f"{st.name}: not valid behind words: {params.validate()}")
+            failed.append(st.name)
             continue
 
-        # A Style object is the unit `capture_preview` knows how to push and
-        # record; this one is never saved, so nothing joins the style shelf.
-        draft = S.Style(name=label, slug=key, type=vt.slug,
-                        description=why, params=params)
+        draft = S.Style(name=f"{st.name} behind", slug=st.slug, type=lyric.slug,
+                        description=f"{st.description} — behind the words",
+                        params=params)
         if draft.preview_video(BACKDROP_ROOT).exists():
-            print(f"{label}: preview already there")
+            print(f"{st.name} behind: preview already there")
             continue
         for at in moments:
-            print(f"{label}: recording from {at:.1f}s")
+            print(f"{st.name} behind: recording from {at:.1f}s")
             try:
                 S.capture_preview(client, draft, at=at, seconds=4.0,
                                   root=BACKDROP_ROOT, live=live,
@@ -167,7 +161,7 @@ def _one_types_backdrops(client, vt, P, live, moments) -> list[str]:
             except S.StillPreview as e:
                 print(f"    {e}")
         else:
-            failed.append(label)
+            failed.append(st.name)
     return failed
 
 

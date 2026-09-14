@@ -5,7 +5,7 @@ name = "Calm Drift"
 slug = "calm-drift"
 type = "lyric_grid"
 description = "longer dissolves, slower drift and a softer beat than the default"
-created = "2026-09-14T08:18:02+00:00"
+created = "2026-09-14T09:23:08+00:00"
 source_song = ""
 
 [grid]
@@ -69,6 +69,9 @@ back_level = 0.0
 back_lift = 0.045
 back_wave = 0.0
 back_swell = 0.0
+back_kick = 1.0
+back_snare = 1.0
+back_high = 0.0
 back_hue = 0.58
 back_sat = 0.2
 back_density = 0.55

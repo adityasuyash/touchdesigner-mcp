@@ -5,7 +5,7 @@ name = "Constellation"
 slug = "constellation"
 type = "pulse_grid"
 description = "sparse, slow and wide — few points, held a long time"
-created = "2026-09-14T08:18:02+00:00"
+created = "2026-09-14T09:23:08+00:00"
 source_song = ""
 
 [grid]

@@ -176,3 +176,33 @@ def test_something_that_is_not_a_container_is_rejected(tmp_path):
     junk = tmp_path / "half-written.mp4"
     junk.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 4000)
     assert R._finished(junk) is False
+
+
+def test_every_beatsync_look_has_a_preview_of_it_behind_words():
+    """Its own preview was captured as the whole picture, at a brightness and
+    density it is not allowed behind lyrics -- so the tile would promise
+    something the render cannot deliver."""
+    beat = [st for st in SHIPPED
+            if types_mod.get_type(st.type).family == types_mod.BEATSYNC]
+    if not BACKDROP_ROOT.exists():
+        pytest.skip("no backdrop previews on this machine")
+    missing = [st.slug for st in beat
+               if not (BACKDROP_ROOT / types_mod.DEFAULT_TYPE / st.slug
+                       / "preview.mp4").exists()]
+    assert not missing, f"no behind-the-words preview for: {missing}"
+
+
+def test_the_backdrop_previews_differ_from_the_standalone_ones():
+    """If they were the same file the whole point would be lost."""
+    import hashlib
+    beat = [st for st in SHIPPED
+            if types_mod.get_type(st.type).family == types_mod.BEATSYNC]
+    if not BACKDROP_ROOT.exists():
+        pytest.skip("no backdrop previews on this machine")
+    for st in beat:
+        behind = BACKDROP_ROOT / types_mod.DEFAULT_TYPE / st.slug / "preview.mp4"
+        alone = st.preview_video(ROOT)
+        if not (behind.exists() and alone.exists()):
+            continue
+        assert hashlib.md5(behind.read_bytes()).digest() != \
+            hashlib.md5(alone.read_bytes()).digest(), st.slug
