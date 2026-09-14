@@ -10,82 +10,127 @@
      warm-tinted shadow, never an outline around every region -- outlines
      everywhere are the specific thing that read as dated. */
   :root {
-    color-scheme: light;
-    --canvas:   #f5f2ed;
-    --surface:  #fffefc;
-    --sunken:   #edeae3;
-    --text:     #1f1d1a;
-    --dim:      #77716a;
-    --faint:    #a9a299;
-    --hairline: #e5e0d8;
-    --accent:   #a8542f;
-    --accent-soft: rgba(168,84,47,.10);
-    --accent-text: #fffefc;
-    --ok:       #3f6b45;
-    --warn:     #8a6a1f;
-    --bad:      #a63a2c;
-    --lift-1: 0 1px 2px rgba(62,49,36,.04), 0 6px 18px rgba(62,49,36,.05);
-    --lift-2: 0 2px 8px rgba(62,49,36,.07), 0 18px 40px rgba(62,49,36,.09);
+    color-scheme: dark;
+
+    /* The ground stack. A shell with a sidebar, a top bar, cards inside cards
+       and a video theatre needs more than one surface and one well, and on a
+       near-black ground a drop shadow is nearly invisible -- so depth is
+       carried by VALUE, each layer a step lighter, with real shadow kept for
+       the few things that genuinely float. */
+    --bg-0:   #0a0a0d;   /* sidebar, theatre floor: the deepest */
+    --bg-1:   #0e0e11;   /* the app canvas */
+    --bg-2:   #17171c;   /* cards, inputs */
+    --bg-3:   #1e1e25;   /* raised: hover, popover, a segmented track */
+    --bg-4:   #272730;   /* pressed */
+
+    /* Hairlines are alpha, not colour, so one value reads correctly on any of
+       the five grounds. That is what lets depth come from the surface stack
+       instead of an outline drawn around every region. */
+    --line-1: rgba(255,255,255,.07);
+    --line-2: rgba(255,255,255,.13);
+
+    --text:   #f2f2f5;
+    --text-2: #c3c3cd;
+    --dim:    #9a9aa5;
+    --faint:  #6a6a76;
+
+    /* One accent, with its own hover and active stops so a button never has to
+       reach for filter: brightness() -- which is the thing that makes an accent
+       button look cheap. */
+    --accent:      #ff6b4a;
+    --accent-hi:   #ff8467;
+    --accent-lo:   #e5553a;
+    --accent-tint: rgba(255,107,74,.14);
+    --accent-tint-2: rgba(255,107,74,.26);
+    /* Measured, not chosen: white on this accent is 2.9:1 and fails. */
+    --on-accent:   #1c0a05;
+    --accent-soft: var(--accent-tint);   /* the name the older rules still use */
+    --accent-text: var(--on-accent);     /* likewise */
+
+    --ok:   #4fd6a0;  --ok-tint:   rgba(79,214,160,.13);
+    --warn: #f5c265;  --warn-tint: rgba(245,194,101,.14);
+    --bad:  #ff6159;  --bad-tint:  rgba(255,97,89,.13);
+
+    --lift-1: 0 1px 2px rgba(0,0,0,.40), 0 2px 8px rgba(0,0,0,.24);
+    --lift-2: 0 2px 6px rgba(0,0,0,.44), 0 14px 34px rgba(0,0,0,.38);
+    --lift-3: 0 8px 20px rgba(0,0,0,.50), 0 30px 70px rgba(0,0,0,.50);
+    /* A one-pixel top highlight. On dark this does more to separate a raised
+       surface than any shadow does. */
+    --edge:   inset 0 1px 0 rgba(255,255,255,.045);
+    --ring:   0 0 0 2px var(--bg-1), 0 0 0 4px var(--accent);
+    --ambient-a: .11;
+
+    --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI",
+               Roboto, Helvetica, Arial, sans-serif;
+    --font-num: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 
     --t-xs: 11px; --t-sm: 12px; --t-md: 13px; --t-base: 15px;
-    --t-lg: 17px; --t-xl: 21px;
+    --t-lg: 17px; --t-xl: 21px; --t-2xl: 28px;
     --s-1: 4px; --s-2: 8px; --s-3: 12px; --s-4: 16px;
-    --s-5: 24px; --s-6: 32px; --s-7: 48px;
-    --r-s: 10px; --r: 14px; --r-l: 18px;
-    --ease: cubic-bezier(.32,.72,0,1);
+    --s-5: 24px; --s-6: 32px; --s-7: 48px; --s-8: 64px;
+    --r-xs: 6px; --r-s: 10px; --r: 14px; --r-l: 18px; --r-xl: 24px;
+    --r-full: 999px;
+
+    --ease:        cubic-bezier(.32,.72,0,1);
+    --ease-out:    cubic-bezier(.2,.8,.2,1);
+    --ease-in-out: cubic-bezier(.65,0,.35,1);
+    --spring:      cubic-bezier(.2,1.35,.35,1);
+
+    /* Names the old rules still reference, mapped onto the new stack so this
+       step changes only colour and not layout. */
+    --canvas:   var(--bg-1);
+    --surface:  var(--bg-2);
+    --sunken:   var(--bg-3);
+    --hairline: var(--line-1);
   }
-  :root[data-theme="dark"] {
-    color-scheme: dark;
-    --canvas:   #17150f;
-    --surface:  #211e17;
-    --sunken:   #100e0a;
-    --text:     #f3f0e9;
-    --dim:      #9c958a;
-    --faint:    #6c665d;
-    --hairline: #322e26;
-    --accent:   #e08b5f;
-    --accent-soft: rgba(224,139,95,.15);
-    --accent-text: #211004;
-    --ok:       #7fc98a;
-    --warn:     #e0b75f;
-    --bad:      #e8796a;
-    --lift-1: 0 1px 2px rgba(0,0,0,.4), 0 6px 18px rgba(0,0,0,.28);
-    --lift-2: 0 2px 8px rgba(0,0,0,.5), 0 18px 40px rgba(0,0,0,.38);
+
+  /* The light theme is the same system inverted, not a second identity. The
+     bright accent cannot carry text on white -- it measures 2.4:1 -- so light
+     gets a darkened stop at 4.7:1 and keeps white as its on-accent. */
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg-0: #eeeef2;  --bg-1: #f7f7f9;  --bg-2: #ffffff;
+    --bg-3: #f0f0f4;  --bg-4: #e5e5ec;
+    --line-1: rgba(20,20,30,.08);
+    --line-2: rgba(20,20,30,.15);
+    --text: #16161b; --text-2: #3c3c46; --dim: #6b6b78; --faint: #9a9aa6;
+    --accent: #d8462a; --accent-hi: #e8583b; --accent-lo: #b93a20;
+    --accent-tint: rgba(216,70,42,.10);
+    --accent-tint-2: rgba(216,70,42,.20);
+    --on-accent: #ffffff;
+    --ok:   #148a5f; --ok-tint:   rgba(20,138,95,.11);
+    --warn: #8a6410; --warn-tint: rgba(138,100,16,.12);
+    --bad:  #c0362b; --bad-tint:  rgba(192,54,43,.10);
+    --lift-1: 0 1px 2px rgba(20,20,40,.05), 0 4px 12px rgba(20,20,40,.05);
+    --lift-2: 0 2px 6px rgba(20,20,40,.07), 0 16px 36px rgba(20,20,40,.09);
+    --lift-3: 0 8px 20px rgba(20,20,40,.10), 0 30px 70px rgba(20,20,40,.14);
+    --edge: inset 0 1px 0 rgba(255,255,255,.8);
+    --ambient-a: .05;
   }
+
+  /* First, deliberately. This was the last line of the stylesheet, which is
+     where a rewrite loses it -- and losing it unhides both modals, the file
+     browser and every hidden panel at once, with every test still passing. */
+  [hidden] { display: none !important; }
 
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
-  body {
-    background: var(--canvas); color: var(--text);
-    font: var(--t-base)/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text",
-          "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    -webkit-font-smoothing: antialiased;
-    padding-bottom: var(--s-7);
-  }
+  body { background: var(--bg-1); color: var(--text);
+         font: var(--t-base)/1.55 var(--font-ui);
+         -webkit-font-smoothing: antialiased; }
 
-  header {
-    position: sticky; top: 0; z-index: 20;
-    background: color-mix(in srgb, var(--canvas) 80%, transparent);
-    backdrop-filter: saturate(180%) blur(20px);
-    border-bottom: 1px solid var(--hairline);
-  }
-  .bar { max-width: 720px; margin: 0 auto; display: flex; align-items: center;
-         gap: var(--s-3); padding: var(--s-3) var(--s-5); }
-  .wordmark { font-weight: 620; letter-spacing: -.022em; font-size: var(--t-lg); }
-  .spacer { flex: 1; }
-  .status { display: flex; align-items: center; gap: var(--s-2);
-            color: var(--dim); font-size: var(--t-sm); }
-  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bad); flex: none; }
-  .dot.on { background: var(--ok); }
-
-  main { max-width: 720px; margin: 0 auto; padding: var(--s-6) var(--s-5); }
 
   /* ------------------------------------------------------- grouped sections
      An inset group: one rounded surface, rows inside, separators inset past
      the leading glyph so they begin where the text begins. */
-  .group { background: var(--surface); border-radius: var(--r-l);
-           box-shadow: var(--lift-1); overflow: hidden; margin-bottom: var(--s-4); }
-  .group > .pad { padding: var(--s-5); }
+  .group, .panel { background: var(--bg-2); border-radius: var(--r-l);
+           box-shadow: 0 0 0 1px var(--line-1), var(--lift-1), var(--edge);
+           overflow: hidden; margin-bottom: var(--s-4); }
+  .group > .pad, .panel > .pad { padding: var(--s-5) var(--s-6); }
+  /* A section that is only a heading and some fields does not need a card at
+     all. One card wrapping a whole screen is the outline-around-everything
+     failure wearing a rounded corner. */
+  .bare { margin-bottom: var(--s-6); }
   h2.title { margin: 0 0 var(--s-1); font-size: var(--t-xl); font-weight: 620;
              letter-spacing: -.021em; }
   p.sub { margin: 0 0 var(--s-5); color: var(--dim); font-size: var(--t-md); }
@@ -101,203 +146,410 @@
 
   input[type=text], input[type=number], select, textarea {
     width: 100%; font: inherit; font-size: var(--t-base); color: var(--text);
-    background: var(--sunken); border: 1px solid transparent;
-    border-radius: var(--r-s); padding: 11px 13px;
-    transition: border-color .2s var(--ease), background .2s var(--ease),
-                box-shadow .2s var(--ease);
+    background: var(--bg-2); border: 1px solid var(--line-1);
+    border-radius: var(--r-s); padding: 10px 12px;
+    transition: border-color .16s var(--ease-out), background .16s var(--ease-out),
+                box-shadow .16s var(--ease-out);
   }
   input::placeholder, textarea::placeholder { color: var(--faint); }
+  input:hover:not(:focus), select:hover, textarea:hover:not(:focus) {
+    border-color: var(--line-2);
+  }
   input:focus-visible, select:focus-visible, textarea:focus-visible {
-    outline: none; border-color: var(--accent); background: var(--surface);
-    box-shadow: 0 0 0 3px var(--accent-soft);
+    outline: none; border-color: var(--accent); background: var(--bg-3);
+    box-shadow: 0 0 0 3px var(--accent-tint);
   }
-  textarea { min-height: 58px; resize: vertical; }
+  textarea { min-height: 76px; resize: vertical; line-height: 1.5; }
+  /* Numbers that change in place must not reflow while they do. */
+  input[type=number], td input { font-variant-numeric: tabular-nums; }
+  /* The chevron is drawn from two gradients rather than an asset, so it themes
+     itself and needs no network. */
+  select {
+    appearance: none; padding-right: 32px;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--dim) 50%),
+      linear-gradient(135deg, var(--dim) 50%, transparent 50%);
+    background-size: 5px 5px, 5px 5px;
+    background-position: right 16px center, right 11px center;
+    background-repeat: no-repeat;
+  }
 
+  /* One button, driven by three custom properties, so a variant is three lines
+     rather than a new ruleset fighting the base one. */
   button.btn {
-    appearance: none; font: inherit; font-size: var(--t-md); font-weight: 560;
-    cursor: pointer; border-radius: var(--r-s); padding: 10px 16px;
-    border: 1px solid var(--hairline); background: var(--surface);
-    color: var(--text); letter-spacing: -.006em; min-height: 38px;
-    transition: background .2s var(--ease), transform .1s var(--ease);
+    --btn-bg: var(--bg-2); --btn-fg: var(--text); --btn-line: var(--line-2);
+    appearance: none; font: inherit; font-size: var(--t-md); font-weight: 540;
+    cursor: pointer; border-radius: var(--r-s); padding: 8px 14px; min-height: 34px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    border: 1px solid var(--btn-line); background: var(--btn-bg); color: var(--btn-fg);
+    letter-spacing: -.006em; box-shadow: var(--edge);
+    transition: background .16s var(--ease-out), border-color .16s var(--ease-out),
+                color .16s var(--ease-out), transform .1s var(--ease-out),
+                box-shadow .16s var(--ease-out), opacity .16s linear;
   }
-  button.btn:hover:not([disabled]) { background: var(--sunken); }
-  button.btn:active:not([disabled]) { transform: scale(.985); }
-  button.btn[disabled] { opacity: .35; cursor: default; }
+  button.btn:hover:not([disabled])  { --btn-bg: var(--bg-3); }
+  button.btn:active:not([disabled]) { --btn-bg: var(--bg-4); transform: scale(.98); }
+  button.btn[disabled] { opacity: .38; cursor: default; box-shadow: none; }
+  button.btn:focus-visible { outline: none; box-shadow: var(--ring); }
+
   button.btn.primary {
-    background: var(--accent); color: var(--accent-text); border-color: transparent;
-    font-weight: 620; padding: 14px 22px; width: 100%; font-size: var(--t-base);
-    min-height: 48px;
+    --btn-bg: var(--accent); --btn-fg: var(--on-accent); --btn-line: transparent;
+    font-weight: 600; font-size: var(--t-base); padding: 12px 22px; min-height: 44px;
+    box-shadow: 0 1px 2px rgba(0,0,0,.28),
+                0 6px 22px color-mix(in srgb, var(--accent) 26%, transparent);
   }
-  button.btn.primary:hover:not([disabled]) { filter: brightness(1.06); background: var(--accent); }
-  button.btn.primary-quiet { border-color: var(--accent); color: var(--accent);
-                             background: var(--accent-soft); }
-  button.btn.primary-quiet:hover:not([disabled]) { background: var(--accent);
-                                                   color: var(--accent-text); }
-  button.btn.quiet { border-color: transparent; background: transparent; color: var(--dim); }
-  button.btn.quiet:hover:not([disabled]) { background: var(--sunken); color: var(--text); }
-  button.btn.small { padding: 7px 12px; font-size: var(--t-sm); min-height: 32px; }
+  button.btn.primary:hover:not([disabled]) {
+    --btn-bg: var(--accent-hi);
+    box-shadow: 0 1px 2px rgba(0,0,0,.28),
+                0 10px 30px color-mix(in srgb, var(--accent) 40%, transparent);
+  }
+  button.btn.primary:active:not([disabled]) { --btn-bg: var(--accent-lo); }
+  /* The primary used to be width:100% unconditionally, which is wrong in a wide
+     column. Full width is now asked for, not assumed. */
+  button.btn.block { width: 100%; }
+
+  button.btn.primary-quiet {
+    --btn-bg: var(--accent-tint); --btn-fg: var(--accent);
+    --btn-line: color-mix(in srgb, var(--accent) 34%, transparent);
+  }
+  button.btn.primary-quiet:hover:not([disabled]) {
+    --btn-bg: var(--accent); --btn-fg: var(--on-accent); --btn-line: transparent;
+  }
+  button.btn.quiet { --btn-bg: transparent; --btn-fg: var(--dim);
+                     --btn-line: transparent; box-shadow: none; }
+  button.btn.quiet:hover:not([disabled]) { --btn-bg: var(--bg-3); --btn-fg: var(--text); }
+  button.btn.danger { --btn-fg: var(--bad);
+                      --btn-line: color-mix(in srgb, var(--bad) 38%, transparent); }
+  button.btn.danger:hover:not([disabled]) { --btn-bg: var(--bad-tint); --btn-fg: var(--bad); }
+  button.btn.small { padding: 6px 11px; font-size: var(--t-sm); min-height: 30px; }
+  button.btn.xs    { padding: 3px 9px;  font-size: var(--t-xs); min-height: 24px; }
+
   .row { display: flex; gap: var(--s-2); flex-wrap: wrap; align-items: center; }
   .row.nowrap { flex-wrap: nowrap; }
   .icon-btn {
-    appearance: none; border: 1px solid var(--hairline); background: var(--surface);
+    appearance: none; border: 1px solid var(--line-1); background: var(--bg-2);
     color: var(--dim); cursor: pointer; border-radius: 50%;
     width: 32px; height: 32px; font-size: var(--t-md); line-height: 1;
-    transition: color .2s var(--ease), background .2s var(--ease);
+    display: inline-grid; place-items: center; flex: none;
+    transition: color .16s var(--ease-out), background .16s var(--ease-out);
   }
-  .icon-btn:hover { color: var(--text); background: var(--sunken); }
+  .icon-btn:hover { color: var(--text); background: var(--bg-3); }
+  .icon-btn:focus-visible { outline: none; box-shadow: var(--ring); }
 
-  /* ------------------------------------------------------------- stage list */
-  .progress { height: 3px; background: var(--sunken); }
-  .progress > i { display: block; height: 100%; width: 0%; background: var(--accent);
-                  transition: width .45s var(--ease); }
+  /* ------------------------------------------------------- segmented control
+     A track with a raised thumb, the way a platform segmented control reads.
+     `.lenopt` keeps working as a standalone pill outside `.seg`, because the
+     two "again" checkboxes still use it that way. */
+  .seg { display: inline-flex; padding: 3px; gap: 2px; flex-wrap: wrap;
+         background: var(--bg-3); border-radius: var(--r-s);
+         box-shadow: inset 0 0 0 1px var(--line-1); }
+  .seg > .lenopt, .seg > button.btn {
+    border: 0; background: transparent; box-shadow: none; color: var(--dim);
+    font-size: var(--t-sm); font-weight: 520; padding: 6px 12px;
+    border-radius: 7px; min-height: 28px; white-space: nowrap;
+  }
+  .seg > .lenopt:hover, .seg > button.btn:hover:not([disabled]) {
+    --btn-bg: var(--bg-2); background: var(--bg-2); color: var(--text);
+  }
+  .seg .lenopt.on,
+  .seg .startopt[aria-pressed="true"] {
+    --btn-bg: var(--bg-1); background: var(--bg-1); color: var(--text);
+    box-shadow: 0 1px 2px rgba(0,0,0,.34), 0 0 0 1px var(--line-2), var(--edge);
+  }
+
+  /* ------------------------------------------------------------- the run
+     Nine stages, one of which takes minutes. This has to answer "is it alive,
+     what is it doing, how long" from across the room. */
+  .runhead { display: flex; align-items: flex-end; gap: var(--s-4);
+             margin-bottom: var(--s-4); }
+  .runstage { font-size: var(--t-lg); font-weight: 600; letter-spacing: -.018em; }
+  .runmeta { font-size: var(--t-sm); color: var(--dim); margin-top: 2px;
+             font-variant-numeric: tabular-nums; }
+  .runpct { margin-left: auto; font-size: var(--t-2xl); font-weight: 600;
+            letter-spacing: -.03em; line-height: 1; color: var(--text);
+            font-variant-numeric: tabular-nums; }
+  .runpct i { font-size: var(--t-md); font-style: normal; color: var(--faint);
+              margin-left: 2px; }
+
+  .progress { position: relative; height: 6px; border-radius: var(--r-full);
+              background: var(--bg-3); overflow: hidden;
+              box-shadow: inset 0 0 0 1px var(--line-1); }
+  .progress > i { display: block; height: 100%; width: 0%; position: relative;
+                  overflow: hidden; border-radius: var(--r-full);
+                  background: linear-gradient(90deg, var(--accent-lo),
+                              var(--accent) 60%, var(--accent-hi));
+                  box-shadow: 0 0 14px color-mix(in srgb, var(--accent) 50%, transparent);
+                  transition: width .5s var(--ease-out), background .4s linear; }
   /* A stage that cannot say how far along it is still says it is alive. */
-  .progress.working > i {
-    background-image: linear-gradient(90deg, transparent 0 40%,
-                      color-mix(in srgb, var(--accent-text) 45%, transparent) 50%,
-                      transparent 60% 100%);
-    background-size: 240px 100%;
-    animation: sheen 1.4s linear infinite;
+  .progress.working > i { min-width: 10%; }
+  .progress.working > i::after {
+    content: ""; position: absolute; inset: 0;
+    background-image: linear-gradient(90deg, transparent 0 35%,
+                      rgba(255,255,255,.38) 50%, transparent 65% 100%);
+    background-size: 260px 100%;
+    animation: sheen 1.3s linear infinite;
   }
-  @keyframes sheen { from { background-position: -240px 0 } to { background-position: 240px 0 } }
-  .stages { list-style: none; margin: 0; padding: 0; }
-  .stage {
-    display: grid; grid-template-columns: 22px minmax(0,1fr) auto;
-    gap: var(--s-3); align-items: start; position: relative;
-    padding: 13px var(--s-5); font-size: var(--t-md);
+  .progress.working::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background: linear-gradient(90deg, transparent,
+                color-mix(in srgb, var(--accent) 16%, transparent), transparent);
+    background-size: 45% 100%; background-repeat: no-repeat;
+    animation: track 2.6s var(--ease-in-out) infinite;
   }
-  /* separators inset past the glyph, so they start where the text starts */
-  .stage + .stage::before {
-    content: ""; position: absolute; left: calc(var(--s-5) + 22px + var(--s-3));
-    right: 0; top: 0; height: 1px; background: var(--hairline);
+  .progress.done > i { background: var(--ok); box-shadow: 0 0 14px var(--ok-tint); }
+  .progress.fail > i { background: var(--bad); box-shadow: none; }
+  @keyframes sheen { from { background-position: -260px 0 } to { background-position: 260px 0 } }
+  @keyframes track { from { background-position: -45% 0 } to { background-position: 145% 0 } }
+
+  .stages { list-style: none; margin: var(--s-5) 0 0; padding: 0; }
+  .stage { position: relative; display: grid;
+           grid-template-columns: 20px minmax(0,1fr) auto;
+           gap: var(--s-3); align-items: start;
+           padding: 8px 0; font-size: var(--t-md); }
+  /* A rail joining the stages, so the list reads as one journey rather than
+     nine unrelated rows. */
+  .stage:not(:last-child)::before {
+    content: ""; position: absolute; left: 9px; top: 27px; bottom: -8px;
+    width: 2px; border-radius: 1px; background: var(--line-1);
+  }
+  .stage.done:not(:last-child)::before {
+    background: color-mix(in srgb, var(--ok) 40%, transparent);
   }
   .stage .glyph {
-    width: 18px; height: 18px; border-radius: 50%; margin-top: 1px;
+    width: 18px; height: 18px; border-radius: 50%; margin-top: 2px;
     display: grid; place-items: center; font-size: 10px; line-height: 1;
-    border: 1.5px solid var(--faint); color: transparent;
+    border: 1.5px solid var(--line-2); color: transparent;
     transition: background .25s var(--ease), border-color .25s var(--ease),
                 color .25s var(--ease);
   }
   .stage .name { font-weight: 520; letter-spacing: -.005em; }
   .stage .note { display: block; color: var(--dim); font-size: var(--t-sm);
-                 margin-top: 2px; overflow-wrap: anywhere; }
+                 margin-top: 3px; overflow-wrap: anywhere; }
   .stage .secs { color: var(--faint); font-size: var(--t-sm);
-                 font-variant-numeric: tabular-nums; margin-top: 1px; }
-  .stage.pending { opacity: .45; }
-  .stage.running .glyph { border-color: var(--accent); background: var(--accent);
-                          animation: breathe 1.6s var(--ease) infinite; }
-  .stage.running .name { font-weight: 600; }
+                 font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .stage.pending { opacity: .4; }
+  /* The one in flight gets a seat of its own. */
+  .stage.running { background: var(--bg-2); border-radius: var(--r-s);
+                   padding: 11px var(--s-3); margin: 3px calc(var(--s-3) * -1);
+                   box-shadow: inset 0 0 0 1px var(--line-1), var(--edge); }
+  .stage.running::before { left: calc(var(--s-3) + 9px); }
+  .stage.running .name { font-weight: 620; }
+  .stage.running .secs { color: var(--accent); }
+  /* A ring spinner from a conic gradient and a mask: no asset, no SVG. */
+  .stage.running .glyph {
+    border-color: transparent;
+    background: conic-gradient(from 0deg,
+                color-mix(in srgb, var(--accent) 8%, transparent) 0 55%,
+                var(--accent) 100%);
+    -webkit-mask: radial-gradient(circle, transparent 54%, #000 56%);
+            mask: radial-gradient(circle, transparent 54%, #000 56%);
+    animation: spin .95s linear infinite;
+  }
   .stage.done .glyph { border-color: var(--ok); background: var(--ok);
-                       color: var(--accent-text); }
-  .stage.skipped { opacity: .5; }
+                       color: var(--on-accent); animation: pop .3s var(--spring) both; }
+  .stage.skipped { opacity: .45; }
   .stage.skipped .glyph { border-color: var(--faint); color: var(--faint); }
   .stage.failed .glyph { border-color: var(--bad); background: var(--bad);
-                         color: var(--accent-text); }
+                         color: #fff; animation: shake .34s var(--ease-out) both; }
   .stage.failed .name, .stage.failed .note { color: var(--bad); }
   .stage.stopped { opacity: .6; }
   .stage.stopped .glyph { border-color: var(--warn); color: var(--warn); }
+  @keyframes spin { to { transform: rotate(360deg) } }
+  @keyframes pop { from { transform: scale(.5); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+  @keyframes shake { 0%,100% { transform: translateX(0) }
+                     25% { transform: translateX(-3px) } 75% { transform: translateX(3px) } }
   @keyframes breathe { 0%,100% { opacity:.45; transform:scale(.88) }
                        50% { opacity:1; transform:scale(1) } }
 
-  /* ---------------------------------------------------------------- result */
-  .result { display: grid; grid-template-columns: auto 1fr; gap: var(--s-5);
-            align-items: start; }
-  /* The player sits on a frame rather than bleeding to its own edge. Native
-     controls draw at the very bottom of the video, so against a dark frame at
-     the edge of a light card they were invisible; the inset gives them ground. */
-  .player { background: #14120f; border-radius: var(--r); padding: 10px;
-            box-shadow: var(--lift-1); display: inline-block; line-height: 0; }
-  video.preview { height: 340px; width: auto; max-width: 100%;
-                  border-radius: var(--r-s); background: #000; display: block; }
-  @media (max-width: 620px) {
-    .result { grid-template-columns: 1fr; }
-    .player { display: block; }
-    video.preview { height: auto; width: 100%; }
+  /* ------------------------------------------------------------- the result
+     The video is the payoff, so it gets a theatre: the darkest ground in the
+     app, the picture floating on it, every control demoted around it. */
+  .result { display: grid; gap: var(--s-5); grid-template-columns: minmax(0,1fr); }
+  @media (min-width: 1080px) {
+    .result { grid-template-columns: minmax(0,1fr) 340px; align-items: start; }
+    .result .sidecol { position: sticky; top: var(--s-5); }
   }
-  .lenopts { display: flex; gap: var(--s-2); flex-wrap: wrap; }
-  .lenopt { display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
-            padding: 7px 12px; border-radius: 999px; font-size: var(--t-sm);
-            border: 1px solid var(--hairline); background: var(--surface);
-            transition: border-color .2s var(--ease), background .2s var(--ease); }
-  .lenopt input[type=radio], .lenopt input[type=checkbox] { margin: 0; }
-  .lenopt.on { border-color: var(--accent); background: var(--accent-soft);
+  .theatre { position: relative; display: grid; place-items: center;
+             overflow: hidden; padding: var(--s-6); border-radius: var(--r-l);
+             background: radial-gradient(120% 150% at 50% -10%, var(--bg-2), var(--bg-0) 70%);
+             box-shadow: inset 0 0 0 1px var(--line-1), var(--lift-2); }
+  .player { position: relative; line-height: 0; }
+  /* Ambilight: the glow is sampled from the frame itself. */
+  .player::before { content: ""; position: absolute; inset: 8%; border-radius: 50%;
+                    background: var(--glow, var(--accent)); filter: blur(56px);
+                    opacity: .38; z-index: 0;
+                    transition: background .6s linear, opacity .6s linear; }
+  video.preview { position: relative; z-index: 1; display: block;
+                  max-height: min(64vh, 660px); width: auto; max-width: 100%;
+                  border-radius: var(--r); background: #000;
+                  box-shadow: 0 14px 48px rgba(0,0,0,.6),
+                              0 0 0 1px rgba(255,255,255,.07); }
+  @media (max-width: 700px) { video.preview { width: 100%; height: auto; } }
+
+  .seglabel { font-size: var(--t-sm); color: var(--dim); }
+  .lenopts { display: inline-flex; gap: 2px; flex-wrap: wrap; }
+  /* Outside a `.seg` this is still a standalone pill -- the two "again"
+     checkboxes use it that way. */
+  .lenopt { display: inline-flex; align-items: center; gap: 7px; cursor: pointer;
+            padding: 7px 13px; border-radius: var(--r-full); font-size: var(--t-sm);
+            border: 1px solid var(--line-1); background: var(--bg-2); color: var(--dim);
+            transition: border-color .16s var(--ease-out), background .16s var(--ease-out),
+                        color .16s var(--ease-out); }
+  .lenopt:hover { color: var(--text); }
+  .lenopt.on { border-color: var(--accent); background: var(--accent-tint);
                color: var(--accent); font-weight: 560; }
-  .lenopt input[type=number] { display: inline-block; width: 58px; padding: 2px 6px;
-                               font-size: var(--t-sm); background: transparent; }
-  .lenopt input[type=text] { display: inline-block; width: 62px; padding: 2px 6px;
-                             font-size: var(--t-sm); background: transparent; }
-  /* Sampled frames from the finished file. They are evidence, not controls --
-     shown as a report that stays shut when everything measured clean. */
-  .check { margin-top: var(--s-5); border-top: 1px solid var(--hairline);
-           padding-top: var(--s-4); }
-  .check > summary { cursor: pointer; list-style: none; display: flex;
-                     align-items: center; gap: var(--s-2);
-                     font-size: var(--t-md); color: var(--dim); }
-  .check > summary::-webkit-details-marker { display: none; }
-  .check > summary::after { content: "›"; margin-left: auto; color: var(--faint);
-                            transition: transform .25s var(--ease); }
-  .check[open] > summary::after { transform: rotate(90deg); }
-  .resulthead { display: flex; align-items: flex-start; gap: var(--s-3);
-                margin-bottom: var(--s-3); }
-  .resulthead .spacer { flex: 1; }
-  .resulthead .title { margin: 0; }
-  .resulthead .sub { margin: 2px 0 0; }
-  /* The ready badge. Deliberately the same shape as the render-check verdict,
-     because they are saying related things. */
-  #readyBadge { display: inline-flex; align-items: center; gap: 6px;
-                padding: 6px 12px; border-radius: 999px; font-size: var(--t-sm);
-                font-weight: 560; white-space: nowrap; }
-  #readyBadge.ok  { color: var(--ok);   background: color-mix(in srgb, var(--ok) 12%, transparent); }
-  #readyBadge.warn{ color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
-  #readyBadge.bad { color: var(--bad);  background: color-mix(in srgb, var(--bad) 12%, transparent); }
-  /* Anything the run needs to say, where it cannot be missed. It used to go
-     into a collapsed drawer inside a container that is hidden until a song is
-     selected, which meant no message ever reached anyone. */
-  .banner { border-radius: var(--r-s); padding: var(--s-3) var(--s-4);
-            margin-bottom: var(--s-4); font-size: var(--t-md); line-height: 1.5; }
-  .banner.bad  { background: color-mix(in srgb, var(--bad) 10%, transparent);
-                 color: var(--bad); }
-  .banner.warn { background: color-mix(in srgb, var(--warn) 12%, transparent);
-                 color: var(--warn); }
-  .startopt[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
-  .disc.pending > summary { opacity: .55; }
-  .banner ul { margin: var(--s-2) 0 0; padding-left: 1.1em; }
-  .banner li { margin-top: 2px; }
-  .banner b { font-weight: 620; }
+  .lenopt input[type=radio], .lenopt input[type=checkbox] { margin: 0; accent-color: var(--accent); }
+  .lenopt input[type=number], .lenopt input[type=text] {
+    display: inline-block; width: 56px; padding: 1px 6px; font-size: var(--t-sm);
+    background: var(--bg-3); border-radius: var(--r-xs); text-align: center;
+  }
+  .startopt[aria-pressed="true"] { color: var(--accent); }
+
+  /* Sampled frames from the finished file -- evidence, not controls. */
+  .check { margin-top: var(--s-5); }
+  .check > summary, details.allset > summary {
+    cursor: pointer; list-style: none; display: flex; align-items: center;
+    gap: var(--s-2); font-size: var(--t-md); color: var(--dim);
+    padding: var(--s-3) 0; border-top: 1px solid var(--line-1);
+  }
+  .check > summary::-webkit-details-marker,
+  details.allset > summary::-webkit-details-marker { display: none; }
+  .check > summary::after, details.allset > summary::after {
+    content: "›"; margin-left: auto; color: var(--faint); font-size: var(--t-lg);
+    transition: transform .25s var(--ease);
+  }
+  .check[open] > summary::after, details.allset[open] > summary::after { transform: rotate(90deg); }
   .check .verdict { font-weight: 560; }
   .check .verdict.ok { color: var(--ok); }
   .check .verdict.bad { color: var(--bad); }
-  .stills { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr));
-            gap: var(--s-3); margin-top: var(--s-4); }
+
+  .resulthead { display: flex; align-items: flex-start; gap: var(--s-3);
+                margin-bottom: var(--s-4); }
+  .resulthead .spacer { flex: 1; }
+  .resulthead .title { margin: 0; }
+  .resulthead .sub { margin: 2px 0 0; }
+  /* The badge and the render-check verdict are the same shape because they are
+     saying related things. Styled by id: JS overwrites the class attribute. */
+  #readyBadge { display: inline-flex; align-items: center; gap: 6px;
+                padding: 6px 12px; border-radius: var(--r-full);
+                font-size: var(--t-sm); font-weight: 560; white-space: nowrap; }
+  #readyBadge.ok   { color: var(--ok);   background: var(--ok-tint); }
+  #readyBadge.warn { color: var(--warn); background: var(--warn-tint); }
+  #readyBadge.bad  { color: var(--bad);  background: var(--bad-tint); }
+
+  /* Anything the run needs to say, where it cannot be missed. */
+  .banner { position: relative; border-radius: var(--r-s);
+            padding: var(--s-3) var(--s-4) var(--s-3) var(--s-5);
+            margin-bottom: var(--s-4); font-size: var(--t-md); line-height: 1.5;
+            animation: bannerIn .24s var(--ease-out) both; }
+  .banner::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px;
+                    width: 3px; border-radius: 2px; background: currentColor; opacity: .7; }
+  .banner.bad  { background: var(--bad-tint);  color: var(--bad); }
+  .banner.warn { background: var(--warn-tint); color: var(--warn); }
+  .banner ul { margin: var(--s-2) 0 0; padding-left: 1.1em; }
+  .banner li { margin-top: 2px; }
+  .banner b { font-weight: 620; }
+  @keyframes bannerIn { from { opacity: 0; transform: translate3d(0,-6px,0) }
+                        to { opacity: 1; transform: none } }
+
+  .stills { display: flex; gap: var(--s-3); overflow-x: auto;
+            padding: var(--s-4) 2px 6px; scroll-snap-type: x mandatory; }
+  .still { flex: 0 0 168px; scroll-snap-align: start; }
   .still img { width: 100%; border-radius: var(--r-s); display: block;
-               border: 1px solid var(--hairline); }
-  .still .at { font-size: var(--t-sm); color: var(--text); margin-top: 6px; }
+               box-shadow: 0 0 0 1px var(--line-1); }
+  .still .at { font-size: var(--t-sm); color: var(--text); margin-top: 6px;
+               font-variant-numeric: tabular-nums; }
   .still .met { font-size: var(--t-xs); color: var(--faint); line-height: 1.45;
                 overflow-wrap: anywhere; }
 
-  /* --------------------------------------------------------------- gallery */
-  .famrow { margin-top: var(--s-3); }
-  .gallery { display: grid; gap: var(--s-3);
-             grid-template-columns: repeat(auto-fill, minmax(104px,1fr)); }
+  /* --------------------------------------------------------------- gallery
+     The most important surface in the app: this product is about video, and a
+     style IS its motion. Every tile carries its poster so the grid is complete
+     on first paint, and the video is mounted lazily on top. */
+  .famrow, .picker { margin-top: var(--s-3); }
+  .picker + .picker { margin-top: var(--s-6); padding-top: var(--s-6);
+                      border-top: 1px solid var(--line-1); }
+  .picker-head { display: flex; align-items: center; gap: var(--s-3);
+                 margin-bottom: var(--s-4); flex-wrap: wrap; }
+  .picker-head .n { width: 20px; height: 20px; border-radius: 50%; flex: none;
+                    display: grid; place-items: center; font-size: 11px;
+                    font-weight: 620; color: var(--dim); background: var(--bg-3);
+                    transition: background .2s var(--ease-out), color .2s var(--ease-out); }
+  .picker-head h3 { margin: 0; font-size: var(--t-base); font-weight: 600;
+                    letter-spacing: -.012em; }
+  .picker-head .sub { color: var(--faint); font-size: var(--t-sm); }
+  .picker-head .pick { margin-left: auto; font-size: var(--t-sm);
+                       color: var(--accent); font-weight: 560; }
+  .picker.on .n { background: var(--accent); color: var(--on-accent); }
+
+  .gallery { display: grid; gap: var(--s-4);
+             grid-template-columns: repeat(auto-fill, minmax(148px,1fr)); }
   .scard { appearance: none; border: 0; padding: 0; background: none;
-           cursor: pointer; text-align: left; font: inherit; color: var(--text); }
+           cursor: pointer; text-align: left; font: inherit; color: var(--text);
+           display: block; }
   .scard .thumb { position: relative; width: 100%; aspect-ratio: 9/16;
-                  overflow: hidden; border-radius: var(--r); background: var(--sunken);
-                  box-shadow: var(--lift-1); outline: 2px solid transparent;
-                  outline-offset: 2px;
-                  transition: outline-color .2s var(--ease), transform .2s var(--ease); }
-  .scard:hover .thumb { transform: translateY(-2px); }
-  .scard[aria-checked="true"] .thumb { outline-color: var(--accent); }
-  .scard .thumb img, .scard .thumb video { width: 100%; height: 100%;
-                                           object-fit: cover; display: block; }
+                  overflow: hidden; border-radius: var(--r); background: var(--bg-2);
+                  box-shadow: 0 0 0 1px var(--line-1), var(--lift-1);
+                  transform: translate3d(0,0,0);
+                  transition: transform .24s var(--ease-out),
+                              box-shadow .24s var(--ease-out); }
+  .scard:hover .thumb { transform: translate3d(0,-5px,0);
+                        box-shadow: 0 0 0 1px var(--line-2), var(--lift-2); }
+  .scard:active .thumb { transform: translate3d(0,-1px,0) scale(.99); }
+  .scard:focus-visible { outline: none; }
+  .scard:focus-visible .thumb { box-shadow: var(--ring), var(--lift-2); }
+  .scard[aria-checked="true"] .thumb {
+    box-shadow: 0 0 0 2px var(--accent), 0 0 0 7px var(--accent-tint),
+                0 10px 30px color-mix(in srgb, var(--accent) 22%, transparent),
+                var(--lift-2);
+  }
+  .scard .thumb img, .scard .thumb video {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; display: block;
+  }
+  /* The video crossfades over its own poster, so there is no jump cut. */
+  .scard .thumb video { opacity: 0; transition: opacity .28s linear; }
+  .scard .thumb video.playing { opacity: 1; }
+  .scard .thumb::after { content: ""; position: absolute; inset: 0;
+                         pointer-events: none; opacity: 0;
+                         background: linear-gradient(to top, rgba(4,4,8,.55), transparent 40%);
+                         transition: opacity .2s var(--ease-out); }
+  .scard:hover .thumb::after, .scard[aria-checked="true"] .thumb::after { opacity: 1; }
+  .scard .tick { position: absolute; top: 8px; right: 8px; width: 20px; height: 20px;
+                 border-radius: 50%; background: var(--accent); color: var(--on-accent);
+                 font-size: 11px; line-height: 1; display: grid; place-items: center;
+                 box-shadow: 0 2px 8px rgba(0,0,0,.4); z-index: 2;
+                 transform: scale(0); transition: transform .26s var(--spring); }
+  .scard[aria-checked="true"] .tick { transform: scale(1); }
   .scard .noprev { position: absolute; inset: 0; display: grid; place-items: center;
-                   color: var(--faint); font-size: var(--t-xs); text-align: center;
-                   padding: var(--s-2); }
-  .scard .cap { display: block; margin-top: 6px; font-size: var(--t-sm); font-weight: 540; }
-  .scard[aria-checked="true"] .cap { color: var(--accent); }
+                   align-content: center; gap: 6px; color: var(--faint);
+                   font-size: var(--t-xs); text-align: center; padding: var(--s-3);
+                   line-height: 1.4; }
+  .scard .cap { display: block; margin-top: 9px; font-size: var(--t-sm);
+                font-weight: 520; color: var(--dim); transition: color .16s linear; }
+  .scard[aria-checked="true"] .cap { color: var(--text); }
+  /* Deference: once a row has a choice, the rest step back until looked at. */
+  .gallery.has-pick .scard:not([aria-checked="true"]) { opacity: .66;
+                                                        transition: opacity .2s linear; }
+  .gallery.has-pick .scard:not([aria-checked="true"]):hover,
+  .gallery.has-pick .scard:not([aria-checked="true"]):focus-visible { opacity: 1; }
+  .scard.none .thumb { background: repeating-linear-gradient(135deg,
+                       var(--bg-2) 0 7px, var(--bg-1) 7px 14px);
+                       box-shadow: inset 0 0 0 1px var(--line-1); }
+  .scard.custom .thumb { background: var(--accent-tint);
+                         box-shadow: inset 0 0 0 1px
+                         color-mix(in srgb, var(--accent) 34%, transparent); }
+  .scard.custom:hover .thumb { background: var(--accent-tint-2); }
+  .scard.custom .noprev { color: var(--accent); font-size: var(--t-sm); font-weight: 540; }
+  .recipe { margin-top: var(--s-5); padding: var(--s-3) var(--s-4);
+            background: var(--bg-3); border-radius: var(--r-s);
+            box-shadow: inset 0 0 0 1px var(--line-1); }
+  .recipe .hint { display: block; margin: 0; color: var(--text-2); font-size: var(--t-md); }
 
   /* ------------------------------------------------------------ disclosure */
-  details.disc { background: var(--surface); border-radius: var(--r-l);
-                 box-shadow: var(--lift-1); margin-bottom: var(--s-3); }
+  details.disc { background: var(--bg-2); border-radius: var(--r-l);
+                 box-shadow: 0 0 0 1px var(--line-1), var(--lift-1), var(--edge);
+                 margin-bottom: var(--s-3); }
   details.disc > summary { cursor: pointer; padding: var(--s-4) var(--s-5);
     font-size: var(--t-md); font-weight: 560; list-style: none;
     display: flex; align-items: center; gap: var(--s-2); }
@@ -306,22 +558,35 @@
     color: var(--faint); font-size: var(--t-lg); transition: transform .2s var(--ease); }
   details.disc[open] > summary::after { transform: rotate(90deg); }
   details.disc > .disc-body { padding: 0 var(--s-5) var(--s-5); }
+  .disc.pending > summary { opacity: .55; }
+  /* The same "not yet" state, for when a panel is no longer a disclosure. */
+  .panel.pending, .pending > .disc-body { opacity: .5; }
 
   /* ----------------------------------------------------------------- misc */
   .msg { padding: 10px 13px; border-radius: var(--r-s); font-size: var(--t-md);
-         margin-bottom: var(--s-2); background: var(--sunken); overflow-wrap: anywhere; }
+         margin-bottom: var(--s-2); background: var(--bg-3);
+         overflow-wrap: anywhere; }
   .msg.ok { color: var(--ok); } .msg.warn { color: var(--warn); } .msg.bad { color: var(--bad); }
   .empty { color: var(--faint); font-size: var(--t-md); }
-  .tablewrap { max-height: 300px; overflow: auto; border-radius: var(--r-s);
-               background: var(--sunken); }
+  .tablewrap { max-height: min(460px, 55vh); overflow: auto;
+               border-radius: var(--r); background: var(--bg-2);
+               box-shadow: 0 0 0 1px var(--line-1); }
   table { border-collapse: collapse; width: 100%; font-size: var(--t-md); }
-  th, td { text-align: left; padding: 6px 9px; }
-  tbody tr + tr td { border-top: 1px solid var(--hairline); }
-  th { position: sticky; top: 0; background: var(--sunken); font-weight: 560;
-       color: var(--dim); font-size: var(--t-xs); text-transform: uppercase;
-       letter-spacing: .05em; }
-  td input { padding: 4px 7px; font-size: var(--t-md); background: transparent; }
-  td.num { width: 88px; } td.act { width: 36px; }
+  th, td { text-align: left; padding: 6px 10px; }
+  th { position: sticky; top: 0; z-index: 1; background: var(--bg-3);
+       font-weight: 560; color: var(--dim); font-size: var(--t-xs);
+       text-transform: uppercase; letter-spacing: .06em;
+       box-shadow: inset 0 -1px 0 var(--line-1); }
+  tbody tr { transition: background .12s linear; }
+  tbody tr:hover { background: var(--bg-3); }
+  tbody tr + tr td { box-shadow: inset 0 1px 0 var(--line-1); }
+  td input { padding: 5px 8px; font-size: var(--t-md); background: transparent;
+             border-color: transparent; }
+  td input:hover { background: var(--bg-3); }
+  /* Wide enough for a whole timestamp. At 96px "28.043" lost its last digit,
+     which is the one that matters when you are nudging a cue. */
+  td.num { width: 124px; } td.act { width: 40px; }
+  td.num input { font-variant-numeric: tabular-nums; }
   .sliders { display: flex; flex-direction: column; gap: var(--s-3); }
   .slider label { display: flex; justify-content: space-between; gap: var(--s-2);
                   font-size: var(--t-sm); margin-bottom: 3px; }
@@ -331,31 +596,31 @@
   .slider.named label { font-size: var(--t-base); font-weight: 560; }
   .slider.named .hint { display: block; margin-top: 2px; }
   .sliders + .allset, .allset { margin-top: var(--s-5); }
-  details.allset > summary { cursor: pointer; list-style: none;
-                             font-size: var(--t-md); color: var(--dim);
-                             padding-top: var(--s-3);
-                             border-top: 1px solid var(--hairline); }
-  details.allset > summary::-webkit-details-marker { display: none; }
-  details.allset > summary::after { content: " ›"; color: var(--faint); }
   details.allset > .disc-body { padding: 0; }
   input[type=range] { width: 100%; accent-color: var(--accent); }
   .takes { display: flex; flex-direction: column; }
   .take { display: flex; align-items: center; gap: var(--s-3); padding: 11px 0;
           font-size: var(--t-md); }
-  .take + .take { border-top: 1px solid var(--hairline); }
+  .take + .take { border-top: 1px solid var(--line-1); }
   .take .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
   .take .tag { font-size: var(--t-xs); color: var(--ok); }
 
   /* ---------------------------------------------------------------- modal */
   .modal { position: fixed; inset: 0; z-index: 50; display: grid;
-           place-items: center; background: rgba(30,22,14,.4);
-           backdrop-filter: blur(4px); padding: var(--s-5); }
-  .sheet { background: var(--surface); border-radius: var(--r-l);
-           box-shadow: var(--lift-2); width: min(520px,100%);
-           max-height: min(70vh,620px); display: flex; flex-direction: column;
-           overflow: hidden; }
+           place-items: center; background: rgba(4,4,8,.58);
+           backdrop-filter: blur(6px) saturate(120%);
+           -webkit-backdrop-filter: blur(6px) saturate(120%);
+           padding: var(--s-5); animation: fadeIn .18s var(--ease-out) both; }
+  .sheet { background: var(--bg-2); border-radius: var(--r-xl);
+           box-shadow: 0 0 0 1px var(--line-1), var(--lift-3), var(--edge);
+           width: min(560px,100%); max-height: min(78vh,760px);
+           display: flex; flex-direction: column; overflow: hidden;
+           animation: sheetIn .26s var(--spring) both; }
   .sheet-head { display: flex; align-items: center; gap: var(--s-2);
-                padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--hairline); }
+                padding: var(--s-4) var(--s-5); border-bottom: 1px solid var(--line-1); }
+  @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
+  @keyframes sheetIn { from { opacity: 0; transform: translate3d(0,12px,0) scale(.985) }
+                       to { opacity: 1; transform: none } }
   .shortcuts { display: flex; gap: 6px; flex-wrap: wrap; padding: var(--s-3) var(--s-5) 0; }
   .crumbs { padding: var(--s-3) var(--s-5); color: var(--dim); font-size: var(--t-sm);
             overflow-wrap: anywhere; }
@@ -364,11 +629,186 @@
   .listing { overflow: auto; padding: 0 var(--s-3) var(--s-3); }
   .entry { display: flex; align-items: center; gap: var(--s-3); width: 100%;
            padding: 10px 12px; border: 0; background: none; cursor: pointer;
-           border-radius: var(--r-s); font: inherit; color: var(--text); text-align: left; }
-  .entry:hover { background: var(--sunken); }
+           border-radius: var(--r-s); font: inherit; color: var(--text);
+           text-align: left; }
+  .entry:hover { background: var(--bg-3); }
   .entry .sz { margin-left: auto; color: var(--faint); font-size: var(--t-sm); }
   .entry .ico { width: 16px; text-align: center; color: var(--faint); }
-  [hidden] { display: none !important; }
+
+  /* ================================================================= shell
+     A sidebar spanning full height, a top bar over an independently scrolling
+     content column. The page was a 720px form; it is an app now. */
+  html, body { height: 100%; }
+  body {
+    margin: 0; overflow: hidden;
+    display: grid;
+    grid-template-columns: 264px minmax(0, 1fr);
+    grid-template-rows: 52px minmax(0, 1fr);
+    grid-template-areas: "side top" "side main";
+  }
+  #side   { grid-area: side; position: relative; z-index: 2;
+            display: grid; grid-template-rows: 52px minmax(0,1fr) auto;
+            background: var(--bg-0); border-right: 1px solid var(--line-1); }
+  #top    { grid-area: top; position: relative; z-index: 2;
+            display: flex; align-items: center; gap: var(--s-3);
+            padding: 0 var(--s-5); border-bottom: 1px solid var(--line-1);
+            background: color-mix(in srgb, var(--bg-1) 70%, transparent);
+            backdrop-filter: saturate(160%) blur(20px);
+            -webkit-backdrop-filter: saturate(160%) blur(20px); }
+  #scroll { grid-area: main; position: relative; z-index: 1;
+            overflow-y: auto; overscroll-behavior: contain;
+            scroll-padding-top: var(--s-5); }
+  .page   { width: min(1120px, 100%); margin: 0 auto;
+            padding: var(--s-6) var(--s-6) var(--s-8); }
+
+  .side-head { display: flex; align-items: center; gap: var(--s-2);
+               padding: 0 var(--s-4); }
+  .side-scroll { overflow-y: auto; padding: var(--s-2) var(--s-3) var(--s-4); }
+  .side-foot { padding: var(--s-3) var(--s-4); border-top: 1px solid var(--line-1); }
+  .wordmark { font-weight: 620; letter-spacing: -.022em; font-size: var(--t-lg); }
+  .spacer { flex: 1; }
+  .navgroup + .navgroup { margin-top: var(--s-4); }
+  .navlabel { font-size: var(--t-xs); font-weight: 620; letter-spacing: .07em;
+              text-transform: uppercase; color: var(--faint);
+              padding: 0 10px var(--s-2) 14px; }
+
+  /* Deliberately NOT `.btn`: the run loop disables controls, and navigation is
+     not a control -- it must stay live for the minutes a render takes. */
+  .navitem { position: relative; display: flex; align-items: center; gap: 10px;
+             width: 100%; min-height: 32px; padding: 6px 10px 6px 14px;
+             border: 0; background: none; color: var(--dim);
+             border-radius: var(--r-s); font: inherit; font-size: var(--t-md);
+             font-weight: 500; text-align: left; cursor: pointer;
+             transition: background .14s var(--ease-out), color .14s var(--ease-out); }
+  .navitem::before { content: ""; position: absolute; left: 3px; top: 50%;
+                     margin-top: -8px; width: 3px; height: 16px; border-radius: 2px;
+                     background: var(--accent); transform: scaleY(0);
+                     transition: transform .22s var(--spring); }
+  .navitem:hover { background: var(--bg-2); color: var(--text-2); }
+  .navitem[aria-current="page"] { background: var(--bg-2); color: var(--text);
+                                  font-weight: 560; }
+  .navitem[aria-current="page"]::before { transform: scaleY(1); }
+  .navitem[disabled] { opacity: .34; cursor: default; }
+  .navitem:focus-visible { outline: none; box-shadow: var(--ring); }
+  .navitem .count { margin-left: auto; font-size: var(--t-xs); color: var(--faint);
+                    font-variant-numeric: tabular-nums; }
+  .songitem { align-items: flex-start; padding: 7px 10px 7px 14px; line-height: 1.35; }
+  .songitem .nm { display: block; overflow: hidden; text-overflow: ellipsis;
+                  white-space: nowrap; max-width: 100%; }
+  .songitem .meta { display: block; font-size: var(--t-xs); color: var(--faint); }
+  .songitem.newsong .nm { color: var(--accent); }
+
+  .pill { display: inline-flex; align-items: center; gap: 7px; min-height: 26px;
+          padding: 2px 10px; border-radius: var(--r-full); font-size: var(--t-sm);
+          color: var(--dim); background: var(--bg-2);
+          box-shadow: inset 0 0 0 1px var(--line-1); }
+  .pill.warn { color: var(--warn); background: var(--warn-tint); box-shadow: none;
+               flex-wrap: wrap; }
+  .status { display: inline-flex; align-items: center; gap: var(--s-2);
+            color: var(--dim); font-size: var(--t-sm); }
+  .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--bad); flex: none; }
+  .dot.on { background: var(--ok); animation: halo 2.8s var(--ease-in-out) infinite; }
+  @keyframes halo {
+    0%,100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 45%, transparent); }
+    55%     { box-shadow: 0 0 0 5px transparent; }
+  }
+  .crumb { font-size: var(--t-md); font-weight: 560; letter-spacing: -.008em; }
+  .crumb .of { color: var(--faint); font-weight: 400; }
+
+  /* A render takes minutes, so its progress has to be legible from any
+     destination, not only the one it started on. */
+  .chip { display: inline-flex; align-items: center; gap: 8px; height: 28px;
+          padding: 0 11px 0 8px; border-radius: var(--r-full); border: 0;
+          cursor: pointer; font: inherit; font-size: var(--t-sm); font-weight: 560;
+          font-variant-numeric: tabular-nums; color: var(--accent);
+          background: var(--accent-tint); }
+  .chip:hover { background: var(--accent-tint-2); }
+  .chip .ring { width: 14px; height: 14px; border-radius: 50%;
+                background: conic-gradient(var(--accent) var(--p,0%), var(--line-2) 0);
+                -webkit-mask: radial-gradient(circle, transparent 52%, #000 54%);
+                        mask: radial-gradient(circle, transparent 52%, #000 54%); }
+
+  .view { animation: viewIn .18s var(--ease-out) both; }
+  @keyframes viewIn { from { opacity: 0; transform: translate3d(0,6px,0) }
+                      to { opacity: 1; transform: none } }
+  .viewhead { margin-bottom: var(--s-5); }
+  .viewhead h2 { margin: 0 0 2px; font-size: var(--t-xl); font-weight: 620;
+                 letter-spacing: -.021em; }
+  .viewhead p { margin: 0; color: var(--dim); font-size: var(--t-md); }
+  .emptystate { display: grid; place-items: center; align-content: center;
+                gap: var(--s-2); min-height: 44vh; text-align: center;
+                color: var(--faint); }
+  .emptystate .big { font-size: var(--t-lg); color: var(--dim); font-weight: 560; }
+
+  /* Present for the code that reads it, absent for the eye: the song picker is
+     the sidebar now, but `songName()` still reads the select. */
+  .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+             overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+
+  /* Near-black across a wide display bands on an 8-bit panel and reads dead.
+     Two very low-alpha blobs and a noise dither fix both -- and the field
+     carries state, brightening while a render runs. */
+  #ambient { position: fixed; inset: 0; z-index: 0; pointer-events: none;
+             overflow: hidden; opacity: var(--ambient-a);
+             transition: opacity .8s linear; }
+  #ambient i { position: absolute; display: block; border-radius: 50%; filter: blur(90px); }
+  #ambient .b1 { width: 54vw; height: 54vw; left: 6%; top: -20%;
+                 background: radial-gradient(circle,
+                   color-mix(in srgb, var(--accent) 70%, transparent), transparent 70%);
+                 animation: drift1 44s var(--ease-in-out) infinite alternate; }
+  #ambient .b2 { width: 48vw; height: 48vw; right: -10%; bottom: -24%; opacity: .55;
+                 background: radial-gradient(circle, #3c5ad8, transparent 70%);
+                 animation: drift2 58s var(--ease-in-out) infinite alternate; }
+  #ambient::after { content: ""; position: absolute; inset: 0; opacity: .5;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  @keyframes drift1 { from { transform: translate3d(0,0,0) scale(1) }
+                      to { transform: translate3d(7vw,5vh,0) scale(1.14) } }
+  @keyframes drift2 { from { transform: translate3d(0,0,0) scale(1.1) }
+                      to { transform: translate3d(-6vw,-4vh,0) scale(1) } }
+  body.busy { --ambient-a: .22; }
+  body.busy #ambient .b1 { animation-duration: 17s; }
+  body.busy #ambient .b2 { animation-duration: 23s; }
+
+  #navToggle { display: none; }
+  @media (max-width: 1020px) {
+    body { grid-template-columns: minmax(0,1fr); grid-template-areas: "top" "main"; }
+    #side { position: fixed; inset: 0 auto 0 0; width: 272px; z-index: 40;
+            transform: translate3d(-100%,0,0);
+            transition: transform .26s var(--ease); box-shadow: var(--lift-3); }
+    body.nav-open #side { transform: none; }
+    body.nav-open::after { content: ""; position: fixed; inset: 0; z-index: 39;
+                           background: rgba(0,0,0,.5); }
+    #navToggle { display: inline-grid; }
+    .page { padding: var(--s-5) var(--s-4) var(--s-7); }
+  }
+  @media (max-width: 700px) {
+    .gallery { grid-template-columns: repeat(2, 1fr); }
+    #top { padding: 0 var(--s-3); }
+  }
+
+  /* Everything above, stilled. Some of it becomes a static state rather than
+     nothing at all: a dead progress bar says "hung", which is a lie. */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+      transition-duration: .001ms !important; scroll-behavior: auto !important;
+    }
+    #ambient, #ambient i { animation: none; }
+    #ambient { opacity: .05; }
+    .progress.working > i::after {
+      animation: none; background-size: auto;
+      background-image: repeating-linear-gradient(90deg,
+        rgba(255,255,255,.22) 0 8px, transparent 8px 16px);
+    }
+    .progress.working::after { display: none; }
+    .stage.running .glyph { animation: none; -webkit-mask: none; mask: none;
+                            background: var(--accent); border-color: var(--accent); }
+    .dot.on { animation: none; box-shadow: 0 0 0 3px var(--ok-tint); }
+    .scard:hover .thumb { transform: none; }
+    .player::before { animation: none; }
+  }
 </style>
 </head>
 <body>
@@ -376,39 +816,71 @@
   (function () {
     try {
       var t = localStorage.getItem('lf-theme');
-      if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      // Dark is the default: this app is almost entirely video, and video reads
+      // true on a dark ground and muddy on a light one.
+      if (!t) t = matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
       document.documentElement.setAttribute('data-theme', t);
-    } catch (e) { document.documentElement.setAttribute('data-theme', 'light'); }
+    } catch (e) { document.documentElement.setAttribute('data-theme', 'dark'); }
   })();
 </script>
 
-<header>
-  <div class="bar">
-    <span class="wordmark">lyricfield</span>
-    <span class="spacer"></span>
-    <span class="status"><span class="dot" id="tddot"></span><span id="tdtext">checking…</span></span>
-    <span class="status" id="staleBox" hidden>
-      <span class="dot" style="background:var(--warn)"></span>
-      <span id="staleText"></span>
-      <button type="button" class="btn quiet" id="btnRestart"
-              style="padding:2px 10px;margin-left:6px">Restart</button>
-    </span>
-    <button class="icon-btn" id="themeToggle" aria-label="Light or dark">◐</button>
+<div id="ambient" aria-hidden="true"><i class="b1"></i><i class="b2"></i></div>
+
+<nav id="side">
+  <div class="side-head"><span class="wordmark">lyricfield</span></div>
+  <div class="side-scroll">
+    <div class="navgroup">
+      <div class="navlabel">Songs</div>
+      <div id="songList"></div>
+    </div>
+    <div class="navgroup">
+      <div class="navlabel">This song</div>
+      <button class="navitem" data-view="make" id="nav-make">Make</button>
+      <button class="navitem" data-view="preview" id="nav-preview">Preview</button>
+      <button class="navitem" data-view="words" id="nav-words">Words<span class="count" id="nav-words-n"></span></button>
+      <button class="navitem" data-view="look" id="nav-look">Look</button>
+      <button class="navitem" data-view="takes" id="nav-takes">Takes<span class="count" id="nav-takes-n"></span></button>
+      <button class="navitem" data-view="log" id="nav-log">Log</button>
+      <button class="navitem" data-view="song" id="nav-song">Song setup</button>
+    </div>
   </div>
+  <div class="side-foot">
+    <span class="pill"><span class="dot" id="tddot"></span><span id="tdtext">checking…</span></span>
+  </div>
+</nav>
+
+<header id="top">
+  <button class="icon-btn" id="navToggle" aria-label="Menu">☰</button>
+  <span class="crumb" id="crumb">Make a video</span>
+  <span class="spacer"></span>
+  <button class="chip" id="runChip" hidden>
+    <span class="ring" id="runRing"></span><span id="runChipTxt">0%</span></button>
+  <span class="pill warn" id="staleBox" hidden>
+    <span class="dot" style="background:var(--warn)"></span>
+    <span id="staleText"></span>
+    <button type="button" class="btn quiet xs" id="btnRestart" data-run-lock>Restart</button>
+  </span>
+  <button class="icon-btn" id="themeToggle" aria-label="Light or dark">◐</button>
 </header>
 
-<main>
+<main id="scroll"><div class="page">
   <!-- Every message the app produces used to go to `note()`, which writes into
        #checks -- a div inside a collapsed <details> inside a container that is
        hidden until a song is selected. So an API refusal, an error, anything:
        invisible. Pressing Make the video with a stale server did exactly what
-       it was told to do, said so, and looked completely dead. -->
+       it was told to do, said so, and looked completely dead.
+       It lives in the page and never inside a view, so that whichever
+       destination you are on, a refusal reaches you. -->
   <div class="banner" id="alerts" hidden></div>
+
+  <section class="view" id="view-make">
   <section class="group"><div class="pad">
     <h2 class="title">Make a video</h2>
     <p class="sub">Pick a song and a look. Everything else happens on its own.</p>
 
-    <div class="field">
+    <!-- The sidebar is the song picker now. This stays because `songName()`
+         and the change handler read it, and it is driven from there. -->
+    <div class="field sr-only">
       <label for="song">Song</label>
       <select id="song"></select>
     </div>
@@ -422,26 +894,46 @@
       <label for="runSource">Audio file</label>
       <div class="row nowrap">
         <input type="text" id="runSource" placeholder="/path/to/song.mp3" style="flex:1">
-        <button class="btn" id="btnBrowse" type="button">Browse…</button>
+        <button class="btn" id="btnBrowse" data-run-lock type="button">Browse…</button>
       </div>
     </div>
 
     <div class="field">
-      <label id="styleLabel">Style</label>
+      <!-- Each picker carries its own heading now, so one more "Style" label
+           above them would only be a third thing to read. -->
+      <label id="styleLabel" class="sr-only">Style</label>
       <div id="styleGallery" role="radiogroup" aria-labelledby="styleLabel"></div>
-      <span class="hint" id="styleNote"></span>
+      <div class="recipe"><span class="hint" id="styleNote"></span></div>
     </div>
 
     <div class="row nowrap">
-      <button class="btn primary" id="btnPrimary">Make the video</button>
-      <button class="btn" id="btnSecondary" hidden>Restart</button>
+      <button class="btn primary block" id="btnPrimary">Make the video</button>
+      <button class="btn" id="btnSecondary" data-run-lock hidden>Restart</button>
     </div>
   </div>
 
-  <div class="progress" id="progress" hidden><i id="progressFill"></i></div>
-  <ul class="stages" id="stages"></ul>
   </section>
 
+  <!-- The run is what a person watches for minutes, so it says what it is
+       doing, how far along and how long -- not a 3px line and a bare list. -->
+  <section class="group" id="runPanel" hidden><div class="pad">
+    <div class="runhead">
+      <div>
+        <div class="runstage" id="runStage">Working</div>
+        <div class="runmeta" id="runMeta"></div>
+      </div>
+      <div class="runpct" id="runPct">0<i>%</i></div>
+    </div>
+    <div class="progress" id="progress" hidden><i id="progressFill"></i></div>
+    <ul class="stages" id="stages"></ul>
+  </div></section>
+  </section>
+
+  <section class="view" id="view-preview" hidden>
+  <div class="emptystate" id="previewEmpty">
+    <span class="big">No take yet</span>
+    <span>Make a video and the result lands here.</span>
+  </div>
   <section class="group" id="resultGroup" hidden><div class="pad">
     <div class="resulthead">
       <div>
@@ -456,11 +948,13 @@
     </div>
     <div class="banner" id="resultBanner" hidden></div>
     <div class="result">
-      <div class="player"><video class="preview" id="resultVideo" controls loop playsinline></video></div>
-      <div>
+      <div class="theatre">
+        <div class="player"><video class="preview" id="resultVideo" controls loop playsinline></video></div>
+      </div>
+      <div class="sidecol">
         <div class="row">
-          <button class="btn quiet" id="btnSaveStyleFromTake">Save as a style</button>
-          <button class="btn quiet" id="btnRejectTake">Reject</button>
+          <button class="btn quiet" id="btnSaveStyleFromTake" data-run-lock>Save as a style</button>
+          <button class="btn quiet" id="btnRejectTake" data-run-lock>Reject</button>
         </div>
 
         <div class="field" style="margin-top:var(--s-5)">
@@ -471,26 +965,28 @@
 
         <div class="field">
           <label>Length</label>
-          <div class="lenopts" id="lenopts">
+          <div class="lenopts seg" id="lenopts">
             <label class="lenopt on"><input type="radio" name="len" value="preview" checked> Preview 8s</label>
             <label class="lenopt"><input type="radio" name="len" value="full"> <span id="fullLabel">Full track</span></label>
             <label class="lenopt"><input type="radio" name="len" value="custom"> Custom
               <input type="number" id="customLen" min="1" max="900" value="30"> s</label>
           </div>
           <div class="row" style="margin-top:var(--s-3)">
-            <span>Start</span>
-            <button type="button" class="btn quiet startopt" data-start="begin"
+            <span class="seglabel">Start</span>
+            <div class="seg">
+            <button type="button" class="btn quiet startopt" data-start="begin" data-run-lock
                     aria-pressed="true">Beginning</button>
-            <button type="button" class="btn quiet startopt" data-start="vocals"
+            <button type="button" class="btn quiet startopt" data-start="vocals" data-run-lock
                     aria-pressed="false">Before the vocals</button>
-            <button type="button" class="btn quiet startopt" data-start="at"
+            <button type="button" class="btn quiet startopt" data-start="at" data-run-lock
                     aria-pressed="false">At…</button>
+            </div>
             <input type="text" id="startAt" placeholder="2:44" size="5" hidden>
           </div>
           <span class="hint" id="startHint"></span>
         </div>
 
-        <button class="btn primary" id="btnGenerate">Generate</button>
+        <button class="btn primary block" id="btnGenerate" data-run-lock>Generate</button>
       </div>
     </div>
     <details class="check" id="checkBlock" hidden>
@@ -503,57 +999,77 @@
     </details>
   </div></section>
 
-  <div id="detailSections" hidden>
-    <details class="disc" id="discCues"><summary>Words and timings</summary>
-      <div class="disc-body">
-        <div class="row" style="margin-bottom:var(--s-3)">
-          <button class="btn small" id="btnSaveCues">Save</button>
-          <button class="btn small" id="btnAddCue">Add row</button>
-          <span class="empty" id="cuenote"></span>
-        </div>
-        <div class="tablewrap">
-          <table><thead><tr><th>line</th><th>word</th><th>start</th><th></th></tr></thead>
-            <tbody id="cuebody"></tbody></table>
-        </div>
-        <div class="field" style="margin-top:var(--s-4)">
-          <label for="lang">Language</label>
-          <input type="text" id="lang" placeholder="auto — set it if the song is not English">
-        </div>
+  </section>
+
+  <section class="view" id="view-words" hidden>
+    <div class="viewhead"><h2>Words and timings</h2>
+      <p>What is sung, and when. Edit a row and save.</p></div>
+    <div id="discCues" class="panel"><div class="pad">
+      <div class="row" style="margin-bottom:var(--s-3)">
+        <button class="btn small" id="btnSaveCues" data-run-lock>Save</button>
+        <button class="btn small" id="btnAddCue" data-run-lock>Add row</button>
+        <span class="empty" id="cuenote"></span>
       </div>
-    </details>
-
-    <details class="disc"><summary>Look</summary>
-      <div class="disc-body" id="lookBody"></div>
-    </details>
-
-    <details class="disc" id="discTakes"><summary>Takes</summary>
-      <div class="disc-body"><div class="takes" id="takes"></div></div>
-    </details>
-
-    <details class="disc"><summary>Checks</summary>
-      <div class="disc-body"><div id="checks"><span class="empty">Nothing reported.</span></div></div>
-    </details>
-
-    <details class="disc"><summary>Start over</summary>
-      <div class="disc-body">
-        <div class="row">
-          <label class="lenopt"><input type="checkbox" id="fsep"> Separate again</label>
-          <label class="lenopt"><input type="checkbox" id="ftra"> Transcribe again</label>
-        </div>
-        <span class="hint">Both are slow, so they are skipped unless asked for.</span>
-        <div class="field" style="margin-top:var(--s-4)">
-          <label for="prompt">Known lyrics</label>
-          <textarea id="prompt" placeholder="optional — improves spelling and proper nouns"></textarea>
-        </div>
-        <div class="field" id="typeField" hidden>
-          <label for="vtype">Video type</label>
-          <select id="vtype"></select>
-          <span class="hint" id="vtypenote"></span>
-        </div>
+      <div class="tablewrap">
+        <table><thead><tr><th>line</th><th>word</th><th>start</th><th></th></tr></thead>
+          <tbody id="cuebody"></tbody></table>
       </div>
-    </details>
-  </div>
-</main>
+      <div class="field" style="margin-top:var(--s-4)">
+        <label for="lang">Language</label>
+        <input type="text" id="lang" placeholder="auto — set it if the song is not English">
+      </div>
+    </div></div>
+  </section>
+
+  <section class="view" id="view-look" hidden>
+    <div class="viewhead"><h2>Look</h2>
+      <p>The renderer's own settings. These describe the look, not the song.</p></div>
+    <div class="panel"><div class="pad"><div id="lookBody"></div></div></div>
+  </section>
+
+  <section class="view" id="view-takes" hidden>
+    <div class="viewhead"><h2>Takes</h2>
+      <p>Every render this song has produced.</p></div>
+    <div id="discTakes" class="panel"><div class="pad">
+      <div class="takes" id="takes"></div>
+    </div></div>
+  </section>
+
+  <section class="view" id="view-log" hidden>
+    <div class="viewhead"><h2>Log</h2>
+      <p>Everything the app has reported this session.</p></div>
+    <div class="panel"><div class="pad">
+      <div id="checks"><span class="empty">Nothing reported.</span></div>
+    </div></div>
+  </section>
+
+  <section class="view" id="view-song" hidden>
+    <div class="viewhead"><h2>Song setup</h2>
+      <p>What to redo, and what the renderer is told about this song.</p></div>
+    <div class="panel"><div class="pad">
+      <div class="row">
+        <label class="lenopt"><input type="checkbox" id="fsep"> Separate again</label>
+        <label class="lenopt"><input type="checkbox" id="ftra"> Transcribe again</label>
+      </div>
+      <span class="hint">Both are slow, so they are skipped unless asked for.</span>
+      <div class="field" style="margin-top:var(--s-4)">
+        <label for="prompt">Known lyrics</label>
+        <textarea id="prompt" placeholder="optional — improves spelling and proper nouns"></textarea>
+      </div>
+      <div class="field" id="typeField" hidden>
+        <label for="vtype">Video type</label>
+        <select id="vtype"></select>
+        <span class="hint" id="vtypenote"></span>
+      </div>
+    </div></div>
+  </section>
+
+  <!-- Kept, and kept `hidden`-driven: `refreshAll` sets it false to mean "the
+       config-bearing sections are populated", and the sidebar reads that to
+       enable the song-scoped destinations. Routing is a separate mechanism, so
+       `hidden` keeps its one meaning. -->
+  <div id="detailSections" hidden></div>
+</div></main>
 
 <div class="modal" id="customModal" hidden>
   <div class="sheet" role="dialog" aria-label="Describe a look">
@@ -568,7 +1084,7 @@
           on this machine, then rendered so you can see it before keeping it.</span>
       </div>
       <div class="row">
-        <button class="btn primary-quiet" id="customGo">Make it</button>
+        <button class="btn primary-quiet" id="customGo" data-run-lock>Make it</button>
       </div>
       <p class="sub" id="customOut"></p>
       <video class="preview" id="customPreview" style="height:220px" controls loop
@@ -578,8 +1094,8 @@
         <input type="text" id="customName" placeholder="e.g. cold drift">
       </div>
       <div class="row">
-        <button class="btn primary-quiet" id="customKeep" disabled>Keep this style</button>
-        <button class="btn quiet" id="customDiscard">Discard</button>
+        <button class="btn primary-quiet" id="customKeep" data-run-lock disabled>Keep this style</button>
+        <button class="btn quiet" id="customDiscard" data-run-lock>Discard</button>
       </div>
     </div>
   </div>
@@ -619,6 +1135,8 @@ let START_MODE = 'begin';
 // The run's timestamps are the server's. Usually the same machine, but not
 // necessarily the same clock, so measure the difference rather than assume it.
 let NOW_SKEW = 0;
+let SONGS = [];            // for the sidebar; the <select> stays the source of truth
+let VIEW = 'make';
 let STYLE_SLUG = '', CURRENT_SLUG = '', LAST = {id:null, state:null};
 
 async function api(path, opts) {
@@ -664,6 +1182,10 @@ function alertNow(text, kind) {
   x.onclick = () => { host.hidden = true; };
   host.append(x);
   host.hidden = false;
+  // Unhiding is not showing. The buttons that raise these sit at the bottom of
+  // a long page, and in a scrolling layout the banner can appear well above the
+  // viewport -- which is the same silence this banner was built to end.
+  host.scrollIntoView?.({behavior: 'smooth', block: 'nearest'});
 }
 function note(text, kind) {
   const host = $('#checks');
@@ -682,7 +1204,12 @@ $('#themeToggle').onclick = () => {
 // -------------------------------------------------------------- stage list
 function renderStages(run) {
   const host = $('#stages'), bar = $('#progress');
-  if (!run || !run.stages || !run.stages.length) { host.innerHTML = ''; bar.hidden = true; return; }
+  if (!run || !run.stages || !run.stages.length) {
+    host.innerHTML = ''; bar.hidden = true;
+    const p0 = $('#runPanel'); if (p0) p0.hidden = true;
+    const c0 = $('#runChip'); if (c0) c0.hidden = true;
+    return;
+  }
   bar.hidden = false;
 
   // Stages finished is a poor measure: the render is one stage of nine and it
@@ -696,6 +1223,33 @@ function renderStages(run) {
   const pct = Math.min(100, (settled + within) / total * 100);
   $('#progressFill').style.width = pct.toFixed(1) + '%';
   bar.classList.toggle('working', !!live && !within);
+  bar.classList.toggle('done', run.state === 'done');
+  bar.classList.toggle('fail', run.state === 'failed');
+
+  // The panel answers the three questions a multi-minute job raises: what is it
+  // doing, how far along, how long has it been.
+  const panel = $('#runPanel'); if (panel) panel.hidden = false;
+  const idx = run.stages.indexOf(live);
+  const elapsed = run.started ? (NOW_SKEW + Date.now() / 1000 - run.started) : 0;
+  const stageEl = $('#runStage');
+  if (stageEl) stageEl.textContent = live ? live.title
+      : (run.state === 'failed' ? 'Stopped' : run.state === 'done' ? 'Finished' : 'Working');
+  const metaEl = $('#runMeta');
+  if (metaEl) metaEl.textContent =
+      (live ? `stage ${idx + 1} of ${total}` : `${settled} of ${total} stages`) +
+      (elapsed > 0 ? ` · ${Math.floor(elapsed / 60)}:${String(Math.floor(elapsed % 60)).padStart(2,'0')} elapsed` : '');
+  const pctEl = $('#runPct');
+  if (pctEl) pctEl.textContent = Math.round(pct) + '%';
+  // And from anywhere, because a destination you navigated away from should
+  // not take the render's progress with it.
+  const chip = $('#runChip');
+  if (chip) {
+    chip.hidden = !live;
+    if (live) {
+      $('#runRing')?.style?.setProperty?.('--p', Math.round(pct) + '%');
+      const txt = $('#runChipTxt'); if (txt) txt.textContent = Math.round(pct) + '%';
+    }
+  }
 
   host.innerHTML = '';
   for (const st of run.stages) {
@@ -773,13 +1327,20 @@ async function poll() {
     renderStages(s.run);
     setControls(s.run);
     const busy = s.run && s.run.state === 'running';
+    bodyClass('busy', busy);
     if (busy) {
       const live = (s.run.stages || []).find(x => x.state === 'running');
       const pc = live && typeof live.fraction === 'number'
         ? ` ${Math.round(live.fraction * 100)}%` : '';
       document.title = `● lyricfield${pc}`;
     }
-    document.querySelectorAll('button.btn').forEach(b => {
+    // Opt-in rather than a sweep of every `button.btn` in the document. The
+    // sweep locked things that have nothing to do with the run -- the header's
+    // Restart, and the Dismiss on an error banner, so an error raised during a
+    // render could not be dismissed -- and it would silently disable any
+    // navigation that happened to be a button, for the whole length of a
+    // render. What must lock is what would start or change work.
+    document.querySelectorAll('[data-run-lock]').forEach(b => {
       // The previous take is still on disk and still downloadable while the
       // next one renders; there is no reason to lock it.
       if (b.id !== 'btnPrimary' && b.id !== 'btnDownload') b.disabled = busy;
@@ -793,6 +1354,9 @@ async function poll() {
         // nothing visible happened at all -- the run simply stopped.
         $('#resultGroup').hidden = false;
         showResult(s.run);
+        // Only on the transition to finished. `showResult` is reachable other
+        // ways that should not yank someone off what they were looking at.
+        navReady(); go('preview');
       }
     }
   } catch (e) { /* the server may be restarting */ }
@@ -932,6 +1496,75 @@ function renderStills(d, clipStart) {
 }
 
 // ------------------------------------------------------------------- songs
+// ------------------------------------------------------------------ routing
+// Destinations, not accordions. Each is a section that is always in the DOM and
+// only toggled -- `runBody()` reads fields out of four different ones, so a
+// destination that unmounted would take a run's settings with it.
+const VIEWS = ['make','preview','words','look','takes','log','song'];
+const VIEW_TITLES = {make:'Make a video', preview:'Preview', words:'Words and timings',
+                     look:'Look', takes:'Takes', log:'Log', song:'Song setup'};
+function bodyClass(name, on) {
+  try { document.body.classList.toggle(name, !!on); } catch (e) {}
+}
+function go(name) {
+  if (VIEWS.indexOf(name) < 0) name = 'make';
+  VIEW = name;
+  for (const v of VIEWS) { const el = $('#view-' + v); if (el) el.hidden = (v !== name); }
+  document.querySelectorAll('.navitem[data-view]').forEach(b =>
+    b.setAttribute('aria-current', b.dataset.view === name ? 'page' : 'false'));
+  const crumb = $('#crumb'); if (crumb) crumb.textContent = VIEW_TITLES[name] || name;
+  const sc = $('#scroll'); if (sc) sc.scrollTop = 0;
+  bodyClass('nav-open', false);
+  // Guarded: `location` does not exist in the test harness, and a page that
+  // throws here never gets as far as defining the thing that draws errors.
+  try { if (location.hash !== '#/' + name) history.replaceState(null, '', '#/' + name); }
+  catch (e) {}
+}
+document.querySelectorAll('.navitem[data-view]').forEach(b => {
+  b.onclick = () => go(b.dataset.view);
+});
+try {
+  addEventListener('hashchange', () => go((location.hash || '').slice(2)));
+} catch (e) {}
+const navToggle = $('#navToggle');
+if (navToggle) navToggle.onclick = () =>
+  bodyClass('nav-open', !document.body.classList.contains('nav-open'));
+const runChipEl = $('#runChip');
+if (runChipEl) runChipEl.onclick = () => go('make');
+
+// The sidebar is the song picker. It drives the <select>, rather than replacing
+// it, so `songName()` and the existing change handler keep working untouched.
+function renderSongList() {
+  const host = $('#songList'); if (!host) return;
+  host.innerHTML = '';
+  const pick = slug => {
+    const sel = $('#song'); if (!sel) return;
+    sel.value = slug;
+    if (sel.dispatchEvent) sel.dispatchEvent(new Event('change'));
+    else if (sel.onchange) sel.onchange({target: sel});
+    renderSongList();
+    go('make');
+  };
+  const mk = (slug, name, meta, isNew) => {
+    const b = document.createElement('button');
+    b.className = 'navitem songitem' + (isNew ? ' newsong' : '');
+    b.setAttribute('aria-current', slug === CURRENT_SLUG ? 'page' : 'false');
+    const n = document.createElement('span'); n.className = 'nm'; n.textContent = name;
+    b.append(n);
+    if (meta) { const m = document.createElement('span');
+                m.className = 'meta'; m.textContent = meta; b.append(m); }
+    b.onclick = () => pick(slug);
+    host.append(b);
+  };
+  for (const so of SONGS) {
+    const bits = [];
+    if (so.cues) bits.push(so.cues + ' words');
+    if (so.exports && so.exports.length) bits.push(so.exports.length + ' takes');
+    mk(so.slug, so.name, bits.join(' · '), false);
+  }
+  mk('', '+  New song', '', true);
+}
+
 async function loadSongs() {
   const r = await api('/api/songs');
   const sel = $('#song');
@@ -945,11 +1578,13 @@ async function loadSongs() {
   }
   CURRENT_SLUG = r.current || '';
   $('#nameField').hidden = !!CURRENT_SLUG;
+  SONGS = r.songs || [];
+  renderSongList();
 }
 $('#song').onchange = async e => {
   const slug = e.target.value;
   $('#nameField').hidden = !!slug;
-  if (!slug) { CURRENT_SLUG = ''; $('#resultGroup').hidden = true; return; }
+  if (!slug) { CURRENT_SLUG = ''; $('#resultGroup').hidden = true; navReady(); go('make'); return; }
   await api(`/api/songs/${slug}/select`, {method:'POST'}).catch(showErr);
   CURRENT_SLUG = slug;
   await refreshAll();
@@ -1018,6 +1653,27 @@ async function loadStyles() { STYLES = (await api('/api/styles')).styles; render
 // style on disk that meant one row -- the beatsync heading below was
 // unreachable, and the only way to pick a second renderer was a <select> inside
 // a collapsed disclosure inside a container hidden until a song was selected.
+// A looping video is motion whatever the stylesheet says, so the gate is here
+// rather than in CSS: under Reduce Motion no thumbnail ever plays, including
+// the selected one.
+let HOVER_V = null;
+function reducedMotion() {
+  try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; }
+  catch (e) { return false; }
+}
+function playThumb(v) {
+  if (!v || reducedMotion()) return;
+  if (!v.src && v.dataset && v.dataset.src) v.src = v.dataset.src;
+  const pr = v.play && v.play();
+  if (pr && pr.then) pr.then(() => v.classList.add('playing')).catch(() => {});
+}
+function stopThumb(v) {
+  if (!v) return;
+  v.classList.remove('playing');
+  if (v.pause) v.pause();
+  try { v.currentTime = 0; } catch (e) {}
+}
+
 function renderGallery() {
   const host = $('#styleGallery'); host.innerHTML = '';
 
@@ -1039,17 +1695,32 @@ function renderGallery() {
   for (const fam of ['lyric', 'beatsync']) {
     const list = fams[fam];
     if (!list || !list.length) continue;
-    const wrap = document.createElement('div'); wrap.className = 'famrow';
-    const h = document.createElement('h3'); h.className = 'eyebrow';
-    h.textContent = fam === 'beatsync' ? 'Behind the words · or on its own'
-                                       : 'The words';
-    const grid = document.createElement('div'); grid.className = 'gallery';
+    const [pType, pStyle] = pickedIn(fam);
+    const chosen = list.find(x => x.builtin ? (!pStyle && pType === x.type)
+                                            : (x.slug === pStyle && x.type === pType));
+    // Two questions, numbered, each saying what it currently answers. The
+    // single undifferentiated row read as one choice and was picked as one.
+    const wrap = document.createElement('div');
+    wrap.className = 'picker famrow' + (pType ? ' on' : '');
+    const head = document.createElement('header'); head.className = 'picker-head';
+    const num = document.createElement('span'); num.className = 'n';
+    num.textContent = fam === 'beatsync' ? '2' : '1';
+    const h = document.createElement('h3');
+    h.textContent = fam === 'beatsync' ? 'Behind the words' : 'The words';
+    const sub = document.createElement('span'); sub.className = 'sub';
+    sub.textContent = fam === 'beatsync' ? 'or the whole picture on its own'
+                                         : 'how the lyrics are drawn';
+    const pick = document.createElement('span'); pick.className = 'pick';
+    pick.textContent = chosen ? chosen.name : 'None';
+    head.append(num, h, sub, pick);
+    const grid = document.createElement('div');
+    grid.className = 'gallery' + (pType ? ' has-pick' : '');
     // "None" is what makes either row optional without a hidden mode: no
     // lyric look is a beatsync video, no beatsync look is a lyric video.
     grid.append(noneCard(fam));
     for (const st of list) grid.append(styleCard(st, fam));
     if (fam === 'lyric') grid.append(customCard());
-    wrap.append(h, grid); host.append(wrap);
+    wrap.append(head, grid); host.append(wrap);
   }
   showStyleNote();
 }
@@ -1074,10 +1745,14 @@ function noneCard(fam) {
   const b = document.createElement('button');
   b.type = 'button'; b.className = 'scard';
   b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(on));
+  b.className = 'scard none';
   b.title = fam === 'beatsync' ? 'nothing behind the words'
                                : 'no words — the beat look on its own';
   const t = document.createElement('div'); t.className = 'thumb';
-  t.innerHTML = '<span class="noprev">none</span>';
+  t.innerHTML = fam === 'beatsync' ? '<span class="noprev">nothing<br>behind</span>'
+                                   : '<span class="noprev">no<br>words</span>';
+  if (on) { const tick = document.createElement('span');
+            tick.className = 'tick'; tick.textContent = '✓'; t.append(tick); }
   const c = document.createElement('span'); c.className = 'cap'; c.textContent = 'None';
   b.append(t, c);
   b.onclick = () => setPick(fam, '', '');
@@ -1104,13 +1779,39 @@ function styleCard(st, fam) {
     shown = true;
   }
   const poster = src ? src.replace(/\.mp4$/, '.png') : '';
-  if (shown && on)
-    t.innerHTML = `<video src="${src}" autoplay loop muted playsinline poster="${poster}"></video>`;
-  else if (shown)
-    t.innerHTML = `<img src="${poster}" alt="${st.name}">`;
-  else t.innerHTML = '<span class="noprev">no preview yet</span>';
+  // The poster is always there, so the grid is whole on first paint -- it used
+  // to show one moving tile among twenty empty rectangles. The video mounts on
+  // top of it and crossfades in, and only two ever decode at once: the chosen
+  // one and whichever is under the pointer. TouchDesigner owns the GPU while a
+  // render runs, and a wall of twenty decoding videos is not free.
+  let vid = null;
+  if (shown) {
+    t.innerHTML = `<img src="${poster}" alt="" loading="lazy" decoding="async">`;
+    vid = document.createElement('video');
+    vid.muted = true; vid.loop = true; vid.playsInline = true;
+    vid.preload = 'none'; vid.dataset.src = src;
+    t.append(vid);
+    if (on) playThumb(vid);
+  } else {
+    t.innerHTML = '<span class="noprev">no preview yet</span>';
+  }
+  if (on) {
+    const tick = document.createElement('span');
+    tick.className = 'tick'; tick.textContent = '✓';
+    t.append(tick);
+  }
   const c = document.createElement('span'); c.className = 'cap'; c.textContent = st.name;
   b.append(t, c);
+  if (vid) {
+    b.onpointerenter = b.onfocus = () => {
+      if (HOVER_V && HOVER_V !== vid) stopThumb(HOVER_V);
+      HOVER_V = vid; playThumb(vid);
+    };
+    b.onpointerleave = b.onblur = () => {
+      if (HOVER_V === vid) HOVER_V = null;
+      if (b.getAttribute('aria-checked') !== 'true') stopThumb(vid);
+    };
+  }
   // A click only ever writes its own row's pair, which is the whole point.
   b.onclick = () => setPick(fam, st.type || '', st.slug || '');
   return b;
@@ -1119,7 +1820,7 @@ function styleCard(st, fam) {
 // one more thing you can pick, not a separate mode.
 function customCard() {
   const b = document.createElement('button');
-  b.type = 'button'; b.className = 'scard';
+  b.type = 'button'; b.className = 'scard custom';
   const t = document.createElement('div'); t.className = 'thumb';
   t.innerHTML = '<span class="noprev">＋<br>describe a look</span>';
   const c = document.createElement('span'); c.className = 'cap';
@@ -1285,6 +1986,25 @@ function setStartMode(mode) {
   showStartHint();
 }
 
+// What the sidebar is allowed to offer. `#detailSections` still carries the
+// one meaning it always had -- the config-bearing sections are populated -- and
+// the nav reads it rather than inventing a second source of truth.
+function navReady() {
+  const ready = !$('#detailSections')?.hidden;
+  for (const v of ['words', 'look', 'takes', 'log', 'song']) {
+    const b = $('#nav-' + v); if (b) b.disabled = !ready;
+  }
+  const hasTake = !$('#resultGroup')?.hidden;
+  const pv = $('#nav-preview'); if (pv) pv.disabled = !hasTake;
+  const empty = $('#previewEmpty'); if (empty) empty.hidden = hasTake;
+  const wn = $('#nav-words-n'); if (wn) wn.textContent = CUES.length ? String(CUES.length) : '';
+  const tn = $('#nav-takes-n');
+  if (tn) {
+    const n = $('#takes')?.querySelectorAll?.('.take')?.length || 0;
+    tn.textContent = n ? String(n) : '';
+  }
+}
+
 // Disclosures that cannot mean anything until a song is saved.
 function needsSong(pending) {
   for (const [id, what] of [['discCues', 'words'], ['discTakes', 'takes']]) {
@@ -1369,7 +2089,7 @@ $('#customClose').onclick = closeCustom;
 $('#customGo').onclick = customDescribe;
 $('#customKeep').onclick = customKeep;
 $('#customDiscard').onclick = customDiscard;
-$('#btnRejectTake').onclick = () => { $('#resultGroup').hidden = true; };
+$('#btnRejectTake').onclick = () => { $('#resultGroup').hidden = true; navReady(); go('make'); };
 $('#btnSaveStyleFromTake').onclick = async () => {
   const name = prompt('Name this look:');
   if (!name) return;
@@ -1401,6 +2121,7 @@ async function loadTakes() {
       .then(() => { note(`Restored ${t.name}`, 'ok'); refreshAll(); }).catch(showErr);
     el.append(b); host.append(el);
   }
+  navReady();
 }
 
 // -------------------------------------------------------------------- cues
@@ -1520,8 +2241,9 @@ async function loadTypes() {
   // with no renderer chosen and the first Generate falls back to the default
   // without ever having said so.
   if (!TYPE_SLUG) TYPE_SLUG = d.default || (TYPES[0] || {}).slug || '';
-  const sel = $('#vtype'); sel.innerHTML = '';
+  const sel = $('#vtype'); if (sel) sel.innerHTML = '';
   for (const t of TYPES) {
+    if (!sel) break;
     const o = document.createElement('option');
     o.value = t.slug; o.textContent = t.name; sel.append(o);
   }
@@ -1540,7 +2262,8 @@ async function refreshAll() {
   if (!c) return;
   CFG = c.config; CFG.__sections = c.sections; CFG_RANGES = c.ranges || {};
   CFG_CONTROLS = c.controls || [];
-  $('#vtype').value = PICKED ? (TYPE_SLUG || c.type) : c.type;
+  const vsel = $('#vtype');
+  if (vsel) vsel.value = PICKED ? (TYPE_SLUG || c.type) : c.type;
   // Adopt the server's choice only when nobody has made one here. This used to
   // be unconditional, so selecting a song -- or simply finishing a run -- put
   // the gallery back to whatever the song was last saved as, with no message.
@@ -1576,13 +2299,54 @@ async function refreshAll() {
   // Words and Takes genuinely need a saved song. They say so rather than
   // taking the whole panel down with them.
   needsSong(!CURRENT_SLUG);
+  navReady();
   if (CURRENT_SLUG) { loadCues(); loadTakes(); }
 }
 
+// The glow under the player is sampled from the picture itself, at 8x8 every
+// quarter second. Same-origin, so the canvas is not tainted -- and wrapped
+// anyway, because a glow is never worth taking the page down for.
+(function ambilight() {
+  try {
+    const v = $('#resultVideo');
+    if (!v || !v.addEventListener || reducedMotion()) return;
+    const c = document.createElement('canvas');
+    if (!c.getContext) return;
+    c.width = c.height = 8;
+    const ctx = c.getContext('2d', {willReadFrequently: true});
+    let timer = null;
+    const host = v.parentNode;
+    const tick = () => {
+      try {
+        ctx.drawImage(v, 0, 0, 8, 8);
+        const d = ctx.getImageData(0, 0, 8, 8).data;
+        let r = 0, g = 0, b = 0;
+        for (let i = 0; i < d.length; i += 4) { r += d[i]; g += d[i+1]; b += d[i+2]; }
+        const n = d.length / 4;
+        const up = x => Math.min(255, Math.round(x / n * 1.5));
+        host.style.setProperty('--glow', `rgb(${up(r)} ${up(g)} ${up(b)})`);
+      } catch (e) { clearInterval(timer); timer = null; }
+    };
+    v.addEventListener('playing', () => {
+      if (timer) clearInterval(timer);
+      timer = setInterval(tick, 250);
+    });
+    v.addEventListener('pause', () => { if (timer) { clearInterval(timer); timer = null; } });
+  } catch (e) {}
+})();
+
 (async function init() {
   await loadTypes(); await loadSongs(); await refreshAll();
+  // A reload lands where you were, which matters when the control server
+  // restarts mid-session.
+  let want = 'make';
+  try { want = (location.hash || '').slice(2) || 'make'; } catch (e) {}
+  go(want);
   poll(); setInterval(poll, 2000);
-})();
+// Nothing here caught, so one rejected request during startup took the whole
+// page down silently -- no banner, because the thing that draws banners had
+// not finished being wired up. Say it, and keep polling regardless.
+})().catch(showErr);
 </script>
 </body>
 </html>
