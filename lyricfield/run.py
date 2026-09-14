@@ -207,7 +207,7 @@ def _honour_pick(ctx: Ctx, say) -> dict:
     rebuilds when they disagree, and push reads the type's field script, so
     changing it at this point is enough to change the whole run.
     """
-    from .styles import get_style
+    from .styles import AmbiguousStyle, get_style
 
     ws, cfg = ctx.workspace, ctx.workspace.load_config()
     want_type, changed = ctx.video_type or "", {}
@@ -216,8 +216,12 @@ def _honour_pick(ctx: Ctx, say) -> dict:
     st = None
     if ctx.style:
         try:
-            st = get_style(ctx.style)
-        except (KeyError, FileNotFoundError) as e:
+            # With the renderer the pick already carries. A bare slug resolved
+            # to whichever style sorted first, and the line below then takes
+            # that style's type as the renderer -- so a name two renderers
+            # share could quietly change which one you got.
+            st = get_style(ctx.style, type=ctx.type or None)
+        except (KeyError, FileNotFoundError, AmbiguousStyle) as e:
             say(f"no style {ctx.style!r}: {e}")
         else:
             want_type = st.type

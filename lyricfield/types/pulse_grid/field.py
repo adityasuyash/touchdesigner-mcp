@@ -57,14 +57,11 @@ def _params_text():
 
 
 def _load_params():
+    # Through the prelude's reader, which accepts both the module form `sync`
+    # writes and the JSON form a preview capture writes.
     global PARAMS_MISSING
-    try:
-        p = dict(mod(PARAMS_DAT).P)
-        PARAMS_MISSING = not p
-        return p
-    except Exception:
-        PARAMS_MISSING = True
-        return {}
+    p, PARAMS_MISSING = _read_params(PARAMS_DAT)
+    return p
 
 
 def _apply_params():
@@ -320,7 +317,8 @@ def onCook(scriptOp):
                 rgb[R, c, 0], rgb[R, c, 1], rgb[R, c, 2] = cr, cg, cb
 
     S['stats'] = {'lit': int(lit_mask.sum()), 'rings': len(S['rings']),
-                  'held': bool(held), 'phase': round(float(phase), 3)}
+                  'held': bool(held), 'phase': round(float(phase), 3),
+                  'params_missing': PARAMS_MISSING}
 
     op(DIM_DAT).text = '\n'.join(''.join(row) for row in dim_ch)
     op(LIT_DAT).text = '\n'.join(''.join(row) for row in lit_ch)

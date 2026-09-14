@@ -5,7 +5,7 @@ name = "Shimmer"
 slug = "shimmer"
 type = "pulse_grid"
 description = "a dense wall with no sweep; the hats and the snare carry all of it"
-created = "2026-09-14T15:36:35+00:00"
+created = "2026-09-14T16:44:01+00:00"
 source_song = ""
 
 [grid]

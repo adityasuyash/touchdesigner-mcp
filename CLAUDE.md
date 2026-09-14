@@ -141,6 +141,18 @@ before types existed. The split is: `field.py` reads what changes per frame;
 `build.py` bakes what belongs to the network (font, resolution, the glow and
 bloom expressions).
 
+**Read the params DAT through the prelude's `_read_params`, never by hand.**
+There were two writers and two readers of that one DAT and they did not match
+up: `sync.params_text` writes a Python module (`P = {...}`), the three grid
+renderers read it back through `mod()`, the eight renderers written since parsed
+the text as JSON, and `styles.capture_preview` wrote JSON. Nothing failed — a
+field script that cannot read its params falls back to the defaults compiled
+into it and draws a plausible picture, so the new renderers rendered on defaults
+and the grid renderers previewed on them. Seven backdrop previews in the gallery
+were byte-identical recordings of `lyric_grid`'s defaults. `preflight` now asks
+the running script whether it read them (`sync.params_were_read`), and a capture
+that cannot is refused as `FallbackPreview` rather than shipped.
+
 ### Building a renderer that is not the character grid
 
 Nine of the eleven types were written after the grid, and every one of these

@@ -764,13 +764,8 @@ def list_video_types():
     three renderers and all three had one -- and put eight broken images on the
     screen the moment there were eleven.
     """
-    builtin = styles_mod.DEFAULT_ROOT / "_builtin"
-    out = []
-    for t in types_mod.list_types():
-        d = t.to_dict()
-        d["has_preview"] = (builtin / t.slug / t.slug / "preview.mp4").exists()
-        out.append(d)
-    return {"types": out, "default": types_mod.DEFAULT_TYPE}
+    return {"types": [type_payload(t) for t in types_mod.list_types()],
+            "default": types_mod.DEFAULT_TYPE}
 
 
 @app.post("/api/songs/{slug}/type")
@@ -910,19 +905,62 @@ class PreviewIn(BaseModel):
     seconds: float = 4.0
 
 
+# Where a beat look's "behind the words" capture lives. Keyed by BOTH
+# renderers: the layer is a property of the pair, and keying it on the beat
+# style's slug alone meant `_backdrops/lyric_grid/tide` stood for "the backdrop
+# for some style called tide" -- one same-named style away from two tiles
+# showing one video.
+def backdrop_url(lyric_type: str, st) -> str:
+    return f"/styles/_backdrops/{lyric_type}/{st.type}/{st.slug}/preview.mp4"
+
+
+def style_payload(st) -> dict:
+    """One style, as the gallery needs to see it.
+
+    `backdrop_preview` is answered by LOOKING. The client cannot know what is
+    on disk, and when it guessed -- building a backdrop path for every beatsync
+    tile and trusting it -- six of thirteen tiles requested a file that is
+    never generated, and all thirteen did for five of the six lyric renderers.
+    """
+    d = st.to_dict(STYLES_ROOT)
+    try:
+        vt = types_mod.get_type(st.type)
+        d["family"] = vt.family
+    except KeyError:
+        d["family"] = "lyric"
+
+    from lyricfield.types.lyric_grid.params import can_back_words
+    d["can_back_words"] = bool(d["family"] == types_mod.BEATSYNC
+                               and can_back_words(st.params))
+    d["backdrop_preview"] = None
+    if d["can_back_words"]:
+        # Only lyric_grid carries a backdrop at all, so that is the only
+        # namespace there can be a capture under.
+        url = backdrop_url(types_mod.DEFAULT_TYPE, st)
+        if (STYLES_ROOT / url[len("/styles/"):]).exists():
+            d["backdrop_preview"] = url
+    return d
+
+
+def type_payload(t) -> dict:
+    """One renderer, as the gallery needs to see it."""
+    d = t.to_dict()
+    d["has_preview"] = (STYLES_ROOT / "_builtin" / t.slug / t.slug
+                        / "preview.mp4").exists()
+    # Whether a beat look can sit behind this renderer's words. Only a renderer
+    # that declares `backdrop_from` can carry one; the rest draw their own
+    # picture and a beat look can only replace them, never layer under them.
+    mod = t._params_module()
+    d["carries_backdrop"] = bool(getattr(mod, "backdrop_from", None))
+    return d
+
+
 @app.get("/api/styles")
 def list_styles(type: str | None = None):
     """Styles for one video type, or all of them. A style only means anything
     for the renderer it was made for."""
-    out = []
-    for st in styles_mod.list_styles(STYLES_ROOT, type=type):
-        d = st.to_dict(STYLES_ROOT)
-        try:
-            d["family"] = types_mod.get_type(st.type).family
-        except KeyError:
-            d["family"] = "lyric"
-        out.append(d)
-    return {"styles": out}
+    return {"styles": [style_payload(st)
+                       for st in styles_mod.list_styles(STYLES_ROOT, type=type)]}
 
 
 @app.post("/api/styles/custom")
@@ -1087,10 +1125,10 @@ def describe_available():
     return {"available": describe_mod.available()}
 
 
-@app.post("/api/styles/{slug}/apply")
-def apply_style(slug: str):
+@app.post("/api/styles/{type}/{slug}/apply")
+def apply_style(type: str, slug: str):
     try:
-        st = styles_mod.get_style(slug, STYLES_ROOT)
+        st = styles_mod.get_style(slug, STYLES_ROOT, type=type)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e
     cfg = load_config()
@@ -1102,11 +1140,11 @@ def apply_style(slug: str):
     return {"applied": slug, "type": cfg.type, "problems": cfg.validate()}
 
 
-@app.post("/api/styles/{slug}/preview")
-def make_preview(slug: str, payload: PreviewIn):
+@app.post("/api/styles/{type}/{slug}/preview")
+def make_preview(type: str, slug: str, payload: PreviewIn):
     """Record a short loop of the current TD state as this style's preview."""
     try:
-        st = styles_mod.get_style(slug, STYLES_ROOT)
+        st = styles_mod.get_style(slug, STYLES_ROOT, type=type)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e
 
@@ -1125,9 +1163,9 @@ def make_preview(slug: str, payload: PreviewIn):
     return {"started": True}
 
 
-@app.delete("/api/styles/{slug}")
-def remove_style(slug: str):
-    styles_mod.delete_style(slug, STYLES_ROOT)
+@app.delete("/api/styles/{type}/{slug}")
+def remove_style(type: str, slug: str):
+    styles_mod.delete_style(slug, STYLES_ROOT, type=type)
     return {"deleted": slug}
 
 

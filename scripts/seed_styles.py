@@ -372,7 +372,7 @@ def build_styles() -> list[styles_mod.Style]:
     return out
 
 
-def builtin_previews(client, live, moments_for) -> list[str]:
+def builtin_previews(client, live, moments_for, force=False) -> list[str]:
     """One capture per RENDERER, of its own defaults.
 
     The gallery synthesises a "Built-in" tile per registered type and hardcoded
@@ -390,8 +390,8 @@ def builtin_previews(client, live, moments_for) -> list[str]:
         draft = S.Style(name=vt.name, slug=vt.slug, type=vt.slug,
                         description=vt.description,
                         params=vt.default_params())
-        if draft.preview_video(BUILTIN_ROOT).exists():
-            print(f"{vt.name} (built-in): preview already there")
+        if not force and draft.preview_is_current(BUILTIN_ROOT):
+            print(f"{vt.name} (built-in): preview already matches this look")
             continue
         for at in moments_for(vt.family):
             print(f"{vt.name} (built-in): recording from {at:.1f}s")
@@ -402,12 +402,19 @@ def builtin_previews(client, live, moments_for) -> list[str]:
                 break
             except S.StillPreview as e:
                 print(f"    {e}")
+            except S.FallbackPreview as e:
+                # Not worth another moment: the picture would be the same
+                # defaults at every one of them. Recorded as a failure here
+                # rather than left to the for-else, which this break skips.
+                print(f"    {e}")
+                failed.append(f"{vt.name} (built-in)")
+                break
         else:
             failed.append(f"{vt.name} (built-in)")
     return failed
 
 
-def backdrop_previews(client, live, root, moments) -> list[str]:
+def backdrop_previews(client, live, root, moments, force=False) -> list[str]:
     """One capture per beatsync look, as it appears BEHIND WORDS.
 
     Its own preview will not do. `styles/pulse_grid/heartbeat/preview.mp4` was
@@ -417,7 +424,7 @@ def backdrop_previews(client, live, root, moments) -> list[str]:
     a moving style.
 
     These are not styles: they set a handful of one type's tunables and have no
-    `style.toml`. They live under `styles/_backdrops/<type>/<slug>/`, which the
+    `style.toml`. They live under `styles/_backdrops/<lyric>/<beat>/<slug>/`,
     existing /styles mount serves, the `!styles/**/preview.mp4` negation tracks,
     and `_style_dirs` skips because it yields only folders holding a style file.
     """
@@ -458,11 +465,29 @@ def backdrop_previews(client, live, root, moments) -> list[str]:
             failed.append(st.name)
             continue
 
-        draft = S.Style(name=f"{st.name} behind", slug=st.slug, type=lyric.slug,
+        # The draft's "type" is the PATH it is filed under, and the path is
+        # keyed by both renderers: which lyric renderer carries it, and which
+        # beat renderer it is a look from. On the beat slug alone, two styles
+        # sharing a name collapse into one video and the second is never even
+        # recorded, because the first already made the file.
+        # `type` is the renderer this draft IS -- lyric_grid, whose params
+        # these are and whose field script builds it. `filed_under` is where
+        # it is STORED, keyed by both renderers: on the beat slug alone, two
+        # styles sharing a name collapse into one video and the second is never
+        # recorded, because the first already made the file. Folding the path
+        # into `type` instead made every capture raise `no video type
+        # 'lyric_grid/pulse_grid'`, which is why these seven previews are the
+        # ones the gallery was still showing from before the change.
+        draft = S.Style(name=f"{st.name} behind", slug=st.slug,
+                        type=lyric.slug,
+                        filed_under=f"{lyric.slug}/{st.type}",
                         description=f"{st.description} — behind the words",
                         params=params)
-        if draft.preview_video(BACKDROP_ROOT).exists():
-            print(f"{st.name} behind: preview already there")
+        # Current, not merely present -- the same rule the styles use. Asking
+        # only whether the file exists is how seven backdrop previews recorded
+        # before the capture could read its params stayed in the gallery.
+        if not force and draft.preview_is_current(BACKDROP_ROOT):
+            print(f"{st.name} behind: preview already matches this look")
             continue
         for at in moments:
             print(f"{st.name} behind: recording from {at:.1f}s")
@@ -473,6 +498,13 @@ def backdrop_previews(client, live, root, moments) -> list[str]:
                 break
             except S.StillPreview as e:
                 print(f"    {e}")
+            except S.FallbackPreview as e:
+                # Not worth another moment: the picture would be the same
+                # defaults at every one of them. Recorded as a failure here
+                # rather than left to the for-else, which this break skips.
+                print(f"    {e}")
+                failed.append(st.name)
+                break
         else:
             failed.append(st.name)
     return failed
@@ -480,6 +512,11 @@ def backdrop_previews(client, live, root, moments) -> list[str]:
 
 def main(argv: list[str]) -> int:
     want_preview = "--preview" in argv
+    # Re-record even a preview whose fingerprint matches. Needed whenever what
+    # changed is the *capture* rather than the look: the fingerprint is of the
+    # parameters, so a preview drawn from the wrong ones fingerprints as
+    # current and nothing re-records it.
+    force = "--force" in argv
     root = styles_mod.DEFAULT_ROOT
     made = build_styles()
     for st in made:
@@ -547,7 +584,7 @@ def main(argv: list[str]) -> int:
     for st in made:
         # Current, not merely present. Skipping on existence meant a look
         # could be re-tuned and keep the video of the look it used to be.
-        if st.preview_is_current(root):
+        if not force and st.preview_is_current(root):
             print(f"{st.name}: preview already matches this look")
             continue
         for at in moments_for(types_mod.get_type(st.type).family):
@@ -559,10 +596,14 @@ def main(argv: list[str]) -> int:
                 break
             except styles_mod.StillPreview as e:
                 print(f"    {e}")
+            except styles_mod.FallbackPreview as e:
+                print(f"    {e}")
+                failed.append(st.name)
+                break
         else:
             failed.append(st.name)
-    failed += backdrop_previews(client, live, root, word_moments)
-    failed += builtin_previews(client, live, moments_for)
+    failed += backdrop_previews(client, live, root, word_moments, force=force)
+    failed += builtin_previews(client, live, moments_for, force=force)
     if failed:
         print(f"no moving preview for: {', '.join(failed)}")
         return 1

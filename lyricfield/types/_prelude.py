@@ -63,3 +63,48 @@ def _struck(times, t, since):
         else:
             hi = mid
     return lo < len(times) and since < times[lo] <= t
+
+
+def _read_params(name='params'):
+    """Every tunable this renderer was pushed, whichever way it was written.
+
+    There were two writers and two readers and they did not match up.
+    `lyricfield.sync` writes the DAT as a Python module (`P = {...}`), which is
+    what the three grid renderers read through `mod()`; the eight renderers
+    written since read `json.loads(dat.text)`, and `styles.capture_preview`
+    wrote JSON. So a grid renderer previewed on its fallback defaults and a new
+    renderer *rendered* on its fallback defaults, in both cases silently: a
+    field script that cannot read its params does not fail, it just draws
+    something plausible. Measured, a plain capture and a backdrop capture of
+    `lyric_grid` came back byte-identical.
+
+    One reader, accepting both, is what makes that impossible to have again.
+    Returns `(values, missing)` -- `missing` is True when nothing could be read,
+    which every renderer reports through its stats rather than swallowing.
+    """
+    try:
+        d = op(name)
+    except Exception:
+        return {}, True
+    if d is None:
+        return {}, True
+    # The module form first: it is what `sync` writes, so it is the common case,
+    # and `mod()` caches the parse.
+    try:
+        p = dict(mod(name).P)
+        if p:
+            return p, False
+    except Exception:
+        pass
+    try:
+        txt = d.text
+    except Exception:
+        return {}, True
+    if not (txt or '').strip():
+        return {}, True
+    try:
+        import json
+        p = json.loads(txt)
+    except Exception:
+        return {}, True
+    return (p, False) if isinstance(p, dict) else ({}, True)

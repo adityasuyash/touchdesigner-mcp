@@ -36,23 +36,12 @@ TAU = 6.283185307179586
 
 
 def _load_params():
+    # Through the prelude's reader, which accepts both the module form `sync`
+    # writes and the JSON form a preview capture writes. Reading only JSON
+    # meant this renderer ran every real render on the fallbacks below.
     global PARAMS_MISSING
-    PARAMS_MISSING = False
-    try:
-        d = op(PARAMS_DAT)
-        txt = d.text if d is not None else ''
-    except Exception:
-        txt = ''
-    if not txt.strip():
-        PARAMS_MISSING = True
-        return {}
-    try:
-        import json
-        out = json.loads(txt)
-    except Exception:
-        PARAMS_MISSING = True
-        return {}
-    return out if isinstance(out, dict) else {}
+    p, PARAMS_MISSING = _read_params(PARAMS_DAT)
+    return p
 
 
 def _apply_params():

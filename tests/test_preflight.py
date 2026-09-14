@@ -18,11 +18,15 @@ class FakeTD:
     """Just enough TouchDesigner to answer what preflight asks."""
 
     def __init__(self, *, end=16072, range_end=16072, rate=60.0,
-                 recorder=False, project="", script_errors=""):
+                 recorder=False, project="", script_errors="", params_read=None):
         self.end, self.range_end, self.rate = end, range_end, rate
         self.recorder = recorder
         self.project = project          # the .toe TD is holding
         self.dats: dict[str, str] = {}
+        # Whether the field script could make anything of the params DAT, as
+        # its own stats report it. None is "it has not cooked yet", which is
+        # what a stub with nothing to say should answer.
+        self.params_read = params_read
         # What TouchDesigner says is wrong with the Script TOP. A fake that
         # cannot answer this is an incomplete fake: a script whose text matches
         # the repo byte for byte can still raise on every cook, which is how a
@@ -37,6 +41,8 @@ class FakeTD:
             return repr({"rate": self.rate, "end": self.end,
                          "range_start": 1, "range_end": self.range_end,
                          "limit": "loop"})
+        if "params_missing" in code:
+            return "" if self.params_read is None else str(int(self.params_read))
         if "_mcp_movieout" in code:
             if "destroy" in code:
                 self.recorder = False
@@ -220,3 +226,24 @@ def test_a_healthy_field_script_is_not_a_problem(cfg, ws):
     td.dats[sync.PARAMS_DAT] = sync.params_text(cfg)
     res = preflight.run(td, cfg, ws, covers=10.0, progress=lambda m: None)
     assert not [p for p in res.problems if "does not run" in p], res.problems
+
+
+def test_a_renderer_that_cannot_read_its_params_is_reported(ws, monkeypatch):
+    """The DAT matching what was pushed is not the same question as the script
+    being able to read it, and stopping at the first is how eight renderers ran
+    every render on the defaults compiled into them. `sync` writes a Python
+    module; those eight parsed the text as JSON; nothing failed.
+    """
+    td, cfg = healthy(ws, params_read=False)
+    monkeypatch.setattr(sync, "pull_cues",
+                        lambda c, dat=None: CueTable.from_dat_text(c.dats[sync.CUE_DAT]))
+    res = preflight.run(td, cfg, ws, covers=60.0)
+    assert any("cannot read the parameters" in p for p in res.problems), res.problems
+
+
+def test_a_renderer_that_can_read_its_params_is_not_reported(ws, monkeypatch):
+    td, cfg = healthy(ws, params_read=True)
+    monkeypatch.setattr(sync, "pull_cues",
+                        lambda c, dat=None: CueTable.from_dat_text(c.dats[sync.CUE_DAT]))
+    res = preflight.run(td, cfg, ws, covers=60.0)
+    assert res.ok, res.problems

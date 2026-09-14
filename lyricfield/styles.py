@@ -53,6 +53,13 @@ class Style:
     created: str = ""
     source_song: str = ""
     params: object = None
+    # Where this is FILED, when that is not the same question as which renderer
+    # it is for. A backdrop draft is `lyric_grid` params -- that is what builds,
+    # what needs lyrics, what the field script comes from -- but it is stored
+    # under both renderers' slugs so that two beat styles sharing a name cannot
+    # collapse into one video. Empty for every real style, which is filed under
+    # its own type.
+    filed_under: str = ""
 
     def __post_init__(self) -> None:
         if self.params is None:
@@ -101,7 +108,7 @@ class Style:
     # ---------- io ----------
 
     def dir(self, root: str | Path = DEFAULT_ROOT) -> Path:
-        return Path(root) / self.type / self.slug
+        return Path(root) / (self.filed_under or self.type) / self.slug
 
     def fingerprint(self) -> str:
         """A short hash of exactly the values this look sets.
@@ -244,16 +251,49 @@ def list_styles(root: str | Path = DEFAULT_ROOT,
     return sorted(out, key=lambda s: (s.type, s.name))
 
 
+class AmbiguousStyle(LookupError):
+    """A bare slug names more than one style.
+
+    Its own class because it is a caller's mistake rather than a missing file:
+    the style is there, twice, and which one was meant has to be said.
+    """
+
+
 def get_style(slug: str, root: str | Path = DEFAULT_ROOT,
               type: str | None = None) -> Style:
-    for st in list_styles(root):
-        if st.slug == slug and (type is None or st.type == type):
-            return st
-    raise FileNotFoundError(f"no style {slug!r} in {root}")
+    """One style, by slug and -- when it matters -- by renderer.
+
+    A style's identity is `(type, slug)`: that is how it is filed on disk, and
+    two renderers may honestly both have a "Tide". This used to return the
+    FIRST match for a bare slug, which meant `get_style("tide")` was always
+    swell's and `window/tide` could not be reached at all. Worse, `run` takes
+    the resolved style's `type` as the renderer to use, so a bare slug could
+    quietly change which renderer you got -- and `delete_style` removed the
+    first match, which is the wrong directory.
+
+    So an ambiguous bare slug is refused rather than guessed at.
+    """
+    found = [st for st in list_styles(root)
+             if st.slug == slug and (type is None or st.type == type)]
+    if not found:
+        where = f" for {type}" if type else ""
+        raise FileNotFoundError(f"no style {slug!r}{where} in {root}")
+    if len(found) > 1:
+        raise AmbiguousStyle(
+            f"{slug!r} is a style of {', '.join(sorted(s.type for s in found))}; "
+            f"say which renderer is meant")
+    return found[0]
 
 
 def delete_style(slug: str, root: str | Path = DEFAULT_ROOT,
                  type: str | None = None) -> None:
+    """Remove a style, permanently.
+
+    `type` is effectively required: this calls `shutil.rmtree`, and on a slug
+    two renderers share it used to delete whichever sorted first. Deleting the
+    wrong thing irrecoverably is not a defect to leave to chance, so an
+    ambiguous slug raises rather than picking.
+    """
     try:
         st = get_style(slug, root, type)
     except FileNotFoundError:
@@ -291,6 +331,16 @@ class WordlessPreview(StillPreview):
     what a lyric style exists to show. Four shipped previews were in this state
     -- parked at the busiest drum window, minutes past the last placeholder cue
     -- and every check passed them, motion included.
+    """
+
+
+class FallbackPreview(RuntimeError):
+    """The field script could not read the params it was just given.
+
+    Not a `StillPreview`: retrying at another moment cannot help, because the
+    picture is of the renderer's compiled-in defaults rather than of this look
+    and would be identical at every moment. It is a wiring fault, and the
+    callers that walk a list of moments should stop rather than walk it.
     """
 
 
@@ -399,7 +449,6 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
     # -- a beat renderer previewed against a neutral 120bpm fallback would be
     # showing its timing against nothing.
     import copy
-    import json
 
     # The look to record, with the song's own measured facts under it: a beat
     # renderer previewed against a neutral 120bpm fallback would be showing its
@@ -414,7 +463,11 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
         src = shown.video_type.field_source()
         if src:
             client.write(f"{box}/v7_script_callbacks", src)
-        client.write(f"{box}/params", json.dumps(shown.as_params()))
+        # Written the way `sync` writes it, not a second hand-rolled
+        # encoding of the same dict: the two disagreed, and a field
+        # script that cannot read its params does not fail -- it draws
+        # its fallbacks and reports success.
+        client.write(f"{box}/params", sync.params_text(shown))
         if wants_words:
             say("pushing the placeholder words")
             client.write(f"{box}/lyrics",
@@ -435,6 +488,19 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
         d = style.dir(root)
         d.mkdir(parents=True, exist_ok=True)
         raw = d / "_raw.mp4"
+
+        # Did the script make anything of what was just written? A capture
+        # drawn from the defaults compiled into the field script is
+        # indistinguishable from a capture of the style -- it moves, it lights
+        # its words, it parses -- except that every style of that renderer
+        # comes back as the same video. Seven did.
+        if src:
+            read = sync.params_were_read(client, box)
+            if read is False:
+                raise FallbackPreview(
+                    f"the {shown.type} field script cannot read the params "
+                    f"just pushed, so a {style.name} preview would be a "
+                    f"recording of that renderer's defaults")
 
         # Through `park` rather than setting the frame here: a seek outside the
         # play range is discarded silently, and a style preview captured from
@@ -489,6 +555,15 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
                 f"the {style.name} preview never lights a word "
                 f"(peak {moved['peak']:.2f} of the bold layer's {BOLD_PEAK}); "
                 f"the {seconds:g}s from {at:.1f}s hold no placeholder cues")
+        # There is deliberately no brightness floor here. One was written and
+        # then measured away: the seven broken backdrop previews came in at a
+        # mean of 0.44-0.46 of 255, and the honest previews of Marquee and
+        # Constellation -- styles whose whole idea is words out of near-black --
+        # measure 0.11-0.15. The broken captures were BRIGHTER than the good
+        # ones, so no floor can tell them apart, and the one tried here refused
+        # three styles that were working. What distinguishes a broken capture is
+        # not how dark it is but that it is a recording of the renderer's
+        # defaults, which is what `FallbackPreview` above asks directly.
     finally:
         # Nothing to put back. The song's network, words and look were never
         # touched -- the whole capture happened inside its own container --

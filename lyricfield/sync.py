@@ -118,6 +118,36 @@ def field_errors(client: TDClient) -> str:
     return client.op_errors(SCRIPT_TOP)
 
 
+def params_were_read(client: TDClient, container: str = ROOT) -> bool | None:
+    """Did the running field script actually parse the params DAT?
+
+    Matching text in the DAT is not the same question, and stopping at it is
+    how eleven renderers divided into two camps that could not read each
+    other's writing: `sync` writes a Python module, three renderers read it
+    through `mod()`, eight parse the text as JSON, and a preview capture wrote
+    JSON. Nothing failed. Each script fell back to the defaults compiled into
+    it and drew a plausible picture of the wrong look.
+
+    Every field script already records this as `params_missing` in its stats,
+    so the answer costs one round trip. Returns None when the script has no
+    stats yet -- it has not cooked, which `field_errors` is the check for.
+    """
+    try:
+        out = client.run(
+            "def go():\n"
+            f"    t = op({container!r} + '/v7_script')\n"
+            "    if t is not None:\n"
+            "        t.cook(force=True)\n"
+            f"    o = op({container!r} + '/v7_script_callbacks')\n"
+            "    m = getattr(o, 'module', None) if o is not None else None\n"
+            "    st = getattr(m, 'S', {}).get('stats') if m is not None else None\n"
+            "    print('' if st is None else int(not st.get('params_missing')))\n"
+            "go()").strip()
+    except TDError:
+        return None
+    return bool(int(out)) if out.strip() in ("0", "1") else None
+
+
 def push_cues(client: TDClient, table: CueTable) -> None:
     client.write(CUE_DAT, table.to_dat_text())
 

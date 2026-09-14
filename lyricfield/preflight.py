@@ -177,6 +177,18 @@ def _field_script(client, cfg, ws, covers, repair, res, say):
     bad = sync.field_errors(client)
     if bad:
         res.problems.append(f"the field script does not run: {bad}")
+        return
+
+    # Running is still not reading. `_params` asks whether the DAT holds what
+    # was pushed; this asks whether the script could make anything of it. They
+    # came apart for eight of eleven renderers at once -- `sync` writes a
+    # Python module and those eight parse the text as JSON -- and the symptom
+    # was a render that worked, on the defaults compiled into the script.
+    read = sync.params_were_read(client)
+    if read is False:
+        res.problems.append(
+            "the field script cannot read the parameters DAT, so the render "
+            "would use the defaults compiled into it rather than this look")
 
 
 def _drums(client, cfg, ws, covers, repair, res, say):

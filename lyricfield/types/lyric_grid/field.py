@@ -99,20 +99,19 @@ def _params_text():
 
 
 def _load_params():
-    """Params live in a sibling Text DAT written by lyricfield.sync. A plain
-    `import` cannot see a DAT -- TD exposes them through mod() instead.
+    """Params live in a sibling DAT written by lyricfield.sync.
+
+    Through the prelude's reader, which accepts both the module form `sync`
+    writes and the JSON form a preview capture writes. Reading only one of them
+    is how every preview of this renderer came back drawn from the fallbacks
+    below instead of from the look it was supposed to be of.
 
     A failure here is recorded rather than swallowed. Falling back silently is
     how a malformed params DAT turned into a plausible video of the wrong song.
     """
     global PARAMS_MISSING
-    try:
-        p = dict(mod(PARAMS_DAT).P)
-        PARAMS_MISSING = not p
-        return p
-    except Exception:
-        PARAMS_MISSING = True
-        return {}
+    p, PARAMS_MISSING = _read_params(PARAMS_DAT)
+    return p
 
 
 def _apply_params():
@@ -1049,6 +1048,10 @@ def onCook(scriptOp):
     counts['rings'] = len(S['rings'])
     counts['twinkle_on'] = bool(twinkle_on)
     counts['band_total'] = BAND * COLS
+    # Reported, not swallowed: a script running on its compiled-in
+    # fallbacks draws a plausible picture of the wrong look, and this
+    # is the only place that says so.
+    counts['params_missing'] = PARAMS_MISSING
     S['stats'] = counts
 
     op(DIM_DAT).text = '\n'.join(''.join(row) for row in dim_ch)
