@@ -673,8 +673,9 @@ def list_backdrops():
         for key, label, why, deltas in getattr(mod, "BACKDROPS", ()):
             out.append({"type": vt.slug, "key": key, "name": label,
                         "description": why, "sets": deltas,
-                        "preview": f"/styles/_backdrops/{key}/preview.mp4",
-                        "has_preview": (BACKDROP_ROOT / key / "preview.mp4").exists()})
+                        "preview": f"/styles/_backdrops/{vt.slug}/{key}/preview.mp4",
+                        "has_preview": (BACKDROP_ROOT / vt.slug / key
+                                        / "preview.mp4").exists()})
     return {"backdrops": out}
 
 

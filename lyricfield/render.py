@@ -219,6 +219,33 @@ def recording_progress(client: TDClient) -> dict:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _finished(path: Path) -> bool:
+    """Is this a complete container, rather than one still being written?
+
+    Frames, not bytes. This used to require 50 KB, which is a proxy for "the
+    moov atom has landed" and a bad one: a mostly dark clip is legitimately
+    tiny. A valid 132-frame capture of words on black came to 8.5 KB and was
+    rejected as a failed render, twice over -- the size floor cannot tell a dark
+    picture from a truncated file, and ffprobe can, because an incomplete
+    container has no index to parse.
+    """
+    probe = _ffprobe(path)
+    if probe is None:
+        return False
+    for stream in probe.get("streams", []):
+        if stream.get("codec_type") != "video":
+            continue
+        try:
+            if int(stream.get("nb_frames") or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            pass
+    try:
+        return float(probe.get("format", {}).get("duration") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
 def wait_for_container(path: Path, timeout: float = 900.0,
                        settle: float = 5.0, poll: float = 4.0,
                        should_stop=None, client: TDClient | None = None,
@@ -239,7 +266,7 @@ def wait_for_container(path: Path, timeout: float = 900.0,
             a = path.stat().st_size
             time.sleep(settle)
             b = path.stat().st_size if path.exists() else -1
-            if a == b and b > 50_000 and _ffprobe(path) is not None:
+            if a == b and b > 1_000 and _finished(path):
                 return True
         elif client is not None and time.time() - last_said > 3.0:
             last_said = time.time()

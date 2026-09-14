@@ -134,3 +134,45 @@ def test_a_track_with_no_kicks_at_all_still_answers(sine_wav):
     """A steady tone has no events; the caller still needs a number."""
     at = A.busiest_window(sine_wav, seconds=1.0)
     assert at >= 0.0
+
+
+# ------------------------------------------------ the backdrop previews
+
+BACKDROP_ROOT = ROOT / "_backdrops"
+
+
+def _backdrop_previews():
+    return sorted(BACKDROP_ROOT.rglob("preview.mp4"))
+
+
+def test_the_backdrop_previews_are_not_mistaken_for_styles():
+    """They live under the styles tree so the existing mount serves them and
+    the gitignore negation tracks them, but they are presets over one type's
+    tunables, not styles -- `_style_dirs` yields only folders holding a
+    `style.toml`, and none of these has one."""
+    if not BACKDROP_ROOT.exists():
+        pytest.skip("no backdrop previews on this machine")
+    assert not list(BACKDROP_ROOT.rglob("style.toml"))
+    assert not [st for st in S.list_styles(ROOT) if "_backdrops" in str(st.dir(ROOT))]
+
+
+@pytest.mark.parametrize("video", _backdrop_previews(),
+                         ids=lambda p: f"{p.parent.parent.name}/{p.parent.name}")
+def test_a_backdrop_preview_moves(video):
+    m = R.measure_motion(video)
+    assert m["frames"] > 1, m
+    assert m["moving"], f"{video.parent.name} preview is a still frame: {m}"
+
+
+def test_a_dark_clip_is_not_mistaken_for_a_failed_render(black_mp4):
+    """`wait_for_container` used to require 50 KB, which is a proxy for "the
+    moov atom landed" and a bad one: a valid 132-frame capture of words on
+    black came to 8.5 KB and was thrown away as a broken render."""
+    assert black_mp4.stat().st_size < 50_000
+    assert R._finished(black_mp4) is True
+
+
+def test_something_that_is_not_a_container_is_rejected(tmp_path):
+    junk = tmp_path / "half-written.mp4"
+    junk.write_bytes(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 4000)
+    assert R._finished(junk) is False

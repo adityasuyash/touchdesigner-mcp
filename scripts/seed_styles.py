@@ -26,6 +26,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from lyricfield import styles as styles_mod           # noqa: E402
 from lyricfield import types as types_mod             # noqa: E402
 
+# Backdrop previews are not styles; see `backdrop_previews`.
+BACKDROP_ROOT = styles_mod.DEFAULT_ROOT / "_backdrops"
+
 # (type, name, description, {section.field: value})
 LOOKS: list[tuple[str, str, str, dict]] = [
     # The lyric look. It has to be *distinct from the defaults*, or the gallery
@@ -100,6 +103,74 @@ def build_styles() -> list[styles_mod.Style]:
     return out
 
 
+def backdrop_previews(client, live, root, moments) -> list[str]:
+    """One short capture per backdrop, so the row can show what it does.
+
+    These are not styles -- they set a handful of one type's tunables and have
+    no `style.toml` -- so they live under `styles/_backdrops/<key>/`, which the
+    existing /styles mount serves, the `!styles/**/preview.mp4` negation tracks,
+    and `_style_dirs` skips because it yields only folders holding a style file.
+
+    Captured through the same `capture_preview` as everything else, so they get
+    the placeholder words, the restore-on-failure, and the refusal to write a
+    still frame.
+    """
+    import importlib
+
+    failed = []
+    for vt in types_mod.list_types():
+        P = importlib.import_module(f"lyricfield.types.{vt.slug}.params")
+        failed += _one_types_backdrops(client, vt, P, live, moments)
+    return failed
+
+
+def _one_types_backdrops(client, vt, P, live, moments) -> list[str]:
+    from lyricfield import styles as S
+
+    failed = []
+    for key, label, why, deltas in getattr(P, "BACKDROPS", ()):
+        # From the TYPE's defaults, not from whatever the open project happens
+        # to be wearing -- it may well be another renderer entirely, whose
+        # sections these paths do not exist in.
+        params = vt.default_params()
+        for path, value in deltas.items():
+            section, name = path.split(".")
+            setattr(getattr(params, section), name, value)
+        # The placeholder words run 0.4s to 7.5s, but the capture is parked
+        # wherever the drums are -- around 70s on this song. Without shifting
+        # the cues to meet it, every backdrop preview is a field with no words
+        # in it, which is the one thing these are meant to show. `offset` is the
+        # knob for exactly this and already exists.
+        if getattr(params, "cueing", None) is not None and moments:
+            params.cueing.offset = round(float(moments[0]), 3)
+        P.reconcile(params)
+        problems = params.validate()
+        if problems:
+            print(f"{label}: not a valid config: {problems}")
+            failed.append(label)
+            continue
+
+        # A Style object is the unit `capture_preview` knows how to push and
+        # record; this one is never saved, so nothing joins the style shelf.
+        draft = S.Style(name=label, slug=key, type=vt.slug,
+                        description=why, params=params)
+        if draft.preview_video(BACKDROP_ROOT).exists():
+            print(f"{label}: preview already there")
+            continue
+        for at in moments:
+            print(f"{label}: recording from {at:.1f}s")
+            try:
+                S.capture_preview(client, draft, at=at, seconds=4.0,
+                                  root=BACKDROP_ROOT, live=live,
+                                  progress=lambda m: print("   ", m))
+                break
+            except S.StillPreview as e:
+                print(f"    {e}")
+        else:
+            failed.append(label)
+    return failed
+
+
 def main(argv: list[str]) -> int:
     want_preview = "--preview" in argv
     root = styles_mod.DEFAULT_ROOT
@@ -116,8 +187,23 @@ def main(argv: list[str]) -> int:
     from lyricfield.workspace import Workspace
 
     client = TDClient()
-    slug = Path(client.run("print(project.folder)").strip()).name
-    live = Config.load(Workspace.open(slug).config_path)
+    # Wrapped in a function: a bare `print(project.folder)` came back empty
+    # here, which made the script go looking for a song called "" and fail in
+    # ffmpeg rather than saying TouchDesigner had a different project open.
+    slug = Path(client.run(
+        "def go():\n    print(project.folder)\ngo()").strip()).name
+    if not slug:
+        print("TouchDesigner has no song project open; open one and retry")
+        return 1
+    try:
+        live = Config.load(Workspace.open(slug).config_path)
+    except FileNotFoundError:
+        print(f"TouchDesigner has {slug!r} open, which is not a song workspace")
+        return 1
+    source = live.track.instrumental or live.track.source
+    if not source or not Path(source).exists():
+        print(f"{slug} has no readable source audio; previews need one")
+        return 1
     print(f"previewing against {slug} ({live.track.duration:.0f}s, "
           f"beat {live.track.beat_period:.2f}s)")
 
@@ -125,7 +211,6 @@ def main(argv: list[str]) -> int:
     # of the duration landed on a stretch of one song with no low-band events at
     # all, and five beatsync previews came back as still frames.
     from lyricfield import analysis
-    source = live.track.instrumental or live.track.source
     moments = [analysis.busiest_window(source, seconds=4.0)]
     moments += [m for m in (live.track.duration * f for f in (0.55, 0.3, 0.7))
                 if 1.0 < m < live.track.duration - 8.0]
@@ -148,6 +233,7 @@ def main(argv: list[str]) -> int:
                 print(f"    {e}")
         else:
             failed.append(st.name)
+    failed += backdrop_previews(client, live, root, moments)
     if failed:
         print(f"no moving preview for: {', '.join(failed)}")
         return 1
