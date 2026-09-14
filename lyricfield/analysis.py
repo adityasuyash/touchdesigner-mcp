@@ -334,23 +334,175 @@ def lock_phase(x: np.ndarray, period: float, search_from: float = 0.0,
     return round(best_ph, 3)
 
 
-def detect_kicks(x: np.ndarray, thresh_pct: float = 88.0, min_gap: float = 0.22,
-                 fps: float = 100.0, sr: int = SR) -> list[float]:
-    env = _band_rms(x, 20.0, 150.0, fps, sr)
-    if not len(env):
+def _band_flux(x: np.ndarray, lo: float, hi: float, fps: float,
+               sr: int = SR) -> np.ndarray:
+    """Positive change in a band's energy: how a transient is found.
+
+    The difference from the band's *level* is the whole point. A level threshold
+    also crosses on a sustained bass note and stays crossed while it sustains,
+    which is why the gates in TouchDesigner fire with no relation to the beat --
+    measured at a circular concentration of 0.12, indistinguishable from
+    uniform. Energy only *rises* sharply when something is struck.
+    """
+    env = _band_rms(x, lo, hi, fps, sr)
+    if len(env) < 2:
+        return np.zeros(len(env), np.float32)
+    flux = np.diff(env, prepend=env[:1])
+    return np.maximum(flux, 0.0).astype(np.float32)
+
+
+def _adaptive_floor(f: np.ndarray, fps: float, pct: float,
+                    block: float = 2.0) -> np.ndarray:
+    """A threshold that follows the track's own loudness.
+
+    One global percentile misses every onset in a quiet verse and finds
+    imaginary ones in a loud chorus. Per-block percentiles, linearly
+    interpolated, cost almost nothing and follow the arrangement.
+    """
+    n = len(f)
+    step = max(1, int(block * fps))
+    edges = list(range(0, n, step)) or [0]
+    levels = [float(np.percentile(f[i:i + step], pct)) for i in edges]
+    if len(edges) == 1:
+        return np.full(n, levels[0], np.float32)
+    return np.interp(np.arange(n), edges, levels).astype(np.float32)
+
+
+def _pick_onsets(flux: np.ndarray, fps: float, pct: float, min_gap: float,
+                 smooth: float = 0.0) -> list[float]:
+    """Peaks of the flux that clear an adaptive floor.
+
+    A peak, not a threshold crossing. A crossing reports the moment a rising
+    envelope passes a line, which on a low-passed kick is tens of milliseconds
+    into the attack -- `detect_kicks` did that and ran ~50 ms late against the
+    same transient seen live in TouchDesigner.
+
+    Two details that were measured rather than guessed, against a synthesised
+    pattern with known strike times:
+
+    - the peak must be the largest in a window of half the minimum gap, not
+      merely larger than its two neighbours, or one strike reports three times;
+    - the reported time is one frame BEFORE the peak. `_band_rms` measures a
+      whole hop at once, so the flux into frame `i` is the energy that arrived
+      during frame `i-1`. Reporting the peak frame put every onset ~22 ms late;
+      backing off one frame brings it to ~12 ms, inside one frame of the grid.
+    """
+    if len(flux) < 3:
         return []
-    env = env / (env.max() + 1e-9)
-    up = float(np.percentile(env, thresh_pct))
-    down = up * 0.55
-    gap = int(min_gap * fps)
-    out, armed, last = [], True, -10**9
-    for i, v in enumerate(env):
-        if armed and v > up and (i - last) >= gap:
-            out.append(round(i / fps, 3))
-            last, armed = i, False
-        elif not armed and v < down:
-            armed = True
+    if smooth > 0:
+        w = max(1, int(smooth * fps))
+        flux = np.convolve(flux, np.ones(w, np.float32) / w, mode="same")
+    f = flux / (flux.max() + 1e-9)
+    floor = _adaptive_floor(f, fps, pct)
+    gap = max(1, int(min_gap * fps))
+    half = max(1, gap // 2)
+    out, last = [], -10 ** 9
+    for i in range(1, len(f) - 1):
+        if f[i] <= 0.0 or f[i] < floor[i] or i - last < gap:
+            continue
+        if f[i] < f[max(0, i - half):i + half + 1].max():
+            continue
+        out.append(round(max(0.0, i - 1) / fps, 3))
+        last = i
     return out
+
+
+# `_band_rms` windows one hop at a time, so its FFT bins are `fps` Hz apart.
+# Above about 150 fps nothing lands inside a 20-150 Hz band at all and the low
+# band comes back empty -- which is why these detectors run at 100.
+ONSET_FPS = 100.0
+
+
+def detect_kicks(x: np.ndarray, thresh_pct: float = 99.0, min_gap: float = 0.18,
+                 fps: float = ONSET_FPS, sr: int = SR) -> list[float]:
+    """When the kick drum is struck, in seconds."""
+    return _pick_onsets(_band_flux(x, 20.0, 150.0, fps, sr), fps,
+                        thresh_pct, min_gap)
+
+
+def detect_snares(x: np.ndarray, thresh_pct: float = 99.0, min_gap: float = 0.18,
+                  fps: float = ONSET_FPS, sr: int = SR) -> list[float]:
+    """When the snare is struck.
+
+    There has never been one of these. What TouchDesigner calls `snare` is a
+    3500 Hz highpass -- hats, cymbals and vocal sibilance -- so it fired 3.3
+    times a second against a 1.5 beat-per-second song and read as a continuous
+    shimmer. A snare's body is 180-700 Hz, but so is a bass note and so is a
+    vowel, so neither band identifies one alone: what distinguishes a snare is
+    that the body and the crack arrive *together*. Requiring both is what keeps
+    a sung note from counting as a backbeat.
+    """
+    body = _band_flux(x, 180.0, 700.0, fps, sr)
+    crack = _band_flux(x, 1800.0, 6000.0, fps, sr)
+    if not len(body) or not len(crack):
+        return []
+    both = np.sqrt((body / (body.max() + 1e-9)) * (crack / (crack.max() + 1e-9)))
+    return _pick_onsets(both.astype(np.float32), fps, thresh_pct, min_gap)
+
+
+def detect_hats(x: np.ndarray, thresh_pct: float = 96.0, min_gap: float = 0.07,
+                fps: float = ONSET_FPS, sr: int = SR) -> list[float]:
+    """When a hi-hat or cymbal is struck. Above the snare's crack, and allowed
+    to come far more often -- hats legitimately play semiquavers."""
+    return _pick_onsets(_band_flux(x, 6000.0, min(sr / 2 - 1, 16000.0), fps, sr),
+                        fps, thresh_pct, min_gap)
+
+
+def fit_beat_grid(onsets: Sequence[float], period: float,
+                  span: float = 0.04, step: float = 0.0001) -> tuple[float, float]:
+    """Sharpen the beat period and its anchor against the strikes themselves.
+
+    `estimate_tempo` reads the period off an autocorrelation lag measured in
+    whole frames, so at 100 fps it can only ever return a multiple of 10 ms.
+    On one 162-second track that quantisation put the period 1.6 ms per beat
+    away from the best fit -- which sounds negligible and is not: it accumulates
+    to **0.39 of a beat by the end of the song**, so a crest timed to the grid
+    starts with the music and finishes nearly half a beat out. Measured on that
+    track, phase concentration over any ten-second window was 0.43 while over
+    the whole track it was 0.20; the strikes were locked, the grid was not.
+
+    Fitting to the detected onsets fixes the resolution and yields the anchor
+    from the same calculation. That matters too, because `lock_phase` searched
+    single 10 ms bins with no tolerance and returned 0.660 on a mix where the
+    onsets say 0.040 -- a whole beat of the bar out, and 0.660 was the last
+    candidate in its sweep, which is what a boundary artefact looks like.
+    """
+    t = np.asarray([float(v) for v in onsets], dtype=np.float64)
+    if len(t) < 4 or period <= 0:
+        return round(period, 4), 0.0
+    best_r, best_p, best_a = -1.0, period, 0.0
+    for p in np.arange(period - span, period + span + 1e-12, step):
+        if p <= 0.05:
+            continue
+        v = np.exp(2j * np.pi * (t % p) / p).mean()
+        r = float(abs(v))
+        if r > best_r:
+            # The mean resultant's angle IS the average phase of the strikes,
+            # so the anchor falls out of the same fit rather than needing a
+            # second search.
+            best_r, best_p = r, float(p)
+            best_a = float((np.angle(v) / (2 * np.pi)) * p % p)
+    return round(best_p, 5), round(best_a, 4)
+
+
+def detect_drums(x: np.ndarray, sr: int = SR) -> dict[str, list[float]]:
+    """Every drum strike in the track, by kind, in seconds.
+
+    The one entry point, because the three detectors overlap and have to be
+    de-conflicted against each other rather than each on its own. A snare's
+    crack lives in the hats' band and registers as a hat 30 ms later; measured
+    on a synthesised pattern, suppressing that alone removes most of the false
+    hats without costing a real one.
+
+    A kick and a snare landing together is a real thing a drummer does, so those
+    two are left alone.
+    """
+    kicks = detect_kicks(x, sr=sr)
+    snares = detect_snares(x, sr=sr)
+    hats = detect_hats(x, sr=sr)
+    hats = [h for h in hats
+            if not any(abs(h - sn) <= 0.045 for sn in snares)]
+    return {"kick": kicks, "snare": snares, "hat": hats}
 
 
 def busiest_window(source: str | Path, seconds: float = 4.0,

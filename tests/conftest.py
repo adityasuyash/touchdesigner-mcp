@@ -301,3 +301,71 @@ def cooker(field_mod):
         }
 
     return cook
+
+
+# ------------------------------------------------------------- drum patterns
+
+DRUM_KICKS = [0.30, 1.05, 1.90, 2.35, 3.60, 4.10, 5.55, 6.20, 7.85, 8.30,
+              9.95, 11.10, 11.60, 13.25, 14.05, 15.80, 16.40, 18.15, 19.70,
+              21.35]
+DRUM_SNARES = [0.80, 2.65, 3.95, 5.10, 6.90, 8.75, 10.40, 12.15, 13.90, 15.20,
+               17.05, 18.80, 20.25, 22.10]
+
+
+def _drum_pattern(seed: int = 5, dur: float = 24.0):
+    """A kit playing at known, deliberately IRREGULAR times, over a bassline.
+
+    Irregular on purpose: a regular grid can only ever reveal a timing error
+    modulo one beat, which is how a half-beat offset in the beat response hid.
+    The sustained bassline is there too, because it is what a level threshold on
+    the low band mistakes for a kick -- the defect these detectors replace.
+    """
+    import numpy as np
+    from lyricfield.analysis import SR
+
+    rng = np.random.default_rng(seed)
+    x = np.zeros(int(dur * SR), np.float32)
+
+    def place(t, sig):
+        i = int(t * SR)
+        n = min(len(sig), len(x) - i)
+        if n > 0:
+            x[i:i + n] += sig[:n]
+
+    def kick(n=int(0.18 * SR)):
+        t = np.arange(n) / SR
+        f = 110 * np.exp(-t * 28) + 45
+        return (np.sin(2 * np.pi * np.cumsum(f) / SR) * np.exp(-t * 16)).astype(np.float32)
+
+    def snare(n=int(0.14 * SR)):
+        t = np.arange(n) / SR
+        body = np.sin(2 * np.pi * 200 * t) * np.exp(-t * 22)
+        b = np.fft.rfft(rng.normal(0, 1, n))
+        fr = np.fft.rfftfreq(n, 1 / SR)
+        b[(fr < 1500) | (fr > 7000)] = 0
+        return ((body * 0.5 + np.fft.irfft(b, n) * 0.5) * np.exp(-t * 18)).astype(np.float32)
+
+    def hat(n=int(0.05 * SR)):
+        t = np.arange(n) / SR
+        b = np.fft.rfft(rng.normal(0, 1, n))
+        b[np.fft.rfftfreq(n, 1 / SR) < 7000] = 0
+        return (np.fft.irfft(b, n) * np.exp(-t * 70) * 0.6).astype(np.float32)
+
+    hats = [round(0.25 + 0.31 * i + 0.04 * float(rng.random()), 3) for i in range(70)]
+    for t in DRUM_KICKS:
+        place(t, kick())
+    for t in DRUM_SNARES:
+        place(t, snare())
+    for t in hats:
+        place(t, hat())
+    bt = np.arange(len(x)) / SR
+    x += (0.35 * np.sin(2 * np.pi * 55 * bt)
+          * (0.6 + 0.4 * np.sin(2 * np.pi * 0.25 * bt))).astype(np.float32)
+    return (x / np.abs(x).max() * 0.9).astype(np.float32), hats
+
+
+@pytest.fixture(scope="session")
+def drum_audio():
+    """(samples, kick_times, snare_times, hat_times) with ground truth."""
+    x, hats = _drum_pattern()
+    return x, list(DRUM_KICKS), list(DRUM_SNARES), hats
