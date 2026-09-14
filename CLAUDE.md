@@ -87,8 +87,20 @@ lyricfield/
   ui/            control UI (python -m lyricfield.ui.server -> :8765)
   preflight.py   assert what a render leans on, and repair it
   types/         the video types, one package each
-    lyric_grid/  the song's words, lit on cue     (family: lyric)
-    pulse_grid/  the beat as light, no words      (family: beatsync)
+    _build.py    the builder engine: OpSpec and the create/wire/verify helpers
+    _controls.py the named-control machinery every type binds to its own knobs
+    _prelude.py  prepended to every field script (drum onsets, edge detection)
+    lyric_grid/  the song's words in a character field   (lyric)
+    monument/    one word, filling the frame             (lyric)
+    window/      the words cut out of moving light       (lyric)
+    orbit/       the line riding a parametric curve      (lyric)
+    swarm/       words that fly in and are knocked apart (lyric)
+    horizon/     a neon grid to a banded sun             (lyric)
+    pulse_grid/  the beat as light in the same field     (beatsync)
+    swell/       the beat as coverage on a glyph ramp    (beatsync)
+    rings/       rings leaving the centre                (beatsync)
+    strata/      hard bands, struck one at a time        (beatsync)
+    scope/       one glowing curve with a phosphor trail (beatsync)
 tests/           pytest; `python -m pytest` with TouchDesigner shut
 ```
 
@@ -115,7 +127,11 @@ instance each. Two live bugs were found by writing them.
    with `validate()`
 2. `lyricfield/types/<slug>/field.py` — code that runs inside TD, if it needs any
 3. `lyricfield/types/<slug>/build.py` — construct the network from an empty
-   project; without one, provisioning falls back to forking the open project
+   project. **Required**: provisioning forks a template whose only operator is
+   the MCP server, so a type with no builder gets an empty project and the
+   first push fails. Borrow the engine from `types/_build.py`; do **not**
+   import another type's `build` or its `Grid` — those two imports are the
+   entire reason three renderers drew one picture.
 4. `lyricfield/types/<slug>/__init__.py` — `TYPE = VideoType(...)`
 
 **Every tunable a type declares must be consumed by its `field.py` or its
@@ -125,12 +141,54 @@ before types existed. The split is: `field.py` reads what changes per frame;
 `build.py` bakes what belongs to the network (font, resolution, the glow and
 bloom expressions).
 
+### Building a renderer that is not the character grid
+
+Nine of the eleven types were written after the grid, and every one of these
+cost real time to discover. None is findable from the Python side.
+
+- **A Text TOP draws its own inline `text` and ignores its DAT** while that
+  string is non-empty. It ships holding the word "derivative", so the first
+  render of a new type is that word at whatever size your code computed for the
+  real one. Set `text` to `""`.
+- **Font size is in POINTS by default.** `fontsizexunit`/`fontsizeyunit` must be
+  set to `pixels`, and so must `positionunit`, or every size and place you
+  compute from the frame follows the display's DPI. This is the same defect that
+  once made a grid's row pitch depend on the monitor it was built on.
+- **Ask TouchDesigner for parameter names; do not infer them.** A Level TOP has
+  no `extendleft` (it has `fillmode`); a Text TOP has no `bordera` (it has
+  `borderar`, `borderag`, ...). `docs`, or `[p.name for p in o.pars()]`, answers
+  in seconds.
+- **A curve written in 0..1 coordinates is an ellipse on screen.** A step in x
+  covers `width` pixels and a step in y covers `height`. Scale against the
+  smaller side. This was got wrong twice in one afternoon -- a sun and a circle.
+- **A blur conserves energy.** Spreading a one-pixel filament over four pixels
+  divides its brightness by about fifty; a line renderer needs a gain stage
+  after the tight blur, and a second wider blur for the halo. One blur gives
+  either a hard line with no bloom or a smear with no line.
+- **The Text TOP's Specification DAT** takes a table of `x`, `y`, `text` and
+  places each row at its own pixel coordinate, origin **lower-left**. That is
+  how a renderer escapes a lattice; there is no other way to place glyphs
+  freely without instancing, which is unsupported on some Macs.
+- **Clamp every decay envelope at BOTH ends.** `1 - (t - struck) / decay` is
+  greater than one whenever the strike is ahead of the playhead, which a seek
+  makes routine, and it grows without limit. Measured: a field's mean at 0.86 of
+  white with everything else invisible inside it.
+- **Prefer a frame that is a pure function of its own timestamp.** Feedback
+  TOPs, the Particle SOP and the Bullet solver all step per cook, so a dropped
+  frame or a seek changes what they produce and a song does not render the same
+  way twice. A trail drawn from the curve's own past, or a spring re-integrated
+  from the line's start, costs almost nothing and re-renders exactly.
+- **Whole-array or nothing.** 720x1280 is a million pixels a frame; a per-pixel
+  Python loop is not an option. Precompute the coordinate grids once.
+
 ### Concepts
 
 - **Workspace** — one folder per song under `~/lyricfield-projects/<slug>/`:
   `project.toe`, `config.toml`, `cues.tsv`, `source/`, `stems/`, `exports/`.
-  A new song's `.toe` is forked from whatever TD currently has open; there is
-  deliberately no checked-in template (binary, undiffable, stale within a day).
+  A new song's `.toe` is forked from `_template.toe`, a project whose only
+  operator is the MCP server -- `project.load()` kills the server if the target
+  does not contain one. No full template is checked in (binary, undiffable,
+  stale within a day).
 - **Video type** — the renderer: its TD network, its tunables, whether it needs
   lyrics. Ingest is shared; this is what differs. `lyricfield/types/<slug>/`.
 - **Style** — a named preset of one type's params, so it is reusable across songs
