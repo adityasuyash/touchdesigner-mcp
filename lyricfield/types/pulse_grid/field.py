@@ -34,6 +34,7 @@ DEFAULTS = {
     'kick_lift': 0.26, 'kick_time': 0.55, 'kick_sigma': 2.2,
     'snare_frac': 0.06, 'snare_peak': 0.5, 'snare_time': 0.25,
     'high_lift': 0.18, 'high_time': 0.22, 'reroll': 12.0,
+    'intro_open': 0.34, 'arrive': 0.80, 'outro': 12.0,
     # Track structure, measured per song. Neutral, never a particular song's
     # numbers -- a fallback that is convincingly wrong is worse than one that is
     # obviously wrong.
@@ -85,6 +86,36 @@ def _apply_params():
 
 
 _apply_params()
+
+
+# Seconds over which the intro and the arrival ease in. Not a tunable: it is a
+# ramp length, and a song with a 2-second lead-in and one with a 60-second
+# lead-in both want the same handful of seconds of easing.
+INTRO_RAMP = 2.0
+
+
+def _section_gain(t):
+    """Where in the piece this is, as a multiplier on brightness.
+
+    Dim before the drums, most of the way up once they are in, full once the
+    hi-hats arrive, and fading over the outro. A song whose analysis found no
+    kick gets a flat 1.0 rather than a guess.
+
+    This renderer pushed `kick_in`, `high_in` and `duration` into TouchDesigner
+    and read none of them -- it even computed `TAIL_END` and never referenced it
+    again -- so a pulse video was the same in its first frame as in its last.
+    `swell` has had this since it was written; this is the same shape.
+    """
+    g = 1.0
+    if KICK_IN > 0.0 and t < KICK_IN:
+        g = INTRO_OPEN + (1.0 - INTRO_OPEN) * _smooth(
+            (t - (KICK_IN - INTRO_RAMP)) / INTRO_RAMP)
+    elif HIGH_IN > KICK_IN and t < HIGH_IN:
+        g = ARRIVE + (1.0 - ARRIVE) * _smooth(
+            (t - (HIGH_IN - INTRO_RAMP)) / INTRO_RAMP)
+    if TAIL_END > 0.0 and OUTRO > 0.0:
+        g *= _smooth((TAIL_END - t) / OUTRO)
+    return max(0.0, min(1.0, g))
 
 
 def _smooth(a):
@@ -248,6 +279,12 @@ def onCook(scriptOp):
         v = v + SNARE_PEAK * sparks * room
     if not held and HIGH_LIFT > 0 and high_env > 0.0:
         v = v + HIGH_LIFT * high_env * S['bias']
+
+    # Where in the song this is. Applied to the whole composed field rather
+    # than to any one contribution, so the piece opens, arrives and ends.
+    gain = _section_gain(t)
+    if gain < 1.0:
+        v = LEVEL_MIN + (v - LEVEL_MIN) * gain
     v = np.clip(v, 0.0, CEIL + WAVE_LIFT)
 
     blank = S['chars'] == ' '

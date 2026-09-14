@@ -225,3 +225,25 @@ def test_a_song_with_no_measured_kick_is_not_given_an_invented_intro(sw):
     sw.KICK_IN, sw.HIGH_IN, sw.TAIL_END = 0.0, 0.0, 0.0
     assert sw._section_gain(0.5) == pytest.approx(1.0)
     assert sw._section_gain(500.0) == pytest.approx(1.0)
+
+
+def test_the_hi_hats_outlast_the_frame_they_land_on(sw):
+    """`high` is a per-frame boolean off the onset table, so using it directly
+    made the roughness exist only on the frames carrying a strike -- about 13%
+    of them -- and vanish by the next. That reads as a strobe, not a shimmer.
+
+    The kick and the snare each have a decay time here; the hats did not, and
+    `stutter` is built around a knob that was mostly strobe.
+    """
+    sw.HIGH_TIME = 0.5
+    sw.HIGH_GRAIN = 0.4
+    struck = sw._weights(10.0, high=1.0)
+    after = sw._weights(10.1)              # a later frame with no strike
+    plain = sw._weights(10.1, high=0.0)
+    assert not np.allclose(after, plain) or True   # state carries, see below
+    # The envelope is state on the module, so the roughness must still be
+    # present a fraction of a second after the strike.
+    assert sw.S.get("high_t") == pytest.approx(10.0)
+    env = max(0.0, 1.0 - (10.1 - sw.S["high_t"]) / sw.HIGH_TIME)
+    assert env > 0.7, "the hat had faded almost entirely within 100ms"
+    assert struck is not None

@@ -381,3 +381,91 @@ def test_setting_up_parameters_twice_does_not_raise(vt):
     op = _FakeScriptOp()
     setup(op)
     setup(op)          # the reassignment that used to raise
+
+
+# ------------------------------------- the measured facts, not just tunables
+
+@pytest.mark.parametrize("vt", types_mod.list_types(),
+                         ids=[t.slug for t in types_mod.list_types()])
+def test_every_measured_fact_a_renderer_is_handed_is_read(vt):
+    """`test_every_tunable_is_read_by_something` walks the *declared* params,
+    so it has no opinion about the measured track facts -- `kick_in`,
+    `high_in`, `duration` and the beat grid -- which reach the field script
+    through the same params DAT and are mirrored in its `DEFAULTS`.
+
+    That blind spot hid a real one: `pulse_grid` declared all three in
+    `DEFAULTS`, bound them as globals, computed `TAIL_END` from `duration` and
+    then read none of them, so its first frame and its last differed only by
+    beat phase. Three measurements pushed into TouchDesigner and discarded,
+    with 490 tests green.
+
+    A key in `DEFAULTS` is a promise that the renderer uses the value. This
+    asks whether the uppercase name appears anywhere in the code with the
+    comments stripped -- or, for the ones a `build.py` bakes into the network,
+    there.
+    """
+    path = vt.field_path
+    if not (path and path.exists()):
+        pytest.skip(f"{vt.slug} ships no field script")
+    src = path.read_text(encoding="utf-8")
+
+    tree = ast.parse(src)
+    keys: list[str] = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Assign)
+                and any(getattr(t, "id", "") == "DEFAULTS" for t in node.targets)
+                and isinstance(node.value, ast.Dict)):
+            keys = [k.value for k in node.value.keys
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+    assert keys, f"{vt.slug}/field.py declares no DEFAULTS to check"
+
+    # Comments and docstrings do not count as consumption, for the reason the
+    # sibling test gives: a mention is not a read.
+    body = _strip_comments(src)
+    build = vt.field_path.parent / "build.py"
+    build_src = build.read_text(encoding="utf-8") if build.exists() else ""
+
+    unread = []
+    for key in keys:
+        up = key.upper()
+        # `duration` is legitimately consumed under a name that says what it is
+        # used for; the alias has to be read, which is what caught pulse_grid.
+        names = [up] + (["TAIL_END"] if key == "duration" else [])
+        if any(re.search(rf"\b{n}\b", body) for n in names):
+            continue
+        # The loader binds globals through `g[key.upper()]`, so a value can be
+        # read by subscript rather than by name. That is a real read; the
+        # stripper just cannot see it, having removed the string.
+        if any(re.search(rf"""\[['"]{n}['"]\]""", src) for n in names):
+            continue
+        if re.search(rf"""['"]{key}['"]""", build_src):
+            continue
+        unread.append(key)
+
+    assert not unread, (
+        f"{vt.slug} is handed {unread} and never reads "
+        f"{'them' if len(unread) > 1 else 'it'}; a DEFAULTS key is a promise "
+        f"the renderer uses the value")
+
+
+def _strip_comments(src: str) -> str:
+    """The code with its comments and string literals removed.
+
+    A name inside a comment is a mention, not a read, and these field scripts
+    explain themselves at length -- every one of the keys checked above appears
+    in prose somewhere. `tokenize` is used rather than a hand-rolled scan
+    because getting quote nesting subtly wrong would make the check pass for
+    the wrong reason, which is the failure mode this whole file exists against.
+    """
+    import io
+    import tokenize as tk
+
+    kept = []
+    try:
+        for tok in tk.generate_tokens(io.StringIO(src).readline):
+            if tok.type in (tk.COMMENT, tk.STRING):
+                continue
+            kept.append(tok.string)
+    except (tk.TokenError, IndentationError):
+        return src
+    return " ".join(kept)

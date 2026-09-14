@@ -385,8 +385,21 @@ class Workspace:
             say(f"timeline set to {want:.0f}s")
 
         # ---- 3. content ----
-        say("pushing params, field script and cues")
-        out["pushed"] = sync.push_all(client, cfg, CueTable.load(self.cues_path))
+        # Cues only for a renderer that draws them -- pushing words to a
+        # beatsync type leaves another renderer's lyrics in the project for this
+        # one to ignore, which is the rule `run._push` states and this did not
+        # follow. And the drums, which every renderer reads and which this never
+        # pushed at all, so a song provisioned here had no beat to answer.
+        wants_words = cfg.video_type.needs_lyrics
+        cues = CueTable.load(self.cues_path) if wants_words else None
+        drums = None
+        if self.drums_path.exists():
+            from .drums import DrumTable
+            drums = DrumTable.load(self.drums_path)
+        say("pushing params, field script"
+            + (", cues" if wants_words else "")
+            + (", drums" if drums is not None else ""))
+        out["pushed"] = sync.push_all(client, cfg, cues, drums)
 
         # ---- 4. persist ----
         # A built network that is only in TouchDesigner's memory is one crash

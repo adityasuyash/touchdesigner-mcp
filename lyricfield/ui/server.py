@@ -58,6 +58,11 @@ def cues_path() -> Path:
     return CURRENT.cues_path if CURRENT else DATA / "cues.tsv"
 
 
+def drums_path() -> Path:
+    """Where the drum onsets live. Beside cues.tsv, and pushed the same way."""
+    return CURRENT.drums_path if CURRENT else DATA / "drums.tsv"
+
+
 def stills_dir() -> Path:
     return CURRENT.stills_dir if CURRENT else DATA / "stills"
 
@@ -304,10 +309,15 @@ def render_full():
     ws, out = CURRENT, CURRENT.export_path()
 
     def job(say):
+        # `source` is the fallback when there are no stems. A beatsync type
+        # asks only for drums, so `vocals` and `instrumental` are both empty
+        # for it and `render` takes the branch whose own docstring says it
+        # exists because such a type "shipped a silent MP4".
         res = render_mod.render(
             client, out, cfg.track.duration,
             vocals=cfg.track.vocals or None,
-            instrumental=cfg.track.instrumental or None, progress=say)
+            instrumental=cfg.track.instrumental or None,
+            source=cfg.track.source or None, progress=say)
         return {"path": str(res.path), "duration": res.duration}
     _run_job("render-full", job)
     return {"started": True, "output": str(out)}
@@ -619,13 +629,20 @@ def do_prepare(payload: PrepareIn):
     """Separate, analyse and transcribe in one pass. Stages whose output already
     exists are skipped, so this is safe to re-run."""
     def job(say):
+        # `needs` and `drums_path` are what make this the right ingest for THIS
+        # song. Without them every song was transcribed -- billed to Groq, for
+        # words a beatsync renderer will never draw -- and `drums.tsv` was never
+        # written at all, so the beat renderers had no beat to answer.
+        cfg = load_config()
         res = pipeline.prepare(
             payload.track, config_path(), cues_path(),
+            drums_path=drums_path(),
             stem_root=_stem_root(payload.stem_root), model=payload.model,
             device=payload.device, groq_key=_remember_key(payload.api_key),
             groq_model=payload.groq_model, language=payload.language,
             prompt=payload.prompt, force_separate=payload.force_separate,
-            force_transcribe=payload.force_transcribe, progress=say)
+            force_transcribe=payload.force_transcribe,
+            needs=cfg.video_type.needs, progress=say)
         return res.to_dict()
     _run_job("prepare", job)
     return {"started": True}
@@ -696,9 +713,13 @@ def td_save():
 @app.post("/api/render")
 def do_render(payload: RenderIn):
     def job(say):
+        # Same reason as /api/render/full: with no stems this would write a
+        # silent file and report success.
+        cfg = load_config()
         res = render_mod.render(
             client, _out_path(payload.output), payload.duration,
             vocals=payload.vocals, instrumental=payload.instrumental,
+            source=cfg.track.source or None,
             fps=payload.fps, progress=say)
         return {"path": str(res.path), "duration": res.duration,
                 "width": res.width, "height": res.height, "fps": res.fps}

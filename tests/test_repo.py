@@ -261,3 +261,19 @@ def test_every_preview_capture_says_which_style_it_is_recording():
                 assert "live=" in call, (
                     f"{f.relative_to(REPO)} calls capture_preview without "
                     f"live=, so it will record whatever look is loaded")
+
+
+def test_no_render_call_can_ship_a_silent_file():
+    """`render` falls back to the source mix when there are no stems, and says
+    so in its own docstring: the branch exists because a type that asks only
+    for drums "shipped a silent MP4". Two endpoints omitted `source=`, so for
+    every beatsync song they took exactly that branch and reported success.
+    """
+    import re
+    for f in (REPO / "lyricfield").rglob("*.py"):
+        src = f.read_text(encoding="utf-8")
+        for m in re.finditer(r"(\w*\s*)render_mod\.render\((.*?)\)\n", src, re.S):
+            call = m.group(2)
+            assert "source=" in call, (
+                f"{f.relative_to(REPO)} renders without source=, so a song "
+                f"with no stems gets a silent file and is told it worked")

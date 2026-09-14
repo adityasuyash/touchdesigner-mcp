@@ -146,3 +146,39 @@ def test_hold_windows_freeze_the_beat_response(pulse_mod):
     assert m._held(6.0) is True
     assert m._held(4.0) is False
     assert m._held(9.0) is False
+
+
+# ------------------------------------------- where in the song this is
+
+def test_it_is_dim_before_the_drums_and_full_once_they_are_in(pulse_mod):
+    """This renderer pushed `kick_in`, `high_in` and `duration` into
+    TouchDesigner and read none of them. It even computed `TAIL_END` and never
+    referenced it again, so a pulse video was identical in its first frame and
+    its last -- no intro, no arrival, no ending, and three measured facts
+    thrown away.
+    """
+    m = pulse_mod
+    m.KICK_IN, m.HIGH_IN, m.TAIL_END = 20.0, 40.0, 200.0
+    assert m._section_gain(5.0) < m._section_gain(30.0) < m._section_gain(60.0)
+
+
+def test_it_fades_over_the_outro(pulse_mod):
+    m = pulse_mod
+    m.KICK_IN, m.HIGH_IN, m.TAIL_END = 20.0, 40.0, 200.0
+    assert m._section_gain(199.5) < m._section_gain(150.0)
+
+
+def test_a_song_with_no_measured_structure_is_left_flat(pulse_mod):
+    """A guess would be worse than nothing: an analysis that found no kick
+    should not make the renderer invent an intro."""
+    m = pulse_mod
+    m.KICK_IN, m.HIGH_IN, m.TAIL_END = 0.0, 0.0, 0.0
+    assert m._section_gain(0.5) == pytest.approx(1.0)
+    assert m._section_gain(500.0) == pytest.approx(1.0)
+
+
+def test_the_gain_never_leaves_zero_to_one(pulse_mod):
+    m = pulse_mod
+    m.KICK_IN, m.HIGH_IN, m.TAIL_END = 20.0, 40.0, 200.0
+    for t in (-5.0, 0.0, 19.9, 20.1, 39.9, 100.0, 199.9, 205.0):
+        assert 0.0 <= m._section_gain(t) <= 1.0

@@ -54,6 +54,7 @@ class Swell:
     snare_frac: float = 0.07     # share of cells driven to the top of the ramp
     snare_time: float = 0.28
     high_grain: float = 0.22     # hi-hats roughen the weight field
+    high_time: float = 0.22      # ... and how long that roughness takes to fade
     reroll: float = 16.0         # seconds between re-scattering the bias
 
 
@@ -144,6 +145,7 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "kick_open": (0, 1, 0.01), "kick_time": (0.05, 2, 0.05),
     "kick_sigma": (0.5, 8, 0.1),
     "snare_frac": (0, 0.4, 0.005), "snare_time": (0.05, 2, 0.05),
+    "high_time": (0.05, 2, 0.05),
     "high_grain": (0, 0.6, 0.01), "reroll": (1, 60, 1),
 }
 RANGES = {k: v for k, v in RANGES.items()

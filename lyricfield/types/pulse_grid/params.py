@@ -42,6 +42,13 @@ class Pulse:
     high_lift: float = 0.18      # hi-hat shimmer
     high_time: float = 0.22      # ... and how long it takes to fade
     reroll: float = 12.0         # seconds between re-scattering the glyphs
+    # Where in the piece this is. Without these the renderer pushed three
+    # measured facts into TouchDesigner and read none of them, so a pulse video
+    # was the same in its first frame as in its last -- no intro, no arrival,
+    # no ending. `swell` has proved the shape; this is the same vocabulary.
+    intro_open: float = 0.34     # brightness multiplier before the drums enter
+    arrive: float = 0.80         # ... between the kick entry and the hi-hats
+    outro: float = 12.0          # seconds over which it fades away at the end
 
 
 @dataclass
@@ -78,6 +85,13 @@ class Params:
                 f"of frame (vrows {g.vrows})")
         if lk.level_min >= lk.level_max:
             out.append("level_min must be below level_max")
+        if p.outro <= 0:
+            out.append("outro must be positive; it is the length of the ending")
+        if not (0.0 < p.intro_open <= 1.0):
+            out.append(
+                f"intro_open {p.intro_open} must be above 0 and at most 1")
+        if not (0.0 < p.arrive <= 1.0):
+            out.append(f"arrive {p.arrive} must be above 0 and at most 1")
         if lk.level_max > lk.ceil:
             out.append(f"level_max {lk.level_max} exceeds ceil {lk.ceil}")
 
@@ -124,6 +138,8 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "snare_time": (0.05, 2, 0.05),
     "high_lift": (0, 1, 0.01), "high_time": (0.02, 1.5, 0.01),
     "reroll": (1, 60, 1),
+    "intro_open": (0.02, 1.0, 0.01), "arrive": (0.1, 1.0, 0.01),
+    "outro": (0, 60, 1),
 }
 # Bounds for tunables the shared sections no longer carry here.
 RANGES = {k: v for k, v in RANGES.items()
@@ -187,6 +203,9 @@ def reconcile(params: "Params") -> None:
     p.wave_beats = max(0.5, p.wave_beats)
     p.wave_width = max(0.5, p.wave_width)
     p.density = min(1.0, max(0.05, p.density))
+    p.intro_open = min(1.0, max(0.02, p.intro_open))
+    p.arrive = min(1.0, max(0.1, p.arrive))
+    p.outro = max(0.0, p.outro) or 1.0
 
 
 def control_values(params: "Params") -> dict[str, float]:
