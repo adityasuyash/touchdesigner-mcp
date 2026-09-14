@@ -765,7 +765,15 @@ def onCook(scriptOp):
         age = t - ring['t0']
         if age < 0 or age > RIPPLE_TIME * 1.35:
             continue
-        rad = (age / RIPPLE_TIME) * maxr
+        # The ring is born with a radius, not as a point. Starting at zero
+        # meant the strike lit roughly one cell: the ring only became bright as
+        # it expanded, so its total brightness peaked 167 ms AFTER the kick and
+        # the beat read as late -- measured at +200 ms in a delivered file.
+        # Two sigma is the Gaussian's own meaningful extent, so the ring is
+        # visible the instant it is struck and scales with whatever width the
+        # look asks for. Peak cell brightness and ring width are unchanged;
+        # only the timing moves.
+        rad = 2.0 * RIPPLE_SIGMA + (age / RIPPLE_TIME) * maxr
         d = np.sqrt((gr - ring['r']) ** 2 + (gc - ring['c']) ** 2)
         amp = RIPPLE_LIFT * max(0.0, 1.0 - age / (RIPPLE_TIME * 1.35))
         ripple = np.maximum(ripple, amp * np.exp(-((d - rad) / RIPPLE_SIGMA) ** 2))

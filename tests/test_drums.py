@@ -125,3 +125,23 @@ def test_the_fit_locks_the_pattern_better_than_the_raw_estimate(drum_audio):
         return float(abs(np.exp(2j * np.pi * (np.array(times) % period) / period).mean()))
 
     assert lock(got, p1) >= lock(got, p0)
+
+
+def test_an_unmeasurable_band_is_refused_not_answered_with_silence():
+    """`_band_rms` windows one hop, so its FFT bins are `fps` Hz apart. Above
+    about 150 fps nothing lands inside 20-150 Hz and it used to return zeros --
+    which reads as "this track has no bass", not as "you asked at a rate where
+    the question has no answer". It cost a wrong measurement of this very
+    system: a rendered file looked like it had silent audio.
+    """
+    x = np.zeros(A.SR, np.float32)
+    assert len(A._band_rms(x, 20.0, 150.0, 100.0))          # fine at 100
+    with pytest.raises(ValueError, match="cannot measure"):
+        A._band_rms(x, 20.0, 150.0, 200.0)
+
+
+def test_the_detectors_run_at_a_rate_their_bands_survive():
+    """Which is why ONSET_FPS exists and is not simply "higher is better"."""
+    x = np.zeros(A.SR, np.float32)
+    for fn in (A.detect_kicks, A.detect_snares, A.detect_hats):
+        assert fn(x) == []          # would raise if the band were unmeasurable

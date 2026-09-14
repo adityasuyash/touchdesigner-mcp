@@ -95,3 +95,61 @@ def test_a_table_with_nothing_in_it_says_so():
 def test_hits_past_the_end_are_reported():
     t = _drum_dat({"kick": [1.0, 400.0]})
     assert any("past the end" in p for p in t.problems(duration=120.0))
+
+
+# ------------------------------------------------- the ring must hit on time
+
+def _ring_energy(field_mod, ages):
+    """Total ring brightness at each age, from the field's own maths."""
+    m = field_mod
+    maxr = float(np.hypot(m.BAND, m.COLS))
+    gr, gc = np.mgrid[0:m.VROWS, 0:m.COLS]
+    d = np.sqrt((gr - m.BAND // 2) ** 2 + (gc - m.COLS // 2) ** 2)
+    out = []
+    for age in ages:
+        rad = 2.0 * m.RIPPLE_SIGMA + (age / m.RIPPLE_TIME) * maxr
+        amp = m.RIPPLE_LIFT * max(0.0, 1.0 - age / (m.RIPPLE_TIME * 1.35))
+        out.append(float((amp * np.exp(-((d - rad) / m.RIPPLE_SIGMA) ** 2)).sum()))
+    return np.array(out)
+
+
+def test_the_kick_ring_is_brightest_near_the_strike(field_mod):
+    """It used to be brightest 167 ms after the kick.
+
+    The ring was born as a single point and only became bright as it expanded,
+    so the hit arrived long after the sound -- measured at +200 ms in a
+    delivered file by isolating the backdrop's colour from the words'. The
+    detector was never the problem; the drawing was.
+    """
+    ages = np.arange(0.0, field_mod.RIPPLE_TIME * 1.35, 1 / 120.0)
+    e = _ring_energy(field_mod, ages)
+    peak_at = ages[int(np.argmax(e))]
+    half_at = ages[int(np.argmax(e >= e.max() * 0.5))]
+    assert half_at <= 0.030, f"half brightness only at {half_at*1000:.0f} ms"
+    assert peak_at <= 0.100, f"peak at {peak_at*1000:.0f} ms, still late"
+
+
+def test_the_ring_is_visible_the_instant_it_is_struck(field_mod):
+    """At age zero it used to light about one cell -- a tenth of what it would
+    become."""
+    e = _ring_energy(field_mod, np.array([0.0]))
+    peak = _ring_energy(field_mod, np.arange(0.0, 0.4, 1 / 120.0)).max()
+    assert e[0] >= peak * 0.5, (
+        f"only {e[0]/peak:.0%} of the ring is there when the kick lands")
+
+
+def test_the_look_is_unchanged_only_the_timing(field_mod):
+    """A brighter or wider ring would be a different look, not a fixed one."""
+    m = field_mod
+    ages = np.arange(0.0, m.RIPPLE_TIME * 1.35, 1 / 120.0)
+    maxr = float(np.hypot(m.BAND, m.COLS))
+    gr, gc = np.mgrid[0:m.VROWS, 0:m.COLS]
+    d = np.sqrt((gr - m.BAND // 2) ** 2 + (gc - m.COLS // 2) ** 2)
+    brightest = 0.0
+    for age in ages:
+        rad = 2.0 * m.RIPPLE_SIGMA + (age / m.RIPPLE_TIME) * maxr
+        amp = m.RIPPLE_LIFT * max(0.0, 1.0 - age / (m.RIPPLE_TIME * 1.35))
+        brightest = max(brightest,
+                        float((amp * np.exp(-((d - rad) / m.RIPPLE_SIGMA) ** 2)).max()))
+    assert brightest <= m.RIPPLE_LIFT + 1e-6
+    assert brightest >= m.RIPPLE_LIFT * 0.95

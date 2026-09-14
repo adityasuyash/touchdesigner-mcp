@@ -147,7 +147,16 @@ def _band_rms(x: np.ndarray, lo: float, hi: float, fps: float, sr: int = SR) -> 
     freqs = np.fft.rfftfreq(hop, 1.0 / sr)
     sel = (freqs >= lo) & (freqs <= hi)
     if not sel.any():
-        return np.zeros(n, np.float32)
+        # Silence is not an honest answer to "how loud is this band". The
+        # window is one hop, so the bins are `fps` Hz apart, and above about
+        # 150 fps nothing at all lands inside 20-150 Hz. Returning zeros made a
+        # measurement of this very system come back flat and look like broken
+        # audio; it was a frame rate the band could not be measured at.
+        raise ValueError(
+            f"cannot measure {lo:.0f}-{hi:.0f} Hz at {fps:.0f} fps: the "
+            f"analysis window is {hop} samples, so the bins are "
+            f"{sr / hop:.0f} Hz apart and none falls in that band. "
+            f"Use fps <= {sr / (sr / max(hi, 1.0)):.0f} or a wider band.")
     return np.sqrt((spec[:, sel] ** 2).sum(axis=1) / sel.sum()).astype(np.float32)
 
 

@@ -198,7 +198,8 @@ def onCook(scriptOp):
         rr, cc = np.mgrid[0:rows, 0:cols]
         for t0, r0, c0 in S['rings']:
             age = (t - t0) / max(1e-6, KICK_TIME)
-            radius = age * max(rows, cols) * 0.7
+            # Born with a radius; see lyric_grid for the measurement.
+            radius = 2.0 * KICK_SIGMA + age * max(rows, cols) * 0.7
             dist = np.sqrt((rr - r0) ** 2 + (cc - c0) ** 2)
             ring = np.exp(-0.5 * ((dist - radius) / KICK_SIGMA) ** 2)
             ripple = np.maximum(ripple, (ring * (1.0 - age)).astype(np.float32))
