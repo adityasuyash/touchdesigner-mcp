@@ -954,7 +954,7 @@
       <div class="sidecol">
         <div class="row">
           <button class="btn quiet" id="btnSaveStyleFromTake" data-run-lock>Save as a style</button>
-          <button class="btn quiet" id="btnRejectTake" data-run-lock>Reject</button>
+          <button class="btn quiet danger" id="btnRejectTake" data-run-lock>Reject</button>
         </div>
 
         <div class="field" style="margin-top:var(--s-5)">
@@ -1239,7 +1239,7 @@ function renderStages(run) {
       (live ? `stage ${idx + 1} of ${total}` : `${settled} of ${total} stages`) +
       (elapsed > 0 ? ` · ${Math.floor(elapsed / 60)}:${String(Math.floor(elapsed % 60)).padStart(2,'0')} elapsed` : '');
   const pctEl = $('#runPct');
-  if (pctEl) pctEl.textContent = Math.round(pct) + '%';
+  if (pctEl) pctEl.innerHTML = Math.round(pct) + '<i>%</i>';
   // And from anywhere, because a destination you navigated away from should
   // not take the render's progress with it.
   const chip = $('#runChip');
