@@ -39,7 +39,6 @@ DEFAULTS = {
     # look (shared with the other types -- same network, same glow chain)
     'dim_hue': 0.58, 'dim_sat': 0.35,
     'level_min': 0.10, 'level_max': 0.38, 'ceil': 0.58,
-    'drift_min': 3.0, 'drift_max': 6.0,
     # swell
     'bar_beats': 4.0, 'attack': 0.14,
     'open_min': 0.16, 'open_max': 0.84,

@@ -173,3 +173,131 @@ def field_mod():
     mod.__dict__["np"] = np
     exec(compile(src, "field.py", "exec"), mod.__dict__)
     return mod
+
+
+class _FakeCell:
+    def __init__(self, v):
+        self.val = v
+
+
+class _FakeDAT:
+    """A DAT the field script can both read as a table and write as text.
+
+    `_cues` walks it with `d.numRows` and `d[r, c].val`; the character DATs are
+    written with `d.text = ...`; and `S['key']` is the cue DAT's `.text`, which
+    is how the script notices the table changed.
+    """
+
+    def __init__(self, rows=()):
+        self.rows = [list(r) for r in rows]
+
+    @property
+    def numRows(self):
+        return len(self.rows)
+
+    def __getitem__(self, rc):
+        r, c = rc
+        row = self.rows[r]
+        return _FakeCell(row[c] if c < len(row) else "")
+
+    @property
+    def text(self):
+        return "\n".join("\t".join(str(v) for v in r) for r in self.rows)
+
+    @text.setter
+    def text(self, value):
+        self.rows = [line.split("\t") for line in value.split("\n")]
+
+
+class _FakeCHOP:
+    """The analysis CHOP, as `aa['kick'].eval()`."""
+
+    def __init__(self, **chans):
+        self._c = {k: _FakeChan(v) for k, v in chans.items()}
+
+    def __getitem__(self, name):
+        return self._c.get(name, _FakeChan(0.0))
+
+
+class _FakeChan:
+    def __init__(self, v):
+        self.v = v
+
+    def eval(self):
+        return self.v
+
+
+class _FakeScriptOP:
+    """Captures what the field hands to TouchDesigner each cook."""
+
+    def __init__(self):
+        self.frame = None
+
+    def copyNumpyArray(self, a):
+        self.frame = a.copy()
+
+
+@pytest.fixture
+def cooker(field_mod):
+    """Drive `lyric_grid`'s `onCook` with no TouchDesigner.
+
+    Nothing has ever tested it. Every other test in `test_field.py` targets a
+    pure helper, because `onCook` reaches for the TD globals `op`, `root` and
+    `scriptOp` -- so the code that decides what every single frame looks like
+    was the one part with no coverage at all. Standing these three up is a few
+    lines and makes the compose path measurable.
+
+    Returns a callable `cook(t, cues=..., **params)` giving back the two
+    character grids, the RGB/alpha planes and the field's own stats.
+    """
+    import numpy as np
+
+    m = field_mod
+    dats = {}
+
+    def cook(t, cues=None, kick=0.0, snare=0.0, high=0.0, reset=False, **params):
+        if cues is not None or not dats:
+            # (word, start_seconds, line) -- the columns `_cues` reads.
+            rows = cues if cues is not None else [
+                ("word", "start", "line"),
+                ("hold", "1.0", "1"), ("on", "1.6", "1"),
+                ("to", "2.2", "1"), ("what", "2.8", "1"),
+                ("and", "4.0", "2"), ("let", "4.6", "2"),
+                ("it", "5.2", "2"), ("go", "5.8", "2"),
+                ("some", "8.0", "3"), ("other", "8.6", "3"),
+                ("morning", "9.2", "3"),
+            ]
+            dats[m.CUE_DAT] = _FakeDAT(rows)
+            reset = True
+        for name in (m.DIM_DAT, m.LIT_DAT):
+            dats.setdefault(name, _FakeDAT())
+
+        chop = _FakeCHOP(kick=kick, snare=snare, high=high)
+        m.__dict__["op"] = lambda p: chop if p == m.ANALYSIS_CHOP else dats.get(p)
+        m.__dict__["root"] = type("R", (), {
+            "time": type("T", (), {"seconds": t, "end": 3600.0, "rate": 60.0})()})()
+        m.__dict__["CookLevel"] = type("C", (), {"ALWAYS": 1})
+
+        # Override through DEFAULTS, not the globals: `onCook` calls
+        # `_apply_params`, which rebinds every global from DEFAULTS, so a value
+        # poked straight into the module is wiped before it is read.
+        if params:
+            m.DEFAULTS.update(params)
+            m._apply_params()
+        if reset or params:
+            m._init()
+
+        sop = _FakeScriptOP()
+        m.onCook(sop)
+        # The script writes the DATs bottom-up-flipped into the TOP; undo that
+        # so a test reads the same orientation the character grids use.
+        out = np.flipud(sop.frame)
+        return {
+            "dim": [list(r) for r in dats[m.DIM_DAT].text.split("\n")],
+            "lit": [list(r) for r in dats[m.LIT_DAT].text.split("\n")],
+            "rgb": out[:, :, 0:3],
+            "alpha": out[:, :, 3],
+            "stats": dict(m.S.get("stats", {})),
+        }
+
+    return cook

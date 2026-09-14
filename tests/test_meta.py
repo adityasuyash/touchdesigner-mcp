@@ -245,16 +245,73 @@ def test_every_tunable_is_read_by_something(vt):
     """
     field_src = _source_chain(vt.slug, "field")
     build_src = _source_chain(vt.slug, "build")
-    both = field_src + build_src
+    params_src = _source_chain(vt.slug, "params")
     unread = []
     for name in _declared_fields(vt):
+        # The field script binds each key as an uppercased module global. Do NOT
+        # accept the lowercase quoted form here: every field-consumed tunable is
+        # also a quoted key in that file's `DEFAULTS` mirror, so accepting it
+        # meant adding a line to DEFAULTS satisfied this test whether or not
+        # `onCook` ever read the value -- the rule CLAUDE.md leans on hardest,
+        # weakest for exactly the change that needs it.
         if re.search(rf"\b{name.upper()}\b", field_src):
             continue
-        if re.search(rf"\b{name}\b", build_src):
+        # The builder reads it off the section, or emits it as a key. A bare
+        # `\bname\b` was too loose: `mode`, `sat`, `level` and `glyphs` all
+        # occur in build.py as TouchDesigner parameter names and locals, so four
+        # genuinely unread tunables passed.
+        if re.search(rf"\.{name}\b", build_src):
             continue
-        if re.search(rf"""['"]{name}['"]""", both):
+        if re.search(rf"""['"]{name}['"]""", build_src):
+            continue
+        # A section may consume its own tunable in a method -- `Analysis.scaled`
+        # turns the raw gates into the ones the network is built with.
+        if re.search(rf"\bself\.{name}\b", params_src):
             continue
         unread.append(name)
     assert not unread, (
         f"{vt.slug} declares tunables nothing reads: {unread}. "
         "Either consume them or stop offering them.")
+
+
+# ------------------------------------------------- one flat namespace
+
+def _track_fields():
+    from dataclasses import fields as dc_fields
+    from lyricfield.config import Track
+    return {f.name for f in dc_fields(Track())}
+
+
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_no_two_sections_share_a_tunable_name(vt):
+    """Sections are an organising fiction; TouchDesigner sees one flat dict.
+
+    `Config.as_params` calls `sections.flatten`, which drops the section names,
+    so two sections sharing a key means one silently wins. `_declared_fields`
+    itself is a dict keyed by bare name, which is why every other meta-test
+    would stay green through such a collision -- it collapses there too.
+    """
+    seen, clashes = {}, []
+    p = vt.default_params()
+    for section in p.__dataclass_fields__:
+        for name in vars(getattr(p, section)):
+            if name in seen:
+                clashes.append(f"{name} in both {seen[name]} and {section}")
+            seen[name] = section
+    assert not clashes, f"{vt.slug}: {clashes}"
+
+
+@pytest.mark.parametrize("vt", TYPES, ids=TYPE_IDS)
+def test_no_tunable_collides_with_a_measured_track_fact(vt):
+    """`as_params` merges the track in last, so the track wins outright.
+
+    This is not hypothetical. A `backdrop.level` of 0.05 -- deliberately below
+    the dimmest word letter -- was silently replaced by `track.level`, the
+    master's measured loudness at 0.42, which would have rendered the backdrop
+    brighter than the words it sits behind. `validate()` could not see it: it
+    inspects the dataclass and never the flat dict that TD is given.
+    """
+    from lyricfield.sections import flatten
+    clash = sorted(set(flatten(vt.default_params())) & _track_fields())
+    assert not clash, (
+        f"{vt.slug} declares {clash}, which the track overwrites in as_params()")

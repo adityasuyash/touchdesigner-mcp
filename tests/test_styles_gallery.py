@@ -43,9 +43,21 @@ def test_a_shipped_style_is_a_valid_config_of_its_type(st):
 def test_a_shipped_style_declares_every_section_its_type_has(st):
     """The first shipped style was missing six tunables and a whole section,
     including one the Glow control moves -- so that control changed something
-    the style could not remember."""
-    vt = types_mod.get_type(st.type)
-    assert set(st.sections) == set(vt.section_names())
+    the style could not remember.
+
+    This reads the TOML on disk, not `st.sections`. `Style.sections` reports the
+    fields of the dataclass `build_sections` produced, and `build_sections`
+    fills every missing section in from its defaults -- so the first version of
+    this test compared a dataclass's fields with the same dataclass's fields and
+    could never fail. It was written to catch exactly the thing it could not see.
+    """
+    import tomllib
+    path = st.dir(ROOT) / "style.toml"
+    on_disk = set(tomllib.loads(path.read_text())) - {"meta"}
+    missing = sorted(set(types_mod.get_type(st.type).section_names()) - on_disk)
+    assert not missing, (
+        f"{st.slug}/style.toml has no {missing} section; re-save it with "
+        "scripts/seed_styles.py rather than hand-patching")
 
 
 @pytest.mark.parametrize("st", SHIPPED, ids=[s.slug for s in SHIPPED])

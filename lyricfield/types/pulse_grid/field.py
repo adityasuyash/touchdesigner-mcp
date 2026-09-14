@@ -27,7 +27,6 @@ DEFAULTS = {
     # look (shared with lyric_grid -- same network, same glow chain)
     'dim_hue': 0.58, 'dim_sat': 0.35,
     'level_min': 0.10, 'level_max': 0.38, 'ceil': 0.58,
-    'drift_min': 3.0, 'drift_max': 6.0,
     # pulse
     'wave_beats': 4.0, 'wave_width': 3.5, 'wave_lift': 0.34,
     'vertical': False, 'density': 0.72, 'glyphs': '.:-=+*#',

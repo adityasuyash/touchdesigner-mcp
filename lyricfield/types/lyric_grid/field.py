@@ -52,6 +52,14 @@ DEFAULTS = {
     'spark_time': 0.25, 'spark_peak': 0.58, 'spark_frac': 0.075,
     'twinkle_frac_lo': 0.04, 'twinkle_frac_hi': 0.11,
     'twinkle_decay': 0.22, 'twinkle_lift': 0.20,
+    # backdrop -- what fills the space around the words. back_level 0 is what
+    # the renderer did before this existed, down to making no random draws.
+    'back_level': 0.0, 'back_lift': 0.045,
+    'back_wave': 0.0, 'back_swell': 0.0,
+    'back_hue': 0.58, 'back_sat': 0.20,
+    'back_density': 0.55, 'back_glyphs': '.:-=+*#',
+    'back_beats': 4.0, 'back_width': 3.5, 'back_vertical': False,
+    'back_attack': 0.14, 'back_reroll': 16.0,
     # Track structure, measured per song by lyricfield.analysis and pushed in.
     #
     # These are NOT a song. They used to be one -- the 90-second benchmark
@@ -132,6 +140,7 @@ def _apply_params():
         except Exception:
             dur = 0.0
     g['TAIL_END'] = dur
+    g['BACK_RAMP'] = np.array(list(g['BACK_GLYPHS'] or ' '))
     # Derived, not tunable: how long the outgoing stanza is kept alive. Its
     # cells are invisible once the fade completes, but a word cued right at the
     # handover still has to be able to light through its whole envelope, and a
@@ -354,6 +363,17 @@ def _init():
     S['beat_i'] = -1
     S['hold_anchor'] = None
     S['stats'] = {}
+    # The backdrop gets its own generator, and this is not fussiness. `S['rng']`
+    # is consumed by the layout search -- `_lay_line` draws thousands of
+    # integers per call -- as well as by the ripple, spark and twinkle cell
+    # pickers. A single extra draw from it anywhere shifts every stanza layout
+    # that follows, so a backdrop sharing it would change the words' positions
+    # merely by existing, and `back_level = 0` would stop being identical to
+    # the renderer as it was.
+    S['back_rng'] = np.random.default_rng(11)
+    S['back_chars'] = None
+    S['back_bias'] = None
+    S['back_rolled'] = -1.0e9
 
 
 def _held(t):
@@ -501,8 +521,120 @@ def _build(si, t, rng):
                 for j in range(len(cells)):
                     stag[(tag, ln, wi, j)] = float(rng.uniform(0.0, DISSOLVE * 0.55))
                     lit_stag[(tag, ln, wi, j)] = float(rng.uniform(0.0, LETTER_SPREAD))
+    # `claimed` was computed and thrown away for as long as this function has
+    # existed. The backdrop needs it: it is the only record of which cells a
+    # stanza owns that is stable for the stanza's whole window, and a mask built
+    # per frame from what happens to be drawn flickers letter by letter through
+    # every crossfade.
     return {'si': si, 'paths': paths, 'apaths': apaths, 't0': t, 'stag': stag,
-            'lit_stag': lit_stag, 'letters': letters}
+            'lit_stag': lit_stag, 'letters': letters, 'claimed': claimed}
+
+
+def _back_scatter(t):
+    """Lay the backdrop's own glyph field. Re-rolled on a timer, never per frame.
+
+    Kept out of `_init` so it can be re-scattered without disturbing the stanza
+    layout, and drawn from `S['back_rng']` so it disturbs nothing at all.
+    """
+    rng = S['back_rng']
+    keep = rng.random((VROWS, COLS)) < BACK_DENSITY
+    idx = rng.integers(0, len(BACK_RAMP), size=(VROWS, COLS))
+    S['back_chars'] = np.where(keep, BACK_RAMP[idx], ' ')
+    S['back_bias'] = rng.random((VROWS, COLS)).astype(np.float32)
+    S['back_rolled'] = t
+
+
+def _dilate(mask):
+    """Grow a boolean grid by one cell in each direction.
+
+    Words are laid on every OTHER cell -- `_lay_line` walks `2*len(word) - 1`
+    steps and keeps the even ones -- so the cells BETWEEN the letters of every
+    word are claimed by nothing and drawn by nothing. Painting a backdrop glyph
+    there would wedge one between every adjacent pair of letters in every word,
+    at the tightest pitch the grid has. One cell of margin is what stops that.
+    """
+    out = mask.copy()
+    out[:-1, :] |= mask[1:, :]
+    out[1:, :] |= mask[:-1, :]
+    out[:, :-1] |= mask[:, 1:]
+    out[:, 1:] |= mask[:, :-1]
+    return out
+
+
+def _free_cells(occupied, dim_ch, alpha):
+    """Where the backdrop is allowed to draw.
+
+    `occupied` is the union of both live stanzas' claimed cells, which is fixed
+    for the whole of a stanza's window. That stability is the point: a mask
+    recomputed per frame from what happens to be drawn would flicker, because
+    letters cross their fade threshold one at a time over more than a second,
+    so a backdrop glyph would blink in and out in the silhouette of every
+    incoming word.
+
+    `dim_ch`/`alpha` are then a second line of defence, catching anything drawn
+    that the claimed sets did not cover.
+    """
+    free = np.zeros((VROWS, COLS), bool)
+    free[BAND_TOP:BAND_TOP + BAND, :] = True      # below the band stays black
+    if occupied.size:
+        taken = np.zeros((VROWS, COLS), bool)
+        taken[occupied[:, 0], occupied[:, 1]] = True
+        free &= ~_dilate(taken)
+    return free & (dim_ch == ' ') & (alpha <= 0.0)
+
+
+def _backdrop(t, free, ripple, spark_env, held):
+    """The value of every backdrop cell, 0 where nothing is drawn.
+
+    Pure, so it is testable with no TouchDesigner -- and it has to be, because
+    nothing else in this file's compose path is.
+
+    Brightness only, and bounded: `params.reconcile` holds `back_level +
+    back_lift` at or below `look.level_min`, so the brightest thing here is
+    still dimmer than the dimmest letter of a word. It reuses the `ripple` and
+    `spark_env` arrays the cook already built for the letters rather than
+    recomputing the drums, so `beat.ripple_lift` and `beat.spark_peak` move the
+    backdrop and the words together.
+    """
+    if BACK_LEVEL <= 0.0:
+        return np.zeros((VROWS, COLS), np.float32)
+
+    v = np.full((VROWS, COLS), BACK_LEVEL, np.float32)
+    if not held:
+        span = max(1e-6, BEAT_PERIOD * BACK_BEATS)
+        phase = ((t - BEAT_ANCHOR) % span) / span
+        drive = np.zeros((VROWS, COLS), np.float32)
+
+        if BACK_WAVE > 0.0:
+            # A crest crossing the field, timed to the measured beat grid so it
+            # arrives with the track rather than drifting against it.
+            axis = BAND if BACK_VERTICAL else COLS
+            crest = phase * (axis + BACK_WIDTH * 2) - BACK_WIDTH
+            line = np.arange(axis, dtype=np.float32)
+            shape = np.exp(-0.5 * ((line - crest) / max(0.3, BACK_WIDTH)) ** 2)
+            if BACK_VERTICAL:
+                wave = np.zeros((VROWS, COLS), np.float32)
+                wave[BAND_TOP:BAND_TOP + BAND, :] = shape[:, None]
+            else:
+                wave = np.repeat(shape[None, :], VROWS, axis=0)
+            drive = np.maximum(drive, (BACK_WAVE * wave).astype(np.float32))
+
+        if BACK_SWELL > 0.0:
+            # Coverage rather than light: the field thickens on the downbeat and
+            # thins across the bar, so the glyph steps up the ramp.
+            a = (_smooth(phase / BACK_ATTACK) if phase < BACK_ATTACK
+                 else 1.0 - _smooth((phase - BACK_ATTACK)
+                                    / max(1e-6, 1.0 - BACK_ATTACK)))
+            cover = np.clip(a - S['back_bias'], 0.0, 1.0)
+            drive = np.maximum(drive, (BACK_SWELL * cover).astype(np.float32))
+
+        # The drums, from the arrays the letters already use.
+        drive = np.maximum(drive, ripple / max(1e-6, RIPPLE_LIFT))
+        drive = np.maximum(drive, spark_env)
+        v = v + BACK_LIFT * np.clip(drive, 0.0, 1.0)
+
+    np.clip(v, 0.0, BACK_LEVEL + BACK_LIFT, out=v)
+    return np.where(free & (S['back_chars'] != ' '), v, 0.0).astype(np.float32)
 
 
 def _lit_weight(t, cue):
@@ -739,6 +871,32 @@ def onCook(scriptOp):
         fi = lambda stag: _smooth((age - stag) / FADE_SPAN)
         draw(S['cur'], fi, 'c', 'paths', True)
         draw(S['cur'], fi, 'a', 'apaths', False)
+
+    # ---- the backdrop: whatever the words did not claim -------------------
+    # After both draw passes, so `dim_ch`/`alpha` are complete, and guarded so
+    # that a config with no backdrop does exactly what this file did before the
+    # section existed -- including drawing no random numbers.
+    if BACK_LEVEL > 0.0:
+        if S['back_chars'] is None or (BACK_REROLL > 0
+                                       and t - S['back_rolled'] > BACK_REROLL):
+            _back_scatter(t)
+        occupied = np.array(
+            sorted({c for grp in (S['prev'], S['cur']) if grp
+                    for c in grp.get('claimed', ())}), dtype=int)
+        if occupied.size == 0:
+            occupied = occupied.reshape(0, 2)
+        free = _free_cells(occupied, dim_ch, alpha)
+        bv = _backdrop(t, free, ripple, spark_env, held)
+        sel = bv > 0.0
+        if sel.any():
+            # `_hsv` is linear in its value: every component is `v` times a
+            # factor of (h, s) alone. So one scalar call gives the colour and
+            # the whole grid is a broadcast multiply -- no per-cell Python loop
+            # of the kind the beatsync types emit with.
+            base = np.asarray(_hsv(BACK_HUE, BACK_SAT, 1.0), np.float32)
+            dim_ch[sel] = S['back_chars'][sel]
+            rgb[sel] = bv[sel][:, None] * base
+        counts['backdrop'] = int(sel.sum())
 
     counts['held'] = bool(held)
     counts['rings'] = len(S['rings'])

@@ -44,8 +44,6 @@ class Look:
     level_min: float = 0.10
     level_max: float = 0.38
     ceil: float = 0.58          # hard cap for anything not cued
-    drift_min: float = 3.0
-    drift_max: float = 6.0
     # The glow chain. These are read by build.py, not field.py: they are the
     # literals that used to be baked into the v9_glow_* expressions, where they
     # drifted out of step with this file (config said radius 20, the network
@@ -84,8 +82,16 @@ class LyricGrid(Grid):
 
 @dataclass
 class LyricLook(Look):
-    """`Look` plus the word crossfade, for the same reason."""
+    """`Look` plus the three things only a renderer with words needs.
+
+    `dissolve` is the word crossfade. `drift_min`/`drift_max` bound the interval
+    before a *letter* picks a new brightness target -- there are no letters in a
+    beatsync type, which declared both and read neither until the meta-test was
+    tightened enough to notice.
+    """
     dissolve: float = 2.5
+    drift_min: float = 3.0
+    drift_max: float = 6.0
 
 
 @dataclass
@@ -133,6 +139,75 @@ class Beat:
     twinkle_frac_hi: float = 0.11
     twinkle_decay: float = 0.22
     twinkle_lift: float = 0.20
+
+
+@dataclass
+class Backdrop:
+    """What fills the space around the words.
+
+    `lyric_grid` leaves roughly two thirds of the band black and nothing is
+    allowed to draw there, even though the beat response -- `ripple`,
+    `spark_env` -- is already computed over the whole grid every frame and then
+    sampled only at cells that carry a letter. So the field answers the drums
+    everywhere and shows it nowhere. This is that space.
+
+    It is a section rather than a fourth video type for one reason that outweighs
+    the rest: `Config.with_type` resets params to the new type's defaults and
+    `Style.apply_to` refuses to cross types, so with a fourth type nobody could
+    put a field behind their words without throwing away every `look`, `cueing`
+    and `beat` value they had tuned for the song. Here they change one number.
+
+    Everything is a weight, not a mode. An enum would have been unreachable from
+    the browser -- the settings panel skips any tunable that is not a number
+    (`index.html`, `typeof v !== 'number'`) -- and invisible to `describe.py`,
+    which only ever proposes floats. So "no backdrop" is `back_level = 0`, a
+    sweeping crest is `back_wave`, a breathing field is `back_swell`, and the
+    two compose instead of excluding each other.
+
+    `back_level = 0` is the default and means the renderer draws exactly what it
+    drew before this section existed -- including making no random draws at all,
+    which matters because one shared generator lays out the stanzas.
+
+    Every field is prefixed `back_` because `Config.as_params` flattens every
+    section AND the track into one dict for TouchDesigner, so the whole program
+    shares one namespace with no sections in it. The unprefixed `level` this
+    section first declared was silently overwritten by `track.level` -- the
+    measured loudness of the master, 0.42 against the 0.05 meant here -- which
+    would have pushed the backdrop brighter than the words it sits behind, with
+    nothing reporting anything. A prefix makes that impossible rather than
+    merely absent today.
+    """
+    back_level: float = 0.0      # master: 0 draws no backdrop and no randomness
+    back_lift: float = 0.045     # how far the beat swings it
+    back_wave: float = 0.0       # a crest crossing the field on the beat grid
+    back_swell: float = 0.0      # coverage thickening on the downbeat
+    # Its own colour, so it reads as behind the words rather than beside them.
+    back_hue: float = 0.58
+    back_sat: float = 0.20
+    back_density: float = 0.55   # share of free cells carrying a glyph
+    back_glyphs: str = ".:-=+*#"  # lightest to heaviest; `back_swell` steps it
+    back_beats: float = 4.0      # beats for one pass across the field
+    back_width: float = 3.5      # thickness of the crest, in cells
+    back_vertical: bool = False  # travel down instead of across
+    back_attack: float = 0.14    # `back_swell`: share of the bar spent opening
+    back_reroll: float = 16.0    # seconds between re-scattering the field
+
+
+# The four things the "Behind the words" row offers, as presets over the numbers
+# above rather than as an enum -- so every one of them stays reachable from a
+# slider and from a written description.
+BACKDROPS: tuple[tuple[str, str, str, dict], ...] = (
+    ("none", "None", "the words alone, on black",
+     {"backdrop.back_level": 0.0, "cueing.ambient_target": 0}),
+    ("ambient", "Ambient", "other lines of the song, laid as decoration",
+     {"backdrop.back_level": 0.0, "cueing.ambient_target": 190}),
+    ("pulse", "Pulse", "a crest crossing the field in time with the beat",
+     {"backdrop.back_level": 0.05, "backdrop.back_wave": 1.0,
+      "backdrop.back_swell": 0.0, "cueing.ambient_target": 60}),
+    ("swell", "Swell", "the field thickens on the downbeat and thins over the bar",
+     {"backdrop.back_level": 0.05, "backdrop.back_wave": 0.0,
+      "backdrop.back_swell": 1.0, "cueing.ambient_target": 0}),
+)
 
 
 # The loudness the gates below were tuned at: the 90th-percentile frame RMS of
@@ -225,6 +300,13 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "spark_peak": (0, 1, 0.01), "spark_frac": (0, 0.3, 0.005),
     "twinkle_frac_lo": (0, 0.4, 0.005), "twinkle_frac_hi": (0, 0.4, 0.005),
     "twinkle_decay": (0, 1, 0.01), "twinkle_lift": (0, 1, 0.01),
+    # backdrop -- all prefixed, see the dataclass for why
+    "back_level": (0, 0.3, 0.005), "back_lift": (0, 0.3, 0.005),
+    "back_wave": (0, 1, 0.01), "back_swell": (0, 1, 0.01),
+    "back_hue": (0, 1, 0.01), "back_sat": (0, 1, 0.01),
+    "back_density": (0.05, 1.0, 0.01),
+    "back_beats": (0.5, 16, 0.5), "back_width": (0.5, 12, 0.1),
+    "back_attack": (0.02, 0.9, 0.01), "back_reroll": (1, 60, 1),
     # analysis
     "kick_thresh": (0, 1, 0.001), "snare_thresh": (0, 1, 0.001),
     "rythm_thresh": (0, 200, 0.1), "low_thresh": (0, 1, 0.01),
@@ -239,6 +321,7 @@ class Params:
     look: LyricLook = field(default_factory=LyricLook)
     cueing: Cueing = field(default_factory=Cueing)
     beat: Beat = field(default_factory=Beat)
+    backdrop: Backdrop = field(default_factory=Backdrop)
     analysis: Analysis = field(default_factory=Analysis)
 
     def regions(self) -> dict[str, tuple[int, int, int, int]]:
@@ -267,6 +350,7 @@ class Params:
     def validate(self) -> list[str]:
         out: list[str] = []
         g, lk, b, c = self.grid, self.look, self.beat, self.cueing
+        bd = self.backdrop
 
         if g.band > g.vrows - g.band_top:
             out.append(
@@ -306,6 +390,43 @@ class Params:
             out.append(
                 f"ambient_target {c.ambient_target} is close to the {g.band * g.cols} "
                 "cell capacity; layout will start failing to place lines"
+            )
+
+        # ---- the backdrop may never compete with the words it sits behind ----
+        peak = bd.back_level + bd.back_lift
+        if bd.back_level > 0.0 and peak > lk.level_min:
+            out.append(
+                f"backdrop peaks at {peak:.3f}, above level_min {lk.level_min} — "
+                "it would be brighter than the DIMMEST word letter and the words "
+                "would stop reading as the subject"
+            )
+        # Peak alone bounds one cell; the glow chain adds a blurred copy of the
+        # WHOLE plane (build.py's v9_glow_lvl), so total ink matters too. The
+        # 0.5 is provisional -- the honest number comes from measuring at
+        # /project1/out, the way ripple_lift and spark_peak were settled.
+        if bd.back_level > 0.0 and bd.back_density * peak > 0.5 * lk.level_min:
+            out.append(
+                f"backdrop energy {bd.back_density * peak:.3f} (density x peak) is "
+                f"more than half of level_min {lk.level_min}; the glow chain adds "
+                "the whole plane back and contrast for the words collapses"
+            )
+        if not (0.0 < bd.back_density <= 1.0):
+            out.append(f"back_density {bd.back_density} must be above 0 and at most 1")
+        if bd.back_beats <= 0:
+            out.append("back_beats must be positive; it divides the beat period")
+        if not (0.0 < bd.back_attack < 1.0):
+            out.append(
+                f"back_attack {bd.back_attack} must be a share of the bar, above 0 "
+                "and below 1")
+        if not bd.back_glyphs:
+            out.append("back_glyphs cannot be empty; there would be nothing to draw")
+        # Turning the decoration off AND leaving no backdrop is a black screen in
+        # every lyric gap -- the exact failure `_stanzas` fills ambient windows to
+        # prevent. Two settings that are each fine alone.
+        if c.ambient_target == 0 and bd.back_level <= 0.0:
+            out.append(
+                "ambient_target 0 with no backdrop leaves every lyric gap, and the "
+                "whole outro, completely black"
             )
         return out
 
@@ -417,8 +538,24 @@ def reconcile(params: "Params") -> None:
     `validate()` reports, so after this it has nothing to say.
     """
     reconcile_look(params.look)
-    b = params.beat
-    b.spark_peak = min(b.spark_peak, params.look.ceil)
+    lk, b, bd = params.look, params.beat, params.backdrop
+    b.spark_peak = min(b.spark_peak, lk.ceil)
+
+    # The backdrop is bounded by `level_min`, and `level_min` is one of the
+    # things the Brightness control moves -- down to 0.04, below the default
+    # backdrop swing of 0.045. So this has to run AFTER `reconcile_look` has
+    # settled the look, or Brightness at its lowest leaves a config `validate()`
+    # rejects. Half of level_min for the floor, the remainder for the swing:
+    # the backdrop gives way, never the words.
+    bd.back_level = min(bd.back_level, round(lk.level_min * 0.5, 4))
+    bd.back_lift = min(bd.back_lift, round(lk.level_min - bd.back_level, 4))
+    bd.back_density = min(1.0, max(0.05, bd.back_density))
+    peak = bd.back_level + bd.back_lift
+    if bd.back_level > 0.0 and peak > 0:
+        cap = 0.5 * lk.level_min / peak
+        bd.back_density = min(bd.back_density, round(max(0.05, cap), 4))
+    bd.back_beats = max(0.5, bd.back_beats)
+    bd.back_attack = min(0.9, max(0.02, bd.back_attack))
 
 
 def reconcile_look(lk: "Look") -> None:
