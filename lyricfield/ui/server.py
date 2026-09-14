@@ -174,6 +174,12 @@ def start_run(payload: RunIn):
             client=client, name=payload.name, source=payload.source or "",
             video_type=payload.type, style=payload.style,
             back_type=payload.back_type, back_style=payload.back_style,
+            # `is not None`, not truthiness. "Was this provided" and "is this
+            # non-zero" are different questions, and conflating them meant a
+            # deliberate `start_seconds = 0` was dropped in transit -- so the
+            # run fell through to the auto-pick and started at the busiest
+            # stretch of cues, which is the singing. `run.py` already guarded
+            # the far end with `not in (None, "")`; the value never got there.
             options={k: v for k, v in {
                 "language": payload.language, "prompt": payload.prompt,
                 "preview_seconds": payload.preview_seconds,
@@ -181,7 +187,8 @@ def start_run(payload: RunIn):
                 "length": payload.length,
                 "describe": payload.describe,
                 "force_separate": payload.force_separate,
-                "force_transcribe": payload.force_transcribe}.items() if v})
+                "force_transcribe": payload.force_transcribe}.items()
+                if v is not None and v != ""})
         run_mod.start(RUN, ctx, on_change=_select_after_run,
                       from_stage=payload.from_stage)
     return RUN.to_dict()
@@ -230,13 +237,15 @@ def _restart_from(from_stage: str | None, carry: run_mod.Run | None):
     RUN_CTX = run_mod.Ctx(
         client=client, name=args.get("name") or "", source=args.get("source") or "",
         video_type=args.get("type"), style=args.get("style"),
+        # Same rule on the restart path, or a resumed run silently moves.
         options={k: v for k, v in {
             "language": args.get("language"), "prompt": args.get("prompt"),
             "preview_seconds": args.get("preview_seconds"),
             "length": args.get("length"), "describe": args.get("describe"),
             "start_seconds": args.get("start_seconds"),
             "force_separate": args.get("force_separate"),
-            "force_transcribe": args.get("force_transcribe")}.items() if v})
+            "force_transcribe": args.get("force_transcribe")}.items()
+            if v is not None and v != ""})
     run_mod.start(RUN, RUN_CTX, on_change=_select_after_run, from_stage=from_stage)
     return RUN.to_dict()
 

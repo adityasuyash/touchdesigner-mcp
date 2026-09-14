@@ -169,6 +169,8 @@ def prepare(track: str | Path,
     cfg.track.beat_period = res.beat_period
     cfg.track.beat_anchor = res.beat_anchor
     cfg.track.hold_windows = [list(w) for w in res.hold_windows]
+    if out.vocal_in:
+        cfg.track.vocal_in = out.vocal_in
 
     # The drum hits go to a sidecar, not into the config: a busy track has
     # hundreds, and they do not belong in a TOML the UI rewrites on every edit.

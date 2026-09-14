@@ -258,6 +258,7 @@
                  color: var(--bad); }
   .banner.warn { background: color-mix(in srgb, var(--warn) 12%, transparent);
                  color: var(--warn); }
+  .startopt[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
   .banner ul { margin: var(--s-2) 0 0; padding-left: 1.1em; }
   .banner li { margin-top: 2px; }
   .banner b { font-weight: 620; }
@@ -476,10 +477,16 @@
               <input type="number" id="customLen" min="1" max="900" value="30"> s</label>
           </div>
           <div class="row" style="margin-top:var(--s-3)">
-            <label class="lenopt"><span>Start at</span>
-              <input type="text" id="startAt" placeholder="auto" size="5"></label>
-            <span class="hint" id="startHint">Leave empty and it picks the busiest stretch.</span>
+            <span>Start</span>
+            <button type="button" class="btn quiet startopt" data-start="begin"
+                    aria-pressed="true">Beginning</button>
+            <button type="button" class="btn quiet startopt" data-start="vocals"
+                    aria-pressed="false">Before the vocals</button>
+            <button type="button" class="btn quiet startopt" data-start="at"
+                    aria-pressed="false">At…</button>
+            <input type="text" id="startAt" placeholder="2:44" size="5" hidden>
           </div>
+          <span class="hint" id="startHint"></span>
         </div>
 
         <button class="btn primary" id="btnGenerate">Generate</button>
@@ -604,6 +611,10 @@ let BACK_TYPE = '', BACK_STYLE = '';
 // the tile back. A pick is now the more recent truth until the page reloads.
 let PICKED = false;
 let STALE_SAID = false;
+// Which of the three start buttons is lit. "begin" is the default on purpose:
+// the old field defaulted to an invisible auto-pick that landed on the busiest
+// stretch of CUES -- the singing -- so "Start at 0" started at the vocals.
+let START_MODE = 'begin';
 // The run's timestamps are the server's. Usually the same machine, but not
 // necessarily the same clock, so measure the difference rather than assume it.
 let NOW_SKEW = 0;
@@ -1163,6 +1174,7 @@ async function customKeep() {
   await api('/api/styles/custom/keep', {method:'POST',
     body: JSON.stringify({name, description: $('#customText').value.trim()})})
     .catch(showErr);
+  showStartHint();
   await loadStyles();
   note(`Saved the look as "${name}"`, 'ok');
   closeCustom();
@@ -1232,20 +1244,74 @@ $('#btnRestart').onclick = async () => {
 $('#btnSecondary').onclick = () =>
   api('/api/run/restart', {method:'POST'}).then(poll).catch(showErr);
 
-$('#startAt').oninput = () => {
-  const raw = $('#startAt').value.trim();
-  const at = parseTime(raw);
-  const hint = $('#startHint'), box = $('#startAt');
-  if (raw === '') {
-    hint.textContent = 'minutes:seconds, e.g. 2:44. Empty picks the busiest stretch.';
-    hint.style.color = ''; box.style.borderColor = '';
-  } else if (Number.isNaN(at)) {
-    hint.textContent = `"${raw}" is not a timestamp — try 2:44 or 164`;
-    hint.style.color = 'var(--bad)'; box.style.borderColor = 'var(--bad)';
-  } else {
-    hint.textContent = `from ${clock(at)} (${at.toFixed(at % 1 ? 1 : 0)}s)`;
-    hint.style.color = 'var(--ok)'; box.style.borderColor = '';
+// Where the render begins, from whichever button is lit. `undefined` means the
+// entry was unusable and has been reported; `null` means "no opinion".
+function startSeconds() {
+  if (START_MODE === 'begin') return 0;
+  if (START_MODE === 'vocals') {
+    const v = (CFG.track && CFG.track.vocal_in) || firstCueAt();
+    if (!v) {
+      alertNow('This song has no measured vocal entry yet — run it once, or '
+               + 'pick Beginning or a timestamp.', 'warn');
+      return undefined;
+    }
+    return Math.max(0, v - 2);
   }
+  const at = parseTime($('#startAt').value);
+  if (at === null || Number.isNaN(at)) {
+    alertNow(`"${$('#startAt').value.trim()}" is not a timestamp. Use `
+             + `minutes:seconds, like 2:44, or a number of seconds.`, 'bad');
+    $('#startAt').focus();
+    return undefined;
+  }
+  return at;
+}
+
+function firstCueAt() {
+  return (CUES && CUES.length) ? Math.min(...CUES.map(c => c.start)) : 0;
+}
+
+function setStartMode(mode) {
+  START_MODE = mode;
+  document.querySelectorAll('.startopt').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.start === mode)));
+  $('#startAt').hidden = mode !== 'at';
+  if (mode === 'at') $('#startAt').focus();
+  showStartHint();
+}
+
+function showStartHint() {
+  const h = $('#startHint');
+  if (START_MODE === 'begin') { h.textContent = 'From 0:00.'; h.style.color = ''; return; }
+  if (START_MODE === 'vocals') {
+    const v = (CFG.track && CFG.track.vocal_in) || firstCueAt();
+    h.style.color = '';
+    h.textContent = v
+      ? `From ${fmtTime(Math.max(0, v - 2))} — two seconds before the singing at ${fmtTime(v)}.`
+      : 'Not measured yet for this song; run it once first.';
+    return;
+  }
+  const raw = $('#startAt').value.trim(), at = parseTime(raw);
+  if (!raw) { h.textContent = 'minutes:seconds, e.g. 2:44.'; h.style.color = ''; }
+  else if (Number.isNaN(at)) {
+    h.textContent = `"${raw}" is not a timestamp — try 2:44 or 164`;
+    h.style.color = 'var(--bad)';
+  } else { h.textContent = `${raw} — from ${at}s`; h.style.color = ''; }
+}
+
+function fmtTime(s) {
+  s = Math.max(0, Math.round(s));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+document.querySelectorAll('.startopt').forEach(b => {
+  b.onclick = () => setStartMode(b.dataset.start);
+});
+
+$('#startAt').oninput = () => {
+  const at = parseTime($('#startAt').value.trim());
+  $('#startAt').style.borderColor = Number.isNaN(at) ? 'var(--bad)' : '';
+  showStartHint();
 };
 $('#lenopts').onchange = () => {
   document.querySelectorAll('#lenopts .lenopt').forEach(l =>
@@ -1259,14 +1325,9 @@ $('#btnGenerate').onclick = () => {
   const body = {from_stage: tweak ? 'describe' : 'push'};
   if (mode === 'full') body.length = 'full';
   else if (mode === 'custom') body.preview_seconds = parseFloat($('#customLen').value) || 30;
-  const at = parseTime($('#startAt').value);
-  if (Number.isNaN(at)) {
-    note(`"${$('#startAt').value.trim()}" is not a timestamp. Use minutes:seconds, `
-         + `like 2:44, or a number of seconds.`, 'bad');
-    $('#startAt').focus();
-    return;
-  }
-  if (at !== null) body.start_seconds = at;
+  const from = startSeconds();
+  if (from === undefined) return;        // a bad timestamp; already reported
+  if (from !== null) body.start_seconds = from;
   if (tweak) body.describe = tweak;
   api('/api/run', {method:'POST', body: runBody(body)}).then(poll).catch(showErr);
 };

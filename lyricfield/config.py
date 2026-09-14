@@ -47,6 +47,11 @@ class Track:
     beat_anchor: float = 0.0
     beat_period: float = 0.4615
     high_in: float = 0.0
+    # Where singing actually starts, from the vocal stem rather than the cue
+    # table -- transcription can drop a quiet opening line, and on one song it
+    # reported 11 seconds of singing with no words cued against it. Measured
+    # already; it just had nowhere to live, so the UI could not offer it.
+    vocal_in: float = 0.0
     # How loud this master is (90th-percentile frame RMS), so the absolute gates
     # TouchDesigner applies can be scaled to it rather than to whichever track
     # they were originally tuned on.

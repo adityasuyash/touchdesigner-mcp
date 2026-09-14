@@ -229,3 +229,53 @@ def test_the_custom_preview_is_not_pinned_to_one_renderer():
     src = INDEX.read_text()
     assert "/styles/lyric_grid/${CUSTOM_SLUG}" not in src, \
         "the custom-look preview path hardcodes lyric_grid"
+
+
+# ------------------------------------------------------- where it starts
+
+def test_a_deliberate_zero_start_survives_the_trip():
+    """`{...}.items() if v` used truthiness to mean "was this provided", so
+    `start_seconds = 0` was dropped before it reached the run — which then fell
+    through to the auto-pick and began at the busiest stretch of CUES, i.e. the
+    singing. `run.py` already guarded the far end; the value never got there.
+    """
+    from lyricfield import run as rm
+    from lyricfield.ui import server
+
+    seen = {}
+
+    def fake_start(run, ctx, on_change=None, from_stage=None):
+        seen["opts"] = dict(ctx.options)
+
+    orig, server.RUN = rm.start, None
+    rm.start = fake_start
+    try:
+        server.start_run(server.RunIn(name="x", start_seconds=0.0))
+        assert seen["opts"].get("start_seconds") == 0.0
+        server.RUN = None
+        server.start_run(server.RunIn(name="x", start_seconds=12.5))
+        assert seen["opts"].get("start_seconds") == 12.5
+        server.RUN = None
+        server.start_run(server.RunIn(name="x"))
+        assert "start_seconds" not in seen["opts"], "absent must stay absent"
+    finally:
+        rm.start = orig
+        server.RUN = None
+
+
+def test_zero_is_honoured_as_a_start_not_treated_as_absent():
+    """The consumer's half of the same bug, asserted so it cannot regress."""
+    import inspect
+
+    from lyricfield import run as rm
+    src = inspect.getsource(rm._preview)
+    assert 'chosen not in (None, "")' in src, \
+        "the start check is back to truthiness, which cannot see a deliberate 0"
+
+
+def test_the_ui_offers_the_three_start_choices():
+    src = INDEX.read_text()
+    for mark in ('data-start="begin"', 'data-start="vocals"', 'data-start="at"'):
+        assert mark in src, f"no {mark} button"
+    assert "function startSeconds()" in src
+    assert "vocal_in" in src, "the vocals option has no measured entry to use"
