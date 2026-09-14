@@ -43,8 +43,8 @@ class Word:
     hold: float = 0.55
     fade: float = 0.30
     # The word before, still on screen behind this one.
-    ghost: float = 0.20
-    ghost_scale: float = 1.5
+    ghost: float = 0.26
+    ghost_scale: float = 1.75
     # Vertical travel across a word's life, as a share of frame height.
     drift: float = 0.035
 

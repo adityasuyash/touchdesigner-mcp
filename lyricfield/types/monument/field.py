@@ -294,10 +294,17 @@ def onCook(scriptOp):
     # ---- the type ---------------------------------------------------------
     # Size is per word, because a long word and a short one should both fill
     # the frame rather than both use one size.
+    # Both axes, or the glyphs come out at whatever aspect the y default
+    # happens to be -- which is how a font's row pitch silently depended on
+    # the display DPI in an earlier renderer here.
     if word:
-        _setpar(NOW_TOP, 'fontsizex', _fit(word, FILL, CAP_PX, WIDTH))
+        px = _fit(word, FILL, CAP_PX, WIDTH)
+        _setpar(NOW_TOP, 'fontsizex', px)
+        _setpar(NOW_TOP, 'fontsizey', px)
     if prev:
-        _setpar(WAS_TOP, 'fontsizex', _fit(prev, FILL, CAP_PX, WIDTH))
+        px = _fit(prev, FILL, CAP_PX, WIDTH)
+        _setpar(WAS_TOP, 'fontsizex', px)
+        _setpar(WAS_TOP, 'fontsizey', px)
 
     # The punch: struck at its cue, settling to 1.0 over `settle`.
     k = max(0.0, 1.0 - (age / max(1e-6, SETTLE))) if lit > 0.0 else 0.0

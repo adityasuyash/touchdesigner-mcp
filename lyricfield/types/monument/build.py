@@ -31,8 +31,24 @@ def network(cfg) -> list[OpSpec]:
              "resolutionh": s.height, "resmult": False}
     # The field script sets size and position per word, so what is baked here
     # is only what does not change: the face, and that it is centred.
+    # White type on a transparent ground; the ground is a separate branch, so
+    # the Text TOPs must not paint their own. `bordera`/`borderb` do not exist
+    # -- the real names are `borderar`, `borderag` and so on -- and there is no
+    # border wanted here anyway.
     text = {**frame, "font": s.font, "alignx": "center", "aligny": "center",
-            "fontsizex": 120.0, "bordera": 0.0, "borderb": 0.0}
+            # Empty, or the Text TOP draws its own inline string and ignores
+            # the DAT entirely -- it ships holding the word "derivative", which
+            # is what this renderer drew until it was looked at.
+            "text": "",
+            # PIXELS. The parameter defaults to points, so every size this
+            # renderer computes from the frame width would be scaled by the
+            # display's DPI -- the same class of bug that once made a grid's
+            # row pitch depend on the monitor it was built on.
+            "fontsizexunit": "pixels", "fontsizeyunit": "pixels",
+            "fontsizex": 120.0, "fontsizey": 120.0,
+            "fontcolorr": 1.0, "fontcolorg": 1.0, "fontcolorb": 1.0,
+            "bgcolorr": 0.0, "bgcolorg": 0.0, "bgcolorb": 0.0,
+            "bgalpha": 0.0}
 
     return [
         # ---- audio, for the glow's low-band breath ----
@@ -57,9 +73,11 @@ def network(cfg) -> list[OpSpec]:
                params={"callbacks": "v7_script_callbacks", "resolutionw": 16,
                        "resolutionh": 16, "resmult": False,
                        "format": "rgba32float"}),
+        # `fill` stretches the sixteen-pixel ground across the whole frame.
+        # A Level TOP has no extend parameters -- that vocabulary belongs to
+        # other operators, and TouchDesigner said so rather than guessing.
         OpSpec("mon_ground", "levelTOP", (-1000, -400),
-               params={**frame, "extendleft": "hold", "extendright": "hold",
-                       "extendtop": "hold", "extendbottom": "hold"},
+               params={**frame, "fillmode": "fill"},
                inputs=["v7_script"]),
 
         # ---- the type ----
@@ -73,8 +91,15 @@ def network(cfg) -> list[OpSpec]:
                params={**frame}, inputs=["mon_was"]),
         OpSpec("mon_now_x", "transformTOP", (-800, -100),
                params={**frame}, inputs=["mon_now"]),
+        # Blurred, and that is not decoration. Left sharp, a two-letter ghost
+        # behind a three-letter word simply reads as more letters -- "TO"
+        # behind "SAY" came out as "STAY" the first time this was rendered.
+        # Softening it is what makes it read as the word before rather than as
+        # part of this one.
+        OpSpec("mon_was_b", "blurTOP", (-700, -700),
+               params={**frame, "size": lk.bloom * 1.6}, inputs=["mon_was_x"]),
         OpSpec("mon_was_l", "levelTOP", (-600, -700),
-               params={**frame, "brightness1": w.ghost}, inputs=["mon_was_x"]),
+               params={**frame, "brightness1": w.ghost}, inputs=["mon_was_b"]),
         OpSpec("mon_now_l", "levelTOP", (-600, -100),
                params={**frame, "brightness1": lk.peak}, inputs=["mon_now_x"]),
 
