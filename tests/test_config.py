@@ -172,29 +172,12 @@ def test_the_reference_level_is_the_benchmarks():
     assert 0.3 < REFERENCE_LEVEL < 0.4
 
 
-def test_gates_are_unchanged_at_the_level_they_were_tuned_at():
+def test_the_scale_factor_says_how_far_this_master_is_from_the_reference():
     from lyricfield.types.lyric_grid.params import Analysis, REFERENCE_LEVEL
     a = Analysis()
-    g = a.scaled(REFERENCE_LEVEL)
-    assert g["kick_thresh"] == pytest.approx(a.kick_thresh, rel=1e-3)
-    assert g["factor"] == pytest.approx(1.0, rel=1e-3)
-
-
-def test_a_quiet_master_gets_lower_gates():
-    """Otherwise it crosses none of them and gets no ripples or sparks at all,
-    for the whole song, with nothing reporting it."""
-    from lyricfield.types.lyric_grid.params import Analysis, REFERENCE_LEVEL
-    a = Analysis()
-    quiet = a.scaled(REFERENCE_LEVEL / 2)
-    assert quiet["kick_thresh"] < a.kick_thresh
-    assert quiet["snare_thresh"] < a.snare_thresh
-
-
-def test_a_loud_master_gets_higher_gates():
-    from lyricfield.types.lyric_grid.params import Analysis, REFERENCE_LEVEL
-    a = Analysis()
-    loud = a.scaled(REFERENCE_LEVEL * 2)
-    assert loud["kick_thresh"] > a.kick_thresh
+    assert a.scaled(REFERENCE_LEVEL)["factor"] == pytest.approx(1.0, rel=1e-3)
+    assert a.scaled(REFERENCE_LEVEL / 2)["factor"] < 1.0
+    assert a.scaled(REFERENCE_LEVEL * 2)["factor"] > 1.0
 
 
 def test_the_scale_is_clamped_at_both_ends():
@@ -202,25 +185,26 @@ def test_the_scale_is_clamped_at_both_ends():
     frame is a kick; a very loud one must not end up gated past anything."""
     from lyricfield.types.lyric_grid.params import Analysis
     a = Analysis()
-    assert a.scaled(1e-6)["kick_thresh"] > 0
     assert a.scaled(1000.0)["factor"] <= 3.0
     assert a.scaled(1e-6)["factor"] >= 0.25
 
 
-def test_an_unmeasured_level_leaves_the_gates_alone():
+def test_an_unmeasured_level_leaves_the_factor_at_one():
     from lyricfield.types.lyric_grid.params import Analysis
-    a = Analysis()
-    assert a.scaled(0.0)["kick_thresh"] == pytest.approx(a.kick_thresh)
+    assert Analysis().scaled(0.0)["factor"] == pytest.approx(1.0)
 
 
-def test_only_the_event_gates_move():
-    """low_thresh, high_gain and the lags shape a continuous signal rather than
-    deciding whether something happened; scaling them would change the look."""
+def test_only_the_band_the_network_actually_selects_is_configured():
+    """The kick, snare, rythm and high gates were scaled, pushed and reported
+    as applied while moving nothing: the drum response had moved to the onset
+    table pushed in from the repo, and the network selects only the low band
+    (`v8_low`). Four knobs that were offered, pushed and ignored.
+    """
     from lyricfield.types.lyric_grid.params import Analysis
-    a = Analysis()
-    g = a.scaled(0.1)
-    assert g["low_thresh"] == a.low_thresh
-    assert g["high_gain"] == a.high_gain
+    g = Analysis().scaled(0.3)
+    assert set(g) == {"low_thresh", "low_smooth", "factor"}, (
+        "a gate is being pushed that no operator downstream reads")
+
 
 
 def test_a_band_flush_to_the_bottom_reports_no_region_below_it():

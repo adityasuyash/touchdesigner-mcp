@@ -5,7 +5,7 @@ name = "Tide"
 slug = "tide"
 type = "swell"
 description = "the field breathes — wide and slow, thickening on the downbeat"
-created = "2026-09-14T11:34:35+00:00"
+created = "2026-09-14T13:00:43+00:00"
 source_song = ""
 
 [grid]
@@ -36,12 +36,8 @@ bloom_size = 9.0
 bloom_bright = 0.45
 
 [analysis]
-kick_thresh = 0.209028
-snare_thresh = 0.311515
-rythm_thresh = 49.4591
 low_thresh = 0.1
 low_smooth = 0.0
-high_gain = 3.5
 low_lag_up = 0.08
 low_lag_dn = 0.22
 
@@ -61,4 +57,5 @@ kick_sigma = 2.4
 snare_frac = 0.1
 snare_time = 0.28
 high_grain = 0.3
+high_time = 0.22
 reroll = 16.0

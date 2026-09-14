@@ -5,7 +5,7 @@ name = "Heartbeat"
 slug = "heartbeat"
 type = "pulse_grid"
 description = "no sweep at all — the kick is the entire picture, wide and slow"
-created = "2026-09-14T11:34:35+00:00"
+created = "2026-09-14T13:00:43+00:00"
 source_song = ""
 
 [grid]
@@ -36,12 +36,8 @@ bloom_size = 14.0
 bloom_bright = 0.55
 
 [analysis]
-kick_thresh = 0.209028
-snare_thresh = 0.311515
-rythm_thresh = 49.4591
 low_thresh = 0.1
 low_smooth = 0.0
-high_gain = 3.5
 low_lag_up = 0.08
 low_lag_dn = 0.22
 
@@ -62,3 +58,6 @@ snare_time = 0.25
 high_lift = 0.04
 high_time = 0.22
 reroll = 12.0
+intro_open = 0.34
+arrive = 0.8
+outro = 12.0

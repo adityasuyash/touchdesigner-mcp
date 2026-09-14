@@ -313,37 +313,35 @@ class Analysis:
     perfectly bright field. `scaled()` is how they stop being one song's
     numbers; see `Track.level`.
     """
-    kick_thresh: float = 0.209028
-    snare_thresh: float = 0.311515
-    rythm_thresh: float = 49.4591
+    # `kick_thresh`, `snare_thresh`, `rythm_thresh` and `high_gain` used to live
+    # here. They gated the palette component's kick, snare, rythm and high
+    # channels -- and when the drum response moved to the onset table pushed in
+    # from the repo, the network stopped selecting any of those channels. Only
+    # `low` is taken (`v8_low`), so four knobs were being scaled, pushed and
+    # reported as applied while moving nothing at all: offered, pushed, ignored.
     low_thresh: float = 0.1
     low_smooth: float = 0.0
-    high_gain: float = 3.5
     low_lag_up: float = 0.08        # v8_low_lag, drives the glow's low-band term
     low_lag_dn: float = 0.22
 
     def scaled(self, level: float) -> dict:
         """These gates, adjusted for how loud this particular master is.
 
-        Only the three that gate *events* move. `low_thresh`, `high_gain` and
-        the lag times shape a continuous signal rather than deciding whether
-        something happened, and scaling those would change the look rather than
-        preserve it.
+        Nothing here gates an *event* any more -- the drums come from the onset
+        table, measured offline -- so nothing is scaled by the factor today.
+        The factor is still reported, because it is the number that says how
+        far this master sits from the reference and the builder logs it.
 
-        The factor is clamped: a track four times louder than the reference
-        should not get gates so high that nothing ever fires, and a nearly
-        silent one should not get gates at zero, where every frame is a kick.
+        It is clamped: a track four times louder than the reference should not
+        get gates so high that nothing fires, and a nearly silent one should
+        not get gates at zero, where every frame is a kick.
         """
         factor = 1.0
         if level and REFERENCE_LEVEL:
             factor = min(3.0, max(0.25, float(level) / REFERENCE_LEVEL))
         return {
-            "kick_thresh": round(self.kick_thresh * factor, 6),
-            "snare_thresh": round(self.snare_thresh * factor, 6),
-            "rythm_thresh": round(self.rythm_thresh * factor, 6),
             "low_thresh": self.low_thresh,
             "low_smooth": self.low_smooth,
-            "high_gain": self.high_gain,
             "factor": round(factor, 4),
         }
 
@@ -390,9 +388,7 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "back_beats": (0.5, 16, 0.5), "back_width": (0.5, 12, 0.1),
     "back_attack": (0.02, 0.9, 0.01), "back_reroll": (1, 60, 1),
     # analysis
-    "kick_thresh": (0, 1, 0.001), "snare_thresh": (0, 1, 0.001),
-    "rythm_thresh": (0, 200, 0.1), "low_thresh": (0, 1, 0.01),
-    "low_smooth": (0, 1, 0.01), "high_gain": (0, 10, 0.1),
+    "low_thresh": (0, 1, 0.01), "low_smooth": (0, 1, 0.01),
     "low_lag_up": (0, 1, 0.01), "low_lag_dn": (0, 1, 0.01),
 }
 

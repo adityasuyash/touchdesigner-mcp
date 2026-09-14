@@ -5,7 +5,7 @@ name = "Marquee"
 slug = "marquee"
 type = "lyric_grid"
 description = "each line centred on its own row — the most readable of the set"
-created = "2026-09-14T11:34:35+00:00"
+created = "2026-09-14T13:00:43+00:00"
 source_song = ""
 
 [grid]
@@ -84,11 +84,7 @@ back_attack = 0.14
 back_reroll = 16.0
 
 [analysis]
-kick_thresh = 0.209028
-snare_thresh = 0.311515
-rythm_thresh = 49.4591
 low_thresh = 0.1
 low_smooth = 0.0
-high_gain = 3.5
 low_lag_up = 0.08
 low_lag_dn = 0.22

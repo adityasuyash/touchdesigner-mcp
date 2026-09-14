@@ -209,9 +209,11 @@ def load_analysis_component(client, cfg, progress=None, container: str = ROOT) -
     say(f"loading the audioAnalysis palette component "
         f"(gates x{gates['factor']} for this master)")
     pars = {
-        "Kickthresh": gates["kick_thresh"], "Snarethresh": gates["snare_thresh"],
-        "Rythmthresh": gates["rythm_thresh"], "Lowthresh": gates["low_thresh"],
-        "Lowsmooth": gates["low_smooth"], "Highgain": gates["high_gain"],
+        # Only the low band is selected downstream (`v8_low`), so only the low
+        # band is configured. The kick/snare/rythm/high gates were pushed here
+        # for a chain that stopped reading them when the drum response moved to
+        # the onset table.
+        "Lowthresh": gates["low_thresh"], "Lowsmooth": gates["low_smooth"],
         "Lowactive": True, "Midactive": True, "Highactive": True,
         "Kickactive": True, "Snareactive": True, "Rythmactive": True,
         "Ssdactive": True,
