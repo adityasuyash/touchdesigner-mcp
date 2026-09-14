@@ -218,3 +218,22 @@ console.log(JSON.stringify({hidden: h.hidden, said}));
     assert out["hidden"] is False, "the refusal is still invisible"
     assert "running code from before" in out["said"], out["said"]
     assert "press Restart" in out["said"], "the remedy was dropped"
+
+
+def test_the_look_controls_do_not_need_a_saved_song():
+    """They describe the RENDERER, not the song, so hiding them until a song
+    exists hides everything exactly when someone is setting one up.
+
+    `#detailSections` used to unhide only when CURRENT_SLUG was set, which only
+    happens on picking an existing song from the dropdown — so typing a new name
+    left the whole panel invisible.
+    """
+    src = (REPO / "lyricfield" / "ui" / "static" / "index.html").read_text()
+    ref = re.search(r"async function refreshAll\(\) \{(.+?)\n\}", src, re.S)
+    assert ref, "refreshAll() is gone or was renamed"
+    body = ref.group(1)
+    assert "if (CURRENT_SLUG) { $('#detailSections').hidden = false;" not in body, \
+        "the panel is gated on a saved song again"
+    assert "$('#detailSections').hidden = false;" in body
+    assert "needsSong(" in body, \
+        "nothing tells the song-specific sections they have no song yet"

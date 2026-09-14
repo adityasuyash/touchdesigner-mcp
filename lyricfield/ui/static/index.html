@@ -259,6 +259,7 @@
   .banner.warn { background: color-mix(in srgb, var(--warn) 12%, transparent);
                  color: var(--warn); }
   .startopt[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+  .disc.pending > summary { opacity: .55; }
   .banner ul { margin: var(--s-2) 0 0; padding-left: 1.1em; }
   .banner li { margin-top: 2px; }
   .banner b { font-weight: 620; }
@@ -503,7 +504,7 @@
   </div></section>
 
   <div id="detailSections" hidden>
-    <details class="disc"><summary>Words and timings</summary>
+    <details class="disc" id="discCues"><summary>Words and timings</summary>
       <div class="disc-body">
         <div class="row" style="margin-bottom:var(--s-3)">
           <button class="btn small" id="btnSaveCues">Save</button>
@@ -525,7 +526,7 @@
       <div class="disc-body" id="lookBody"></div>
     </details>
 
-    <details class="disc"><summary>Takes</summary>
+    <details class="disc" id="discTakes"><summary>Takes</summary>
       <div class="disc-body"><div class="takes" id="takes"></div></div>
     </details>
 
@@ -1280,6 +1281,22 @@ function setStartMode(mode) {
   showStartHint();
 }
 
+// Disclosures that cannot mean anything until a song is saved.
+function needsSong(pending) {
+  for (const [id, what] of [['discCues', 'words'], ['discTakes', 'takes']]) {
+    const d = $('#' + id);
+    if (!d) continue;
+    d.classList.toggle('pending', pending);
+    if (pending) d.setAttribute('title', `Available once the song is made — ${what} belong to a song.`);
+    else d.removeAttribute('title');
+  }
+  const cn = $('#cuenote');
+  if (cn && pending) cn.textContent = 'Make the video once and the words land here.';
+  const tk = $('#takes');
+  if (tk && pending && !tk.children.length)
+    tk.innerHTML = '<span class="empty">Renders will be listed here.</span>';
+}
+
 function showStartHint() {
   const h = $('#startHint');
   if (START_MODE === 'begin') { h.textContent = 'From 0:00.'; h.style.color = ''; return; }
@@ -1545,7 +1562,17 @@ async function refreshAll() {
   // in favour of the style, switching renderer behind the UI.
   renderGallery();
   (c.problems || []).forEach(p => note(p, 'warn'));
-  if (CURRENT_SLUG) { $('#detailSections').hidden = false; controls(); loadCues(); loadTakes(); }
+  // The Look controls describe the RENDERER, not the song, so they are useful
+  // before a song exists -- and hiding them is worst exactly when someone is
+  // setting one up. This used to require CURRENT_SLUG, which is only set by
+  // picking an existing song from the dropdown, so a new song showed nothing
+  // at all below the fold.
+  $('#detailSections').hidden = false;
+  controls();
+  // Words and Takes genuinely need a saved song. They say so rather than
+  // taking the whole panel down with them.
+  needsSong(!CURRENT_SLUG);
+  if (CURRENT_SLUG) { loadCues(); loadTakes(); }
 }
 
 (async function init() {
