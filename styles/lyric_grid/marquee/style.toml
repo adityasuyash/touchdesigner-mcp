@@ -5,7 +5,7 @@ name = "Marquee"
 slug = "marquee"
 type = "lyric_grid"
 description = "each line centred on its own row — the most readable of the set"
-created = "2026-09-14T13:00:43+00:00"
+created = "2026-09-14T15:16:51+00:00"
 source_song = ""
 
 [grid]

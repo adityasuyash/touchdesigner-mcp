@@ -260,6 +260,56 @@ class WordlessPreview(StillPreview):
     """
 
 
+PREVIEW_BOX = "_preview"
+
+
+def _scratch_network(client, cfg, say):
+    """Build this renderer's own network somewhere the song cannot be hurt.
+
+    Previews used to be captured by pushing a style's params and field script
+    into the live project and putting the song's own back afterwards. That
+    worked for exactly as long as every renderer shared one network -- it was
+    only ever swapping maths inside the same character grid.
+
+    It cannot work now. Nine renderers have nine different sets of operators,
+    so pushing `rings`' field script into a project wired for `lyric_grid`
+    writes into operators that are not there. And building `rings` into
+    `/project1` to fix that would destroy the network of whatever song happens
+    to be open.
+
+    So a preview builds into its own container and records from that. The song
+    is never touched at all, which also retires the whole restore-on-failure
+    path this function used to need.
+    """
+    from .sync import ROOT
+
+    box = f"{ROOT}/{PREVIEW_BOX}"
+    client.run(
+        "def go():\n"
+        f"    r = op({ROOT!r})\n"
+        f"    e = r.op({PREVIEW_BOX!r})\n"
+        "    if e: e.destroy()\n"
+        f"    b = r.create(baseCOMP, {PREVIEW_BOX!r})\n"
+        "    b.nodeX, b.nodeY = -2400, 1400\n"
+        "go()")
+    say(f"building the {cfg.type} network to preview in")
+    cfg.video_type.build(client, cfg, progress=lambda m: None, container=box,
+                         push=False)
+    return box
+
+
+def _drop_scratch(client) -> None:
+    from .sync import ROOT
+    try:
+        client.run(
+            "def go():\n"
+            f"    e = op({ROOT + '/' + PREVIEW_BOX!r})\n"
+            "    if e: e.destroy()\n"
+            "go()")
+    except Exception:
+        pass
+
+
 def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
                     root: str | Path = DEFAULT_ROOT, fps: int = 24,
                     width: int = 240, progress=None,
@@ -310,36 +360,44 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
                 f"{max(c.start for c in _CT.load(PREVIEW_CUES).cues):.1f}s")
         say(f"{len(due)} placeholder words in the window")
 
-    before = None
-    if restore_cues and wants_words:
-        try:
-            before = sync.pull_cues(client)
-        except Exception:
-            before = None
-
     # The style's own look has to be in the project before anything is recorded,
     # and it has to come back out afterwards. The measured facts stay the song's
     # -- a beat renderer previewed against a neutral 120bpm fallback would be
     # showing its timing against nothing.
-    restore_cfg = None
-    if live is not None:
-        import copy
-        restore_cfg = copy.deepcopy(live)
-        shown = style.apply_to(Config(type=style.type))
-        shown.track = copy.deepcopy(live.track)
-        say(f"pushing the {style.name} look")
-        sync.push_field(client, shown)
-        sync.push_params(client, shown)
-        sync.reset_field_state(client)
+    import copy
+    import json
 
-    # Anything pushed into the live project has to come back even when the
-    # render fails or is interrupted -- otherwise the next preview of the *song*
-    # silently shows "lorem ipsum", or another style's look.
+    # The look to record, with the song's own measured facts under it: a beat
+    # renderer previewed against a neutral 120bpm fallback would be showing its
+    # timing against nothing.
+    shown = style.apply_to(Config(type=style.type))
+    if live is not None:
+        shown.track = copy.deepcopy(live.track)
+
+    box = _scratch_network(client, shown, say)
     try:
+        say(f"pushing the {style.name} look")
+        src = shown.video_type.field_source()
+        if src:
+            client.write(f"{box}/v7_script_callbacks", src)
+        client.write(f"{box}/params", json.dumps(shown.as_params()))
         if wants_words:
             say("pushing the placeholder words")
-            sync.push_cues(client, CueTable.load(PREVIEW_CUES))
-            sync.reset_field_state(client)
+            client.write(f"{box}/lyrics",
+                         CueTable.load(PREVIEW_CUES).to_dat_text())
+        # The drums the song actually has, so a beat renderer answers a real
+        # rhythm rather than an empty table.
+        if live is not None:
+            try:
+                from .drums import DrumTable
+                from .workspace import Workspace
+                ws = Workspace.open(getattr(live.track, "title", "") or "")
+                if ws.drums_path.exists():
+                    client.write(f"{box}/drums",
+                                 DrumTable.load(ws.drums_path).to_dat_text())
+            except Exception:
+                pass                    # a preview without drums is still a preview
+
         d = style.dir(root)
         d.mkdir(parents=True, exist_ok=True)
         raw = d / "_raw.mp4"
@@ -351,7 +409,7 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
         render_mod.park(client, at, covers=at + seconds + 2.0)
         say(f"recording {seconds:.0f}s")
         client.call("render", output=str(raw), duration=seconds + 1.5,
-                    top=OUT_TOP, fps=fps)
+                    top=f"{box}/out", fps=fps)
         client.run("me.time.play = 1")
 
         if not render_mod.wait_for_container(raw, timeout=420.0):
@@ -398,20 +456,10 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
                 f"(peak {moved['peak']:.2f} of the bold layer's {BOLD_PEAK}); "
                 f"the {seconds:g}s from {at:.1f}s hold no placeholder cues")
     finally:
-        if before is not None and before.cues:
-            say("restoring the song's own words")
-            try:
-                sync.push_cues(client, before)
-                sync.reset_field_state(client)
-            except Exception as e:
-                say(f"could not restore the cue table: {e}")
-        if restore_cfg is not None:
-            say("restoring the song's own look")
-            try:
-                sync.push_field(client, restore_cfg)
-                sync.push_params(client, restore_cfg)
-                sync.reset_field_state(client)
-            except Exception as e:
-                say(f"could not restore the song's settings: {e}")
+        # Nothing to put back. The song's network, words and look were never
+        # touched -- the whole capture happened inside its own container --
+        # which retires a restore path that had to be right on every failure
+        # and interruption, and once left a song wearing "lorem ipsum".
+        _drop_scratch(client)
     say("preview ready")
     return style.preview_video(root)
