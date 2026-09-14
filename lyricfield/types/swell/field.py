@@ -237,7 +237,12 @@ def _weights(t, kick=0.0, snare=0.0, high=0.0):
     # this one did not. `pulse_grid` hit the same thing and named it.
     if not held and high > 0.0:
         S['high_t'] = t
-    high_env = max(0.0, 1.0 - (t - S.get('high_t', -1.0e9)) / max(1e-6, HIGH_TIME))
+    # Clamped at BOTH ends. `t - high_t` goes negative whenever a strike
+    # sits ahead of the playhead, which a seek makes routine, and an
+    # unclamped `1 - since/decay` is then above one and keeps growing.
+    # Found in `rings`, where it drove a whole field to a flat glare.
+    high_env = min(1.0, max(0.0,
+        1.0 - (t - S.get('high_t', -1.0e9)) / max(1e-6, HIGH_TIME)))
     if not held and HIGH_GRAIN > 0 and high_env > 0.0:
         w = w + HIGH_GRAIN * high_env * (S['grain'] - 0.5) * 2.0
 

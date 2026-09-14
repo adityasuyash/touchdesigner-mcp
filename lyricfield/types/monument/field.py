@@ -339,7 +339,11 @@ def onCook(scriptOp):
     if _struck(S['drums']['kick'], t, since):
         S['kick_t'] = t
     S['t_prev'] = t
-    env = max(0.0, 1.0 - (t - S.get('kick_t', -1.0e9)) / max(1e-6, KICK_TIME))
+    # Clamped at both ends: a strike ahead of `t` makes `since` negative
+    # and an unclamped envelope grows without limit. See rings, where it
+    # drove a whole field to glare.
+    env = min(1.0, max(0.0,
+        1.0 - (t - S.get('kick_t', -1.0e9)) / max(1e-6, KICK_TIME)))
     ground = (FLOOR + KICK_LIFT * env) * gain
 
     r, g, b = _hsv(HUE, SAT, ground)

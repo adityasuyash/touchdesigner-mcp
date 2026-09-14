@@ -264,7 +264,12 @@ def onCook(scriptOp):
     # whole picture's variance.
     if not held and high > 0.5:
         S['high_t'] = t
-    high_env = max(0.0, 1.0 - (t - S.get('high_t', -1.0e9)) / max(1e-6, HIGH_TIME))
+    # Clamped at BOTH ends. `t - high_t` goes negative whenever a strike
+    # sits ahead of the playhead, which a seek makes routine, and an
+    # unclamped `1 - since/decay` is then above one and keeps growing.
+    # Found in `rings`, where it drove a whole field to a flat glare.
+    high_env = min(1.0, max(0.0,
+        1.0 - (t - S.get('high_t', -1.0e9)) / max(1e-6, HIGH_TIME)))
 
     # ---- compose ------------------------------------------------------------
     base = LEVEL_MIN + (LEVEL_MAX - LEVEL_MIN) * S['bias']

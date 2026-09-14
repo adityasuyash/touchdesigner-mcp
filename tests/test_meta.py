@@ -469,3 +469,32 @@ def _strip_comments(src: str) -> str:
     except (tk.TokenError, IndentationError):
         return src
     return " ".join(kept)
+
+
+@pytest.mark.parametrize("vt", types_mod.list_types(),
+                         ids=[t.slug for t in types_mod.list_types()])
+def test_decay_envelopes_are_clamped_at_both_ends(vt):
+    """`1 - (t - struck) / decay` is above one whenever the strike is ahead of
+    the playhead, and grows without limit as the gap widens. A seek makes that
+    routine, and nothing downstream catches it: the value is multiplied into a
+    field that is only clipped at the very end, so the picture becomes a flat
+    glare with everything else invisible inside it.
+
+    Measured in `rings` while it was being written -- field mean 0.86 of white
+    -- and the same unclamped shape was already sitting in `pulse_grid` and
+    `swell`, waiting for a backward seek.
+    """
+    path = vt.field_path
+    if not (path and path.exists()):
+        pytest.skip(f"{vt.slug} ships no field script")
+    src = _strip_comments(path.read_text(encoding="utf-8"))
+    # Every `1.0 - <something> / <something>` that is floored at zero must also
+    # be capped at one.
+    bad = []
+    for m in re.finditer(r"max\(\s*0\.0\s*,\s*1\.0\s*-", src):
+        window = src[max(0, m.start() - 40):m.start()]
+        if "min(1.0" not in window and "min(1." not in window:
+            bad.append(src[m.start():m.start() + 60].replace("\n", " "))
+    assert not bad, (
+        f"{vt.slug} has an envelope floored at zero but not capped at one: "
+        f"{bad}")
