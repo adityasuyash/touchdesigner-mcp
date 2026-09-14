@@ -91,7 +91,8 @@ class RunIn(BaseModel):
     source: str | None = None
     type: str | None = None
     style: str | None = None
-    backdrop: str | None = None     # what fills the space around the words
+    back_type: str | None = None    # the renderer behind the words
+    back_style: str | None = None   # ... and which of its styles
     api_key: str | None = None
     language: str | None = None
     prompt: str | None = None
@@ -140,7 +141,7 @@ def start_run(payload: RunIn):
         ctx = RUN_CTX = run_mod.Ctx(
             client=client, name=payload.name, source=payload.source or "",
             video_type=payload.type, style=payload.style,
-            backdrop=payload.backdrop,
+            back_type=payload.back_type, back_style=payload.back_style,
             options={k: v for k, v in {
                 "language": payload.language, "prompt": payload.prompt,
                 "preview_seconds": payload.preview_seconds,
@@ -660,25 +661,6 @@ def list_video_types():
             "default": types_mod.DEFAULT_TYPE}
 
 
-@app.get("/api/backdrops")
-def list_backdrops():
-    """What can sit behind the words, for the types that have words.
-
-    Presets over the `backdrop` tunables rather than an enum, so every one of
-    them is still reachable from a slider and from a written description.
-    """
-    out = []
-    for vt in types_mod.list_types():
-        mod = getattr(vt, "_params_module", lambda: None)()
-        for key, label, why, deltas in getattr(mod, "BACKDROPS", ()):
-            out.append({"type": vt.slug, "key": key, "name": label,
-                        "description": why, "sets": deltas,
-                        "preview": f"/styles/_backdrops/{vt.slug}/{key}/preview.mp4",
-                        "has_preview": (BACKDROP_ROOT / vt.slug / key
-                                        / "preview.mp4").exists()})
-    return {"backdrops": out}
-
-
 @app.post("/api/songs/{slug}/type")
 def set_song_type(slug: str, payload: dict):
     _select(slug)
@@ -747,7 +729,8 @@ class SongIn(BaseModel):
     source: str | None = None
     type: str | None = None
     style: str | None = None
-    backdrop: str | None = None     # what fills the space around the words
+    back_type: str | None = None    # the renderer behind the words
+    back_style: str | None = None   # ... and which of its styles
 
 
 @app.get("/api/songs")
@@ -1089,7 +1072,11 @@ if _static.exists():
 
 @app.get("/")
 def index():
-    return FileResponse(_static / "index.html")
+    # No-cache, because `FileResponse` sets no `Cache-Control` and does not
+    # revalidate, so a browser may serve the page from its own store off
+    # heuristic freshness -- an edit that is invisible until a hard reload.
+    return FileResponse(_static / "index.html",
+                        headers={"Cache-Control": "no-cache"})
 
 
 def main() -> int:

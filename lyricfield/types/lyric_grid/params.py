@@ -181,6 +181,12 @@ class Backdrop:
     back_lift: float = 0.045     # how far the beat swings it
     back_wave: float = 0.0       # a crest crossing the field on the beat grid
     back_swell: float = 0.0      # coverage thickening on the downbeat
+    # The drums, each with its own weight. These did not exist, and the kick was
+    # normalised by the LETTERS' ripple_lift -- so every beatsync style got the
+    # same kick amplitude and five looks collapsed into about three.
+    back_kick: float = 1.0
+    back_snare: float = 1.0
+    back_high: float = 0.0
     # Its own colour, so it reads as behind the words rather than beside them.
     back_hue: float = 0.58
     back_sat: float = 0.20
@@ -196,18 +202,82 @@ class Backdrop:
 # The four things the "Behind the words" row offers, as presets over the numbers
 # above rather than as an enum -- so every one of them stays reachable from a
 # slider and from a written description.
-BACKDROPS: tuple[tuple[str, str, str, dict], ...] = (
-    ("none", "None", "the words alone, on black",
-     {"backdrop.back_level": 0.0, "cueing.ambient_target": 0}),
-    ("ambient", "Ambient", "other lines of the song, laid as decoration",
-     {"backdrop.back_level": 0.0, "cueing.ambient_target": 190}),
-    ("pulse", "Pulse", "a crest crossing the field in time with the beat",
-     {"backdrop.back_level": 0.05, "backdrop.back_wave": 1.0,
-      "backdrop.back_swell": 0.0, "cueing.ambient_target": 60}),
-    ("swell", "Swell", "the field thickens on the downbeat and thins over the bar",
-     {"backdrop.back_level": 0.05, "backdrop.back_wave": 0.0,
-      "backdrop.back_swell": 1.0, "cueing.ambient_target": 0}),
-)
+def backdrop_from(params: "Params", source) -> list[str]:
+    """Set the backdrop from a beatsync renderer's own parameters.
+
+    `source` is another type's `Params` -- `pulse_grid`'s or `swell`'s -- or
+    None for no backdrop at all. Returns whatever had to be pulled in to fit,
+    so the run can say so: a look silently rendered at half strength is the
+    defect class this project keeps closing.
+
+    A beatsync style is tuned to be the WHOLE picture. Behind words it cannot
+    be, so its levels are rescaled rather than copied -- but the RATIOS between
+    its sweep, kick, snare and hat response are kept, because those ratios are
+    what make one style read differently from another. Copying them flat is how
+    five looks collapsed into three.
+
+    Its colour comes with it: Heartbeat stays warm red behind cool blue words,
+    so the tile you clicked is what lands on screen.
+    """
+    bd, lk = params.backdrop, params.look
+    if source is None:
+        bd.back_level = 0.0
+        bd.back_wave = bd.back_swell = 0.0
+        return []
+
+    beat = getattr(source, "pulse", None) or getattr(source, "swell", None)
+    look = getattr(source, "look", None)
+    if beat is None:
+        return ["that renderer has no beat section to read"]
+
+    if look is not None:
+        bd.back_hue, bd.back_sat = look.dim_hue, look.dim_sat
+
+    # The band the backdrop is allowed to occupy is the one the ambient
+    # decoration it replaces has always used -- level_min..level_max, legible
+    # behind lit words by construction. Bounding it below level_min instead was
+    # my own invention and cost a 6.4:1 beat ratio to get 2:1.
+    floor, ceiling = lk.level_min, lk.level_max
+    span = max(0.01, ceiling - floor)
+
+    # Every drive the source expresses, on its own scale, so the ratios survive.
+    drives = {
+        "wave": float(getattr(beat, "wave_lift", getattr(beat, "back_wave", 0.0))
+                      or getattr(beat, "open_max", 0.0) - getattr(beat, "open_min", 0.0)),
+        "kick": float(getattr(beat, "kick_lift", getattr(beat, "kick_open", 0.0))),
+        "snare": float(getattr(beat, "snare_peak", getattr(beat, "snare_frac", 0.0))),
+        "high": float(getattr(beat, "high_lift", getattr(beat, "high_grain", 0.0))),
+    }
+    loudest = max(drives.values()) or 1.0
+
+    bd.back_level = round(floor, 4)
+    bd.back_lift = round(span, 4)
+    bd.back_wave = round(min(1.0, drives["wave"] / loudest), 4)
+    bd.back_swell = round(min(1.0, (getattr(beat, "open_max", 0.0)
+                                    - getattr(beat, "open_min", 0.0)) / loudest), 4)
+    bd.back_kick = round(min(1.0, drives["kick"] / loudest), 4)
+    bd.back_snare = round(min(1.0, drives["snare"] / loudest), 4)
+    bd.back_high = round(min(1.0, drives["high"] / loudest), 4)
+
+    for name, src in (("back_density", "density"), ("back_glyphs", "glyphs"),
+                      ("back_beats", "wave_beats"), ("back_width", "wave_width"),
+                      ("back_vertical", "vertical"), ("back_attack", "attack"),
+                      ("back_reroll", "reroll")):
+        if hasattr(beat, src):
+            setattr(bd, name, getattr(beat, src))
+    if hasattr(beat, "bar_beats"):
+        bd.back_beats = beat.bar_beats
+
+    wanted = {"back_density": bd.back_density, "back_level": bd.back_level,
+              "back_lift": bd.back_lift}
+    reconcile(params)
+    clamped = []
+    for key, was in wanted.items():
+        now = getattr(bd, key)
+        if abs(now - was) > 1e-4:
+            clamped.append(f"{key} pulled from {was:.3f} to {now:.3f} so the "
+                           "words stay readable")
+    return clamped
 
 
 # The loudness the gates below were tuned at: the 90th-percentile frame RMS of
@@ -303,6 +373,8 @@ RANGES: dict[str, tuple[float, float, float]] = {
     # backdrop -- all prefixed, see the dataclass for why
     "back_level": (0, 0.3, 0.005), "back_lift": (0, 0.3, 0.005),
     "back_wave": (0, 1, 0.01), "back_swell": (0, 1, 0.01),
+    "back_kick": (0, 1, 0.01), "back_snare": (0, 1, 0.01),
+    "back_high": (0, 1, 0.01),
     "back_hue": (0, 1, 0.01), "back_sat": (0, 1, 0.01),
     "back_density": (0.05, 1.0, 0.01),
     "back_beats": (0.5, 16, 0.5), "back_width": (0.5, 12, 0.1),
@@ -392,24 +464,23 @@ class Params:
                 "cell capacity; layout will start failing to place lines"
             )
 
-        # ---- the backdrop may never compete with the words it sits behind ----
+        # ---- the backdrop may not outshine the words it sits behind ----
+        #
+        # The bound is the band the AMBIENT DECORATION occupies, because that is
+        # what the backdrop replaces and it has always been legible behind lit
+        # words. Holding it under `level_min` instead -- an earlier invention of
+        # mine -- bought nothing and cost a great deal: it allowed a 2:1 beat
+        # ratio where the styles being mapped in run 6.4:1, and its knock-on
+        # density cap thinned four of the five shipped looks.
         peak = bd.back_level + bd.back_lift
-        if bd.back_level > 0.0 and peak > lk.level_min:
+        if bd.back_level > 0.0 and peak > lk.level_max:
             out.append(
-                f"backdrop peaks at {peak:.3f}, above level_min {lk.level_min} — "
-                "it would be brighter than the DIMMEST word letter and the words "
-                "would stop reading as the subject"
+                f"backdrop peaks at {peak:.3f}, above level_max {lk.level_max} — "
+                "it would be brighter than any unlit letter and the words would "
+                "stop reading as the subject"
             )
-        # Peak alone bounds one cell; the glow chain adds a blurred copy of the
-        # WHOLE plane (build.py's v9_glow_lvl), so total ink matters too. The
-        # 0.5 is provisional -- the honest number comes from measuring at
-        # /project1/out, the way ripple_lift and spark_peak were settled.
-        if bd.back_level > 0.0 and bd.back_density * peak > 0.5 * lk.level_min:
-            out.append(
-                f"backdrop energy {bd.back_density * peak:.3f} (density x peak) is "
-                f"more than half of level_min {lk.level_min}; the glow chain adds "
-                "the whole plane back and contrast for the words collapses"
-            )
+        if bd.back_level < 0.0:
+            out.append("back_level cannot be negative")
         if not (0.0 < bd.back_density <= 1.0):
             out.append(f"back_density {bd.back_density} must be above 0 and at most 1")
         if bd.back_beats <= 0:
@@ -550,19 +621,14 @@ def reconcile(params: "Params") -> None:
     lk, b, bd = params.look, params.beat, params.backdrop
     b.spark_peak = min(b.spark_peak, lk.ceil)
 
-    # The backdrop is bounded by `level_min`, and `level_min` is one of the
-    # things the Brightness control moves -- down to 0.04, below the default
-    # backdrop swing of 0.045. So this has to run AFTER `reconcile_look` has
-    # settled the look, or Brightness at its lowest leaves a config `validate()`
-    # rejects. Half of level_min for the floor, the remainder for the swing:
-    # the backdrop gives way, never the words.
-    bd.back_level = min(bd.back_level, round(lk.level_min * 0.5, 4))
-    bd.back_lift = min(bd.back_lift, round(lk.level_min - bd.back_level, 4))
+    # Bounded by `level_max`, which the Brightness control moves, so this has to
+    # run AFTER `reconcile_look` has settled the look or Brightness at its
+    # lowest leaves a config `validate()` rejects. The backdrop gives way, never
+    # the words.
+    bd.back_level = max(0.0, min(bd.back_level, round(lk.level_max, 4)))
+    bd.back_lift = max(0.0, min(bd.back_lift,
+                                round(lk.level_max - bd.back_level, 4)))
     bd.back_density = min(1.0, max(0.05, bd.back_density))
-    peak = bd.back_level + bd.back_lift
-    if bd.back_level > 0.0 and peak > 0:
-        cap = 0.5 * lk.level_min / peak
-        bd.back_density = min(bd.back_density, round(max(0.05, cap), 4))
     bd.back_beats = max(0.5, bd.back_beats)
     bd.back_attack = min(0.9, max(0.02, bd.back_attack))
 

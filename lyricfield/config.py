@@ -32,6 +32,10 @@ class Track:
     title: str = ""
     source: str = ""            # the original audio file
     style: str = ""             # slug of the style last applied
+    # What sits behind the words: a beatsync renderer and, optionally, one of
+    # its styles. Stored beside `style` so a reload shows what was picked.
+    back_type: str = ""
+    back_style: str = ""
     vocals: str = ""
     instrumental: str = ""
     duration: float = 0.0

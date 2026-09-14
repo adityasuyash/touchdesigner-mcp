@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from lyricfield import run as run_mod
+from lyricfield import styles as S
 from lyricfield import types as types_mod
 from lyricfield.workspace import Workspace
 
@@ -75,55 +76,113 @@ def test_no_pick_at_all_leaves_the_song_alone(song):
 
 # --------------------------------------------------------- the backdrop
 
-BACKDROPS = [b[0] for b in
-             types_mod.get_type(types_mod.DEFAULT_TYPE)._params_module().BACKDROPS]
+BEATSYNC_STYLES = [st for st in S.list_styles()
+                   if types_mod.get_type(st.type).family == types_mod.BEATSYNC]
 
 
-@pytest.mark.parametrize("key", BACKDROPS)
-def test_every_offered_backdrop_can_actually_be_applied(key, tmp_path):
-    """The UI offers exactly these, so every one of them has to work.
-
-    `none` did not. Its own preset -- no decoration, no backdrop -- tripped a
-    `validate()` rule against leaving the lyric gaps black, so the one choice
-    that expresses "the words alone" was the one choice that could not be made.
-    That rule is a note now: `validate()` means the render cannot be trusted,
-    not that the look is unusual.
-    """
-    ws = Workspace.create(f"Backdrop {key}", root=tmp_path, copy_source=False)
+@pytest.mark.parametrize("st", BEATSYNC_STYLES, ids=[s.slug for s in BEATSYNC_STYLES])
+def test_any_beatsync_style_can_go_behind_the_words(st, tmp_path):
+    """The thing that was asked for: a lyric look AND a beat look, together."""
+    ws = Workspace.create(f"Behind {st.slug}", root=tmp_path, copy_source=False)
     said = []
-    changed = run_mod._honour_pick(_ctx(ws, backdrop=key), said.append)
-    assert changed.get("backdrop") == key, said
-    assert ws.load_config().validate() == []
-
-
-def test_the_backdrop_and_the_word_look_compose(tmp_path):
-    """The whole point: one video wearing both."""
-    ws = Workspace.create("Both", root=tmp_path, copy_source=False)
-    run_mod._honour_pick(
-        _ctx(ws, video_type=types_mod.DEFAULT_TYPE, backdrop="pulse"),
-        lambda m: None)
+    changed = run_mod._honour_pick(
+        _ctx(ws, video_type=types_mod.DEFAULT_TYPE,
+             back_type=st.type, back_style=st.slug), said.append)
+    assert "backdrop" in changed, said
     cfg = ws.load_config()
     assert cfg.type == types_mod.DEFAULT_TYPE      # still the lyric renderer
     assert cfg.video_type.needs_lyrics             # still draws the words
     assert cfg.backdrop.back_level > 0             # and a field behind them
-    assert cfg.backdrop.back_wave > 0
+    assert cfg.track.back_style == st.slug
+    assert cfg.validate() == []
+
+
+def test_the_five_looks_stay_distinguishable_behind_words():
+    """They collapsed into about three under the first translation: the kick was
+    normalised away so every style got the same beat, and only geometry
+    survived. Each must still differ from every other in what it emphasises."""
+    from lyricfield.types.lyric_grid.params import Params, backdrop_from
+
+    seen = {}
+    for st in BEATSYNC_STYLES:
+        p = Params()
+        backdrop_from(p, st.params)
+        b = p.backdrop
+        seen[st.slug] = (round(b.back_wave, 2), round(b.back_kick, 2),
+                         round(b.back_snare, 2), round(b.back_high, 2),
+                         round(b.back_density, 2))
+    assert len(set(seen.values())) == len(seen), f"looks collapsed: {seen}"
+
+
+def test_the_kick_led_look_is_still_kick_led():
+    from lyricfield.types.lyric_grid.params import Params, backdrop_from
+    p = Params()
+    backdrop_from(p, S.get_style("heartbeat", type="pulse_grid").params)
+    assert p.backdrop.back_kick > p.backdrop.back_wave * 3, (
+        "heartbeat is 'the kick is the whole picture'; it must not arrive as a sweep")
+
+
+def test_the_hat_led_look_keeps_its_hats():
+    from lyricfield.types.lyric_grid.params import Params, backdrop_from
+    p = Params()
+    backdrop_from(p, S.get_style("shimmer", type="pulse_grid").params)
+    assert p.backdrop.back_high > p.backdrop.back_wave, (
+        "shimmer has no sweep; the hats and snare carry it")
+
+
+def test_a_beatsync_style_brings_its_own_colour():
+    """Per the decision: the tile you clicked is what lands."""
+    from lyricfield.types.lyric_grid.params import Params, backdrop_from
+    p = Params()
+    st = S.get_style("heartbeat", type="pulse_grid")
+    backdrop_from(p, st.params)
+    assert p.backdrop.back_hue == st.params.look.dim_hue
+
+
+def test_no_backdrop_clears_it(tmp_path):
+    ws = Workspace.create("No backdrop", root=tmp_path, copy_source=False)
+    run_mod._honour_pick(_ctx(ws, back_type="pulse_grid", back_style="sweep"),
+                         lambda m: None)
+    assert ws.load_config().backdrop.back_level > 0
+    run_mod._honour_pick(_ctx(ws, back_type="", back_style=""), lambda m: None)
+    assert ws.load_config().backdrop.back_level == 0
 
 
 def test_an_unknown_backdrop_is_reported_rather_than_applied(tmp_path):
     ws = Workspace.create("Unknown backdrop", root=tmp_path, copy_source=False)
-    before = ws.load_config().backdrop.back_level
     said = []
-    changed = run_mod._honour_pick(_ctx(ws, backdrop="nonsense"), said.append)
+    changed = run_mod._honour_pick(
+        _ctx(ws, back_type="nonsense", back_style=""), said.append)
     assert "backdrop" not in changed
-    assert ws.load_config().backdrop.back_level == before
-    assert any("no 'nonsense' backdrop" in m for m in said)
+    assert any("no video type" in m for m in said), said
 
 
-def test_words_alone_says_what_it_implies(tmp_path):
-    ws = Workspace.create("Words alone", root=tmp_path, copy_source=False)
-    said = []
-    run_mod._honour_pick(_ctx(ws, backdrop="none"), said.append)
-    assert any("black" in m for m in said), said
+def test_the_backdrop_gives_way_when_brightness_does(tmp_path):
+    """The backdrop is bounded by the band the ambient decoration occupies, and
+    the Brightness control moves that band. Whatever it is pulled to, the words
+    must still be the brightest thing and the config must stay valid."""
+    from lyricfield.types.lyric_grid import params as P
+
+    p = P.Params()
+    P.backdrop_from(p, S.get_style("shimmer", type="pulse_grid").params)
+    assert p.backdrop.back_level + p.backdrop.back_lift <= p.look.level_max + 1e-9
+
+    P.apply_control(p, "brightness", 0.0)          # the dimmest setting there is
+    assert p.validate() == [], p.validate()
+    assert p.backdrop.back_level + p.backdrop.back_lift <= p.look.level_max + 1e-9
+
+
+def test_clamping_is_reported_rather_than_silent():
+    """`reconcile` runs before `validate`, so a backdrop can never fail -- it is
+    quietly clipped instead. A look rendered at half strength with nothing said
+    is the defect class this project keeps closing."""
+    from lyricfield.types.lyric_grid import params as P
+
+    p = P.Params()
+    p.look.level_min = p.look.level_max = 0.02     # almost no room at all
+    clamped = P.backdrop_from(p, S.get_style("shimmer", type="pulse_grid").params)
+    assert clamped, "nothing reported although the budget could not hold it"
+    assert any("words stay readable" in c for c in clamped)
 
 
 # ------------------------------------------------------------------- the UI
@@ -132,13 +191,18 @@ def test_the_ui_sends_the_selected_type_with_the_run():
     body = re.search(r"function runBody\(extra\) \{(.+?)\n\}", INDEX.read_text(), re.S)
     assert body, "runBody() is gone or was renamed"
     assert "type:" in body.group(1), "runBody() does not send the renderer"
-    assert "backdrop:" in body.group(1), "runBody() does not send the backdrop"
+    assert "back_type:" in body.group(1), "runBody() does not send the backdrop"
 
 
-def test_the_gallery_offers_a_row_for_what_sits_behind_the_words():
+def test_the_two_rows_hold_independent_picks():
+    """One TYPE_SLUG for both rows is what made them mutually exclusive: a
+    beatsync click un-lit the lyric tile."""
     src = INDEX.read_text()
-    assert "backdropRow" in src and "Behind the words" in src, \
-        "the gallery has no picker for the backdrop"
+    assert "BACK_TYPE" in src and "BACK_STYLE" in src
+    assert "function setPick(fam, type, style)" in src, \
+        "clicks do not write per-row picks"
+    assert "function noneCard(fam)" in src, \
+        "no None tile, so neither row can be left empty"
 
 
 def test_a_pick_is_not_overwritten_by_a_config_refresh():

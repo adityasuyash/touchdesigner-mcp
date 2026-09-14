@@ -56,6 +56,7 @@ DEFAULTS = {
     # the renderer did before this existed, down to making no random draws.
     'back_level': 0.0, 'back_lift': 0.045,
     'back_wave': 0.0, 'back_swell': 0.0,
+    'back_kick': 1.0, 'back_snare': 1.0, 'back_high': 0.0,
     'back_hue': 0.58, 'back_sat': 0.20,
     'back_density': 0.55, 'back_glyphs': '.:-=+*#',
     'back_beats': 4.0, 'back_width': 3.5, 'back_vertical': False,
@@ -585,7 +586,7 @@ def _free_cells(occupied, dim_ch, alpha):
     return free & (dim_ch == ' ') & (alpha <= 0.0)
 
 
-def _backdrop(t, free, ripple, spark_env, held):
+def _backdrop(t, free, ripple, spark_env, held, hi=0.0):
     """The value of every backdrop cell, 0 where nothing is drawn.
 
     Pure, so it is testable with no TouchDesigner -- and it has to be, because
@@ -630,9 +631,21 @@ def _backdrop(t, free, ripple, spark_env, held):
             cover = np.clip(a - S['back_bias'], 0.0, 1.0)
             drive = np.maximum(drive, (BACK_SWELL * cover).astype(np.float32))
 
-        # The drums, from the arrays the letters already use.
-        drive = np.maximum(drive, ripple / max(1e-6, RIPPLE_LIFT))
-        drive = np.maximum(drive, spark_env)
+        # The drums, each with its own weight. They used to come in flat --
+        # the kick normalised by the LETTERS' ripple_lift and the snare taken
+        # raw -- so every beatsync style behind the words got exactly the same
+        # beat, and five looks collapsed into about three. The ring and spark
+        # SHAPES are still the letters' (ripple_time, spark_frac); what differs
+        # per style is how hard each drum reads, which is what separates
+        # heartbeat from shimmer.
+        if BACK_KICK > 0:
+            drive = np.maximum(drive, BACK_KICK * ripple / max(1e-6, RIPPLE_LIFT))
+        if BACK_SNARE > 0:
+            drive = np.maximum(drive, BACK_SNARE * spark_env)
+        if BACK_HIGH > 0 and hi > 0:
+            # The hats roughen the field rather than flashing it, so they scale
+            # the per-cell bias instead of lifting every cell together.
+            drive = np.maximum(drive, BACK_HIGH * min(1.0, hi) * S['back_bias'])
         v = v + BACK_LIFT * np.clip(drive, 0.0, 1.0)
 
     np.clip(v, 0.0, BACK_LEVEL + BACK_LIFT, out=v)
@@ -902,7 +915,7 @@ def onCook(scriptOp):
         if occupied.size == 0:
             occupied = occupied.reshape(0, 2)
         free = _free_cells(occupied, dim_ch, alpha)
-        bv = _backdrop(t, free, ripple, spark_env, held)
+        bv = _backdrop(t, free, ripple, spark_env, held, hv)
         sel = bv > 0.0
         if sel.any():
             # `_hsv` is linear in its value: every component is `v` times a

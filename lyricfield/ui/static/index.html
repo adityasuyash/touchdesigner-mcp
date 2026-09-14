@@ -583,9 +583,9 @@ let TAKE_FILE = '';        // basename of the take on screen, for Download
 // Which renderer the gallery currently has selected. A style implies one; a
 // built-in tile names one directly.
 let TYPE_SLUG = '';
-// What sits behind the words, picked independently of the word look. Null means
-// "whatever the config already says"; a value is an explicit choice.
-let BACKDROP = '', BACKDROPS = [];
+// What sits behind the words: a renderer and, optionally, one of its styles.
+// Independent of the word look, and the empty string means "nothing behind".
+let BACK_TYPE = '', BACK_STYLE = '';
 // Set the moment anyone touches the gallery. `refreshAll` runs on song select
 // and when a run finishes, and it used to overwrite the selection from the
 // server every time -- so picking a tile and then choosing a song silently put
@@ -943,73 +943,72 @@ async function loadStyles() { STYLES = (await api('/api/styles')).styles; render
 function renderGallery() {
   const host = $('#styleGallery'); host.innerHTML = '';
 
-  // One "Built-in" tile per registered renderer, in its own family row: the
-  // renderer with nothing applied on top.
+  // Two rows, two selections. They used to be one: a single TYPE_SLUG meant
+  // clicking a beatsync tile un-lit the lyric tile, so a lyric look and a beat
+  // look could never both be chosen. The lyric row picks the words; the
+  // beatsync row picks what moves behind them -- or, with no words chosen, the
+  // whole picture.
   const builtins = (TYPES || []).map(t => ({
     slug: '', type: t.slug, name: t.name, family: t.family || 'lyric',
     has_preview: false, builtin: true, description: t.description || ''}));
-  if (!builtins.length)
-    builtins.push({slug:'', type:'', name:'Built-in', family:'lyric',
-                   has_preview:false, builtin:true,
-                   description:"the renderer's own look, untouched"});
 
   const fams = {};
   for (const st of [...builtins, ...STYLES]) (fams[st.family || 'lyric'] ||= []).push(st);
-  const order = ['lyric', 'beatsync'];
-  for (const fam of Object.keys(fams).sort((a, b) => order.indexOf(a) - order.indexOf(b))) {
+  for (const fam of ['lyric', 'beatsync']) {
+    const list = fams[fam];
+    if (!list || !list.length) continue;
     const wrap = document.createElement('div'); wrap.className = 'famrow';
     const h = document.createElement('h3'); h.className = 'eyebrow';
-    h.textContent = fam === 'beatsync' ? 'Beatsync · no lyrics needed' : 'Lyric';
+    h.textContent = fam === 'beatsync' ? 'Behind the words · or on its own'
+                                       : 'The words';
     const grid = document.createElement('div'); grid.className = 'gallery';
-    for (const st of fams[fam]) grid.append(styleCard(st));
+    // "None" is what makes either row optional without a hidden mode: no
+    // lyric look is a beatsync video, no beatsync look is a lyric video.
+    grid.append(noneCard(fam));
+    for (const st of list) grid.append(styleCard(st, fam));
     if (fam === 'lyric') grid.append(customCard());
     wrap.append(h, grid); host.append(wrap);
-    if (fam === 'lyric') host.append(backdropRow());
   }
   showStyleNote();
 }
 
-// The word look and what sits behind it are two choices, not one. They used to
-// be a single radio group over whole renderers, so picking a beat look replaced
-// the lyric one -- there was no way to have both.
-function backdropRow() {
-  const wrap = document.createElement('div'); wrap.className = 'famrow';
-  const vt = (TYPES || []).find(t => t.slug === TYPE_SLUG);
-  // A beatsync renderer IS the backdrop; offering it a choice here would be a
-  // control that does nothing.
-  wrap.hidden = !(vt && vt.needs_lyrics);
-  const h = document.createElement('h3'); h.className = 'eyebrow';
-  h.textContent = 'Behind the words';
-  const grid = document.createElement('div'); grid.className = 'gallery';
-  const mine = (BACKDROPS || []).filter(b => b.type === TYPE_SLUG);
-  for (const b of mine) grid.append(backdropCard(b));
-  wrap.append(h, grid);
-  return wrap;
+function pickedIn(fam) {
+  return fam === 'beatsync' ? [BACK_TYPE, BACK_STYLE] : [TYPE_SLUG, STYLE_SLUG];
 }
 
-function backdropCard(b) {
-  const on = b.key === BACKDROP;
-  const el = document.createElement('button');
-  el.type = 'button'; el.className = 'scard';
-  el.setAttribute('role', 'radio'); el.setAttribute('aria-checked', String(on));
-  el.title = b.description || '';
-  const t = document.createElement('div'); t.className = 'thumb';
-  const poster = b.preview ? b.preview.replace(/\.mp4$/, '.png') : '';
-  if (b.has_preview && on)
-    t.innerHTML = `<video src="${b.preview}" autoplay loop muted playsinline poster="${poster}"></video>`;
-  else if (b.has_preview)
-    t.innerHTML = `<img src="${poster}" alt="${b.name}">`;
-  else t.innerHTML = '<span class="noprev">no preview yet</span>';
-  const c = document.createElement('span'); c.className = 'cap'; c.textContent = b.name;
-  el.append(t, c);
-  el.onclick = () => { BACKDROP = b.key; PICKED = true; renderGallery(); };
-  return el;
+function setPick(fam, type, style) {
+  if (fam === 'beatsync') { BACK_TYPE = type; BACK_STYLE = style; }
+  else {
+    TYPE_SLUG = type; STYLE_SLUG = style;
+    const sel = $('#vtype'); if (sel && type) sel.value = type;
+  }
+  PICKED = true;
+  renderGallery();
 }
-function styleCard(st) {
+
+function noneCard(fam) {
+  const [type] = pickedIn(fam);
+  const on = !type;
+  const b = document.createElement('button');
+  b.type = 'button'; b.className = 'scard';
+  b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(on));
+  b.title = fam === 'beatsync' ? 'nothing behind the words'
+                               : 'no words — the beat look on its own';
+  const t = document.createElement('div'); t.className = 'thumb';
+  t.innerHTML = '<span class="noprev">none</span>';
+  const c = document.createElement('span'); c.className = 'cap'; c.textContent = 'None';
+  b.append(t, c);
+  b.onclick = () => setPick(fam, '', '');
+  return b;
+}
+
+function styleCard(st, fam) {
+  fam = fam || st.family || 'lyric';
+  const [pickedType, pickedStyle] = pickedIn(fam);
   // A built-in tile is identified by its type, since every one of them has an
   // empty style slug.
-  const on = st.builtin ? (!STYLE_SLUG && TYPE_SLUG === st.type)
-                        : st.slug === STYLE_SLUG;
+  const on = st.builtin ? (!pickedStyle && pickedType === st.type)
+                        : (st.slug === pickedStyle && st.type === pickedType);
   const b = document.createElement('button');
   b.type = 'button'; b.className = 'scard';
   b.setAttribute('role','radio'); b.setAttribute('aria-checked', String(on));
@@ -1022,18 +1021,8 @@ function styleCard(st) {
   else t.innerHTML = '<span class="noprev">no preview yet</span>';
   const c = document.createElement('span'); c.className = 'cap'; c.textContent = st.name;
   b.append(t, c);
-  b.onclick = () => {
-    // Picking a look picks the renderer it belongs to. A style already carries
-    // its own type and that has always won; this makes the built-ins say so too.
-    STYLE_SLUG = st.slug || '';
-    TYPE_SLUG = st.type || TYPE_SLUG;
-    PICKED = true;
-    // The advanced <select> is the same choice by another route; leaving it
-    // stale meant the two disagreed until the next refresh, and the refresh
-    // resolved it in favour of the select.
-    const sel = $('#vtype'); if (sel) sel.value = TYPE_SLUG;
-    renderGallery();
-  };
+  // A click only ever writes its own row's pair, which is the whole point.
+  b.onclick = () => setPick(fam, st.type || '', st.slug || '');
   return b;
 }
 // Describe a look and have it made. The tile matches the others so it reads as
@@ -1111,12 +1100,20 @@ async function customDiscard() {
 }
 
 function showStyleNote() {
-  const st = STYLES.find(x => x.slug === STYLE_SLUG);
-  if (st) { $('#styleNote').textContent = st.description || ''; return; }
-  const t = (TYPES || []).find(x => x.slug === TYPE_SLUG);
-  $('#styleNote').textContent = t
-    ? `${t.name} — ${t.description}. Nothing applied on top.`
-    : "The renderer's own look, with nothing applied on top.";
+  const say = (type, style) => {
+    if (!type) return '';
+    const st = STYLES.find(x => x.slug === style && x.type === type);
+    if (st) return st.name;
+    const t = (TYPES || []).find(x => x.slug === type);
+    return t ? t.name : '';
+  };
+  const words = say(TYPE_SLUG, STYLE_SLUG), behind = say(BACK_TYPE, BACK_STYLE);
+  let note;
+  if (words && behind) note = `${words}, over ${behind}.`;
+  else if (words) note = `${words}, with nothing behind the words.`;
+  else if (behind) note = `${behind} on its own — no words.`;
+  else note = 'Pick something from at least one row.';
+  $('#styleNote').textContent = note;
 }
 
 // -------------------------------------------------------------------- runs
@@ -1126,9 +1123,13 @@ function runBody(extra) {
     source: $('#runSource').value.trim() || null,
     // Without this every run became the default renderer whatever the gallery
     // had selected, so a beatsync look silently rendered as lyric_grid.
-    type: TYPE_SLUG || null,
-    style: STYLE_SLUG || null,
-    backdrop: BACKDROP || null,
+    // With no words chosen, the beatsync look IS the renderer rather than
+    // something behind anything -- which is what the old single-row gallery
+    // did, and still the right reading of "None, Heartbeat".
+    type: TYPE_SLUG || BACK_TYPE || null,
+    style: TYPE_SLUG ? (STYLE_SLUG || null) : (BACK_STYLE || null),
+    back_type: TYPE_SLUG ? (BACK_TYPE || '') : null,
+    back_style: TYPE_SLUG ? (BACK_STYLE || '') : null,
     language: $('#lang').value.trim() || null,
     prompt: $('#prompt').value.trim() || null,
     force_separate: $('#fsep').checked,
@@ -1140,6 +1141,10 @@ $('#btnPrimary').onclick = () => {
   if (act === 'stop') return api('/api/run/stop', {method:'POST'}).then(poll).catch(showErr);
   if (act === 'resume') return api('/api/run/resume', {method:'POST'}).then(poll).catch(showErr);
   if (!songName()) return showErr(new Error('Choose a song file, or give it a name.'));
+  // Both rows on None is the one combination that cannot render anything.
+  if (!TYPE_SLUG && !BACK_TYPE)
+    return showErr(new Error('Pick a look from at least one row — with both on '
+                             + 'None there is nothing to draw.'));
   api('/api/run', {method:'POST', body: runBody()}).then(poll).catch(showErr);
 };
 $('#btnSecondary').onclick = () =>
@@ -1343,25 +1348,6 @@ function controls() {
   all.append(body); host.append(all);
 }
 
-// Which preset the config's current numbers match, so the row shows the truth
-// rather than a default. Presets are exact sets of values, so this is an exact
-// comparison -- a config that has been hand-tuned away from all of them matches
-// none, and the row shows nothing selected, which is honest.
-function backdropOf(cfg) {
-  for (const b of (BACKDROPS || [])) {
-    if (b.type !== cfg.type && b.type !== TYPE_SLUG) continue;
-    let all = true;
-    for (const [path, want] of Object.entries(b.sets || {})) {
-      const [sec, name] = path.split('.');
-      if (!cfg[sec] || Math.abs((cfg[sec][name] ?? NaN) - want) > 1e-6) {
-        all = false; break;
-      }
-    }
-    if (all) return b.key;
-  }
-  return '';
-}
-
 // ------------------------------------------------------------------- types
 async function loadTypes() {
   const d = await api('/api/types');
@@ -1370,7 +1356,6 @@ async function loadTypes() {
   // with no renderer chosen and the first Generate falls back to the default
   // without ever having said so.
   if (!TYPE_SLUG) TYPE_SLUG = d.default || (TYPES[0] || {}).slug || '';
-  BACKDROPS = (await api('/api/backdrops').catch(() => ({}))).backdrops || [];
   const sel = $('#vtype'); sel.innerHTML = '';
   for (const t of TYPES) {
     const o = document.createElement('option');
@@ -1398,7 +1383,8 @@ async function refreshAll() {
   if (!PICKED) {
     TYPE_SLUG = c.type || TYPE_SLUG;
     STYLE_SLUG = CFG.track.style || '';
-    BACKDROP = backdropOf(CFG);
+    BACK_TYPE = CFG.track.back_type || '';
+    BACK_STYLE = CFG.track.back_style || '';
   }
   const vt = TYPES.find(t => t.slug === c.type);
   $('#vtypenote').textContent = vt ? `${vt.description} · needs ${vt.needs.join(', ')}` : '';

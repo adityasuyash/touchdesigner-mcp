@@ -102,7 +102,8 @@ class Ctx:
     name: str = ""
     source: str = ""
     video_type: str | None = None
-    backdrop: str | None = None
+    back_type: str | None = None
+    back_style: str | None = None
     style: str | None = None
     workspace: object = None
     options: dict = field(default_factory=dict)
@@ -240,45 +241,67 @@ def _honour_pick(ctx: Ctx, say) -> dict:
     # What sits behind the words, applied last so it overrides whatever the
     # style brought with it -- the style is the word look, this is the choice
     # made on top of it.
-    if ctx.backdrop:
-        applied = _apply_backdrop(cfg, ctx.backdrop, say)
-        if applied:
+    if ctx.back_type is not None or ctx.back_style is not None:
+        if _apply_backdrop(cfg, ctx.back_type or "", ctx.back_style or "", say):
             ws.save_config(cfg)
-            changed["backdrop"] = ctx.backdrop
+            changed["backdrop"] = f"{ctx.back_type or 'none'}/{ctx.back_style or ''}"
     return changed
 
 
-def _apply_backdrop(cfg, key: str, say) -> bool:
-    """Set the tunables one named backdrop stands for.
+def _apply_backdrop(cfg, back_type: str, back_style: str, say) -> bool:
+    """Put a beatsync look behind the words.
 
-    The presets live with the type's params rather than here, because what they
-    set is the type's vocabulary. A type with no backdrops -- every beatsync
-    one, which IS the backdrop -- simply has none to offer, and asking for one
-    is reported rather than silently ignored.
+    The choice is a (renderer, style) pair rather than a preset key, because the
+    thing being chosen is one of the looks already on screen -- inventing a
+    parallel vocabulary for them was the mistake this replaces.
+
+    Nothing forbids *reading* a style of another type; only `Style.apply_to`
+    refuses to apply one across types, and that refusal is right. This
+    translates instead.
     """
+    from .styles import get_style
+    from .types import get_type
+
     mod = cfg.video_type._params_module()
-    choices = {k: deltas for k, _label, _why, deltas in
-               getattr(mod, "BACKDROPS", ())}
-    if key not in choices:
-        say(f"{cfg.video_type.name} has no {key!r} backdrop; leaving it alone")
+    translate = getattr(mod, "backdrop_from", None)
+    if translate is None:
+        say(f"{cfg.video_type.name} cannot carry anything behind it")
         return False
-    for path, value in choices[key].items():
-        section, name = path.split(".")
-        target = getattr(cfg, section, None)
-        if target is None or not hasattr(target, name):
-            say(f"backdrop {key!r} names {path}, which this type does not have")
+
+    cfg.track.back_type = back_type
+    cfg.track.back_style = back_style
+    if not back_type:
+        translate(cfg.params, None)
+        say("nothing behind the words")
+        return True
+
+    try:
+        vt = get_type(back_type)
+    except KeyError:
+        say(f"no video type {back_type!r}; leaving the backdrop alone")
+        return False
+    source = vt.default_params()
+    if back_style:
+        try:
+            source = get_style(back_style, type=back_type).params
+        except (KeyError, FileNotFoundError) as e:
+            say(f"no {back_type} style {back_style!r}: {e}")
             return False
-        setattr(target, name, value)
+
+    clamped = translate(cfg.params, source)
     mod.reconcile(cfg.params)
     problems = cfg.params.validate()
     if problems:
-        # Refuse rather than render something known-broken, exactly as the
-        # described-settings path does.
-        say(f"backdrop {key!r} does not fit this look: {'; '.join(problems)}")
+        say(f"that backdrop does not fit this look: {'; '.join(problems)}")
         return False
+    # `reconcile` runs before `validate`, so a backdrop can never fail -- it is
+    # quietly clipped instead. Say what had to give, or a look renders at half
+    # strength and nothing reports it.
+    for line in clamped:
+        say(line)
     for note in getattr(cfg.params, "notes", list)():
         say(note)
-    say(f"put the {key} backdrop behind the words")
+    say(f"put {back_style or vt.name} behind the words")
     return True
 
 
