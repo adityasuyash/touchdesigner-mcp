@@ -4,8 +4,8 @@
 name = "Constellation"
 slug = "constellation"
 type = "pulse_grid"
-description = "sparse, slow and wide — few points, held a long time"
-created = "2026-09-14T09:23:08+00:00"
+description = "nearly black, crossed very slowly — a few points, held a long time"
+created = "2026-09-14T11:34:35+00:00"
 source_song = ""
 
 [grid]
@@ -22,18 +22,18 @@ height = 1280
 [look]
 dim_hue = 0.68
 dim_sat = 0.35
-level_min = 0.08
-level_max = 0.38
+level_min = 0.02
+level_max = 0.14
 ceil = 0.58
 glow_base = 0.62
 glow_lfo = 0.08
 glow_low = 0.1
 glow_low_knee = 0.32
-glow_radius = 20.0
+glow_radius = 32.0
 glow_radius_lfo = 5.0
 glow_lfo_hz = 0.06
-bloom_size = 9.0
-bloom_bright = 0.35
+bloom_size = 18.0
+bloom_bright = 0.55
 
 [analysis]
 kick_thresh = 0.209028
@@ -46,18 +46,19 @@ low_lag_up = 0.08
 low_lag_dn = 0.22
 
 [pulse]
-wave_beats = 12.0
-wave_width = 7.0
-wave_lift = 0.3
+wave_beats = 16.0
+wave_width = 8.0
+wave_lift = 0.68
 vertical = false
-density = 0.22
+density = 0.18
 glyphs = ".:*+"
-lit_at = 0.52
+lit_at = 0.8
 kick_lift = 0.22
 kick_time = 0.9
 kick_sigma = 3.0
 snare_frac = 0.03
-snare_peak = 0.5
+snare_peak = 0.35
 snare_time = 0.25
-high_lift = 0.1
+high_lift = 0.06
+high_time = 0.22
 reroll = 45.0

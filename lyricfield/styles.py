@@ -234,12 +234,29 @@ def delete_style(slug: str, root: str | Path = DEFAULT_ROOT,
 # which is why previews used to be per-machine and remade constantly.
 PREVIEW_CUES = Path(__file__).parent / "data" / "preview_cues.tsv"
 
+# How bright the brightest pixel of a lyric preview must get, 0-1, before the
+# capture counts as having shown a word. The bold layer draws white, so a lit
+# word lands near 1.0 and a field with none tops out around 0.4.
+BOLD_PEAK = 0.78
+
 
 class StillPreview(RuntimeError):
     """A capture came back as the same frame repeated.
 
     Its own class because it is recoverable in a way a failed render is not:
     the style is fine, the moment was wrong, and the caller can try another.
+    """
+
+
+class WordlessPreview(StillPreview):
+    """A lyric preview came back with no word ever lit.
+
+    A subclass because it is recoverable the same way and every caller already
+    retries `StillPreview` at the next moment. Worth its own name because the
+    cause is different: the picture moved, it just had no lyrics in it, which is
+    what a lyric style exists to show. Four shipped previews were in this state
+    -- parked at the busiest drum window, minutes past the last placeholder cue
+    -- and every check passed them, motion included.
     """
 
 
@@ -274,6 +291,24 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
 
     say = progress or (lambda m: None)
     wants_words = style.video_type.needs_lyrics
+
+    # Asked before anything is recorded, because it is arithmetic and a capture
+    # is minutes. `PREVIEW_CUES` stops at 7.5s; previews were being parked at
+    # the busiest *drum* window, 56.6s into the benchmark song, so all five
+    # lyric styles recorded a field 49 seconds past the last word. Every check
+    # passed them -- the container parsed, the band was filled, the picture
+    # moved, because the ambient field drifts whether or not a word is sung.
+    if wants_words:
+        from .cues import CueTable as _CT
+        due = [c.start for c in _CT.load(PREVIEW_CUES).cues
+               if at <= c.start < at + seconds]
+        if not due:
+            raise WordlessPreview(
+                f"no placeholder word is sung in the {seconds:g}s from "
+                f"{at:.1f}s, so a {style.name} preview taken there cannot show "
+                f"one; the words run to "
+                f"{max(c.start for c in _CT.load(PREVIEW_CUES).cues):.1f}s")
+        say(f"{len(due)} placeholder words in the window")
 
     before = None
     if restore_cues and wants_words:
@@ -345,13 +380,23 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
         # repeated, it is not a calm style -- it is a broken capture, and every
         # other check passes it: the container parses, the brightness is in
         # range, the band is filled. Say so rather than shipping a still.
-        moved = render_mod.measure_motion(style.preview_video(root))
-        say(f"{moved['frames']} frames, motion {moved['motion']}")
+        moved = render_mod.measure_motion(style.preview_video(root),
+                                          peak_width=width)
+        say(f"{moved['frames']} frames, motion {moved['motion']}, "
+            f"peak {moved['peak']}")
         if not moved["moving"]:
             raise StillPreview(
                 f"the {style.name} preview is a still frame "
                 f"(motion {moved['motion']} over {moved['frames']} frames); "
                 f"nothing moved in the {seconds:g}s from {at:.1f}s")
+        # Motion is not enough for a lyric style: the ambient field drifts on
+        # its own, so a capture parked where the placeholder cues are not still
+        # moves. The question is whether a word ever reached the bold layer.
+        if wants_words and moved["peak"] < BOLD_PEAK:
+            raise WordlessPreview(
+                f"the {style.name} preview never lights a word "
+                f"(peak {moved['peak']:.2f} of the bold layer's {BOLD_PEAK}); "
+                f"the {seconds:g}s from {at:.1f}s hold no placeholder cues")
     finally:
         if before is not None and before.cues:
             say("restoring the song's own words")

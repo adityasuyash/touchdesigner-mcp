@@ -46,7 +46,7 @@ DEFAULTS = {
     'letter_spread': 0.06,
     'offset': 0.0, 'stanza_size': 5,
     'ambient_target': 190, 'ambient_cycle': 6.0,
-    'gap_min': 2, 'gap_max': 7,
+    'gap_min': 2, 'gap_max': 7, 'layout': 'snake',
     # beat
     'ripple_time': 0.55, 'ripple_sigma': 2.2, 'ripple_lift': 0.20,
     'spark_time': 0.25, 'spark_peak': 0.58, 'spark_frac': 0.075,
@@ -409,7 +409,112 @@ def _level(key, t, rng):
     return v0 + (v1 - v0) * _smooth((t - t0) / max(1e-6, t1 - t0))
 
 
+def _wrap(rr, cc):
+    """Back inside the band. A path that runs off the end comes round rather
+    than failing, which is what lets a line start anywhere."""
+    return (BAND_TOP + (rr - BAND_TOP) % BAND, cc % COLS)
+
+
 def _lay_line(words, claimed, rng, tries=600):
+    """Lay one line of words onto the grid, however this look arranges them.
+
+    For a long time there was exactly one arrangement -- the snaking path below
+    -- which meant every lyric style, however it was tinted or timed, was the
+    same picture. Where the words SIT is the axis that makes two looks read
+    differently, and it was the one axis nobody could reach.
+    """
+    fn = _LAYOUTS.get(LAYOUT, _lay_snake)
+    return fn(words, claimed, rng, tries)
+
+
+def _centre_start(span, lo, hi, rng):
+    """Where a run of `span` cells starts if it is to sit centred in lo..hi."""
+    room = (hi - lo) - span
+    return lo + max(0, room // 2)
+
+
+def _lay_rows(words, claimed, rng, tries=600):
+    """Each line on its own row, centred -- the classic lyric video.
+
+    The most legible arrangement there is, and the one a viewer expects: read
+    left to right, one line at a time, nothing to hunt for.
+    """
+    span = sum(2 * len(w) - 1 for w, _ in words) + \
+        (len(words) - 1) * (1 + (GAP_MIN + GAP_MAX) // 2)
+    if span > COLS * BAND:
+        return None
+    for _ in range(max(1, tries // 20)):
+        row = int(rng.integers(BAND_TOP, BAND_TOP + BAND))
+        out, used, ok = {}, set(), True
+        r, c = row, _centre_start(min(span, COLS), 0, COLS, rng)
+        for wi, (w, _t) in enumerate(words):
+            need = 2 * len(w) - 1
+            if c + need > COLS:                 # next row down, still centred
+                r += 2
+                c = _centre_start(min(need, COLS), 0, COLS, rng)
+            r, c = _wrap(r, c)
+            cells = [(r, c + 2 * j) for j in range(len(w))]
+            cells = [_wrap(rr, cc) for rr, cc in cells]
+            if any(x in claimed or x in used for x in cells):
+                ok = False
+                break
+            out[wi] = cells
+            used.update(cells)
+            c += need + 1 + int(rng.integers(GAP_MIN, GAP_MAX + 1))
+        if ok and len(out) == len(words):
+            return out
+    return None
+
+
+def _lay_columns(words, claimed, rng, tries=600):
+    """Words run top to bottom, columns filling across. Mechanical, ticker-like."""
+    for _ in range(tries):
+        col = int(rng.integers(0, COLS))
+        row = BAND_TOP
+        out, used, ok = {}, set(), True
+        for wi, (w, _t) in enumerate(words):
+            need = 2 * len(w) - 1
+            if row + need > BAND_TOP + BAND:
+                row = BAND_TOP
+                col += 2
+            cells = [_wrap(row + 2 * j, col) for j in range(len(w))]
+            if any(x in claimed or x in used for x in cells):
+                ok = False
+                break
+            out[wi] = cells
+            used.update(cells)
+            row += need + 1 + int(rng.integers(GAP_MIN, GAP_MAX + 1))
+        if ok and len(out) == len(words):
+            return out
+    return None
+
+
+def _lay_scatter(words, claimed, rng, tries=600):
+    """Every word its own block, placed anywhere. No path, no reading order --
+    the words arrive out of the field rather than along a line."""
+    out, used = {}, set()
+    for wi, (w, _t) in enumerate(words):
+        placed = None
+        for _ in range(max(20, tries // max(1, len(words)))):
+            horiz = rng.integers(0, 2) == 0
+            r = int(rng.integers(BAND_TOP, BAND_TOP + BAND))
+            c = int(rng.integers(0, COLS))
+            cells = [_wrap(r, c + 2 * j) if horiz else _wrap(r + 2 * j, c)
+                     for j in range(len(w))]
+            if len(set(cells)) != len(cells):
+                continue
+            if any(x in claimed or x in used for x in cells):
+                continue
+            placed = cells
+            break
+        if placed is None:
+            return None
+        out[wi] = placed
+        used.update(placed)
+    return out
+
+
+def _lay_snake(words, claimed, rng, tries=600):
     """One continuous path per line: words intact, one blank cell between letters,
     GAP_MIN..GAP_MAX between words, blank row skipped on each wrap. Horizontal
     (left-to-right) or vertical (top-to-bottom) only -- never diagonal or reversed.
@@ -422,9 +527,6 @@ def _lay_line(words, claimed, rng, tries=600):
     the cell-collision check below is what still rejects a path that would
     overlap itself.
     """
-    def _wrap(rr, cc):
-        return (BAND_TOP + (rr - BAND_TOP) % BAND, cc % COLS)
-
     for _ in range(tries):
         orient = 'h' if rng.integers(0, 2) == 0 else 'v'
         r = int(rng.integers(BAND_TOP, BAND_TOP + BAND))
@@ -469,6 +571,14 @@ def _lay_line(words, claimed, rng, tries=600):
         if ok and len(out) == len(words):
             return out
     return None
+
+
+_LAYOUTS = {
+    'snake': _lay_snake,
+    'rows': _lay_rows,
+    'columns': _lay_columns,
+    'scatter': _lay_scatter,
+}
 
 
 def _build(si, t, rng):

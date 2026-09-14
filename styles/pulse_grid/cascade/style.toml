@@ -4,8 +4,8 @@
 name = "Cascade"
 slug = "cascade"
 type = "pulse_grid"
-description = "the same crest turned on its side and quickened, so it reads as falling"
-created = "2026-09-14T09:23:08+00:00"
+description = "falling: a narrow crest dropping fast down a busy field"
+created = "2026-09-14T11:34:35+00:00"
 source_song = ""
 
 [grid]
@@ -21,19 +21,19 @@ height = 1280
 
 [look]
 dim_hue = 0.62
-dim_sat = 0.35
-level_min = 0.1
-level_max = 0.38
+dim_sat = 0.3
+level_min = 0.05
+level_max = 0.24
 ceil = 0.58
-glow_base = 0.62
+glow_base = 0.4
 glow_lfo = 0.08
 glow_low = 0.1
 glow_low_knee = 0.32
-glow_radius = 20.0
+glow_radius = 10.0
 glow_radius_lfo = 5.0
 glow_lfo_hz = 0.06
 bloom_size = 9.0
-bloom_bright = 0.35
+bloom_bright = 0.5
 
 [analysis]
 kick_thresh = 0.209028
@@ -46,18 +46,19 @@ low_lag_up = 0.08
 low_lag_dn = 0.22
 
 [pulse]
-wave_beats = 2.0
-wave_width = 1.8
-wave_lift = 0.4
+wave_beats = 1.5
+wave_width = 1.2
+wave_lift = 0.7
 vertical = true
-density = 0.8
+density = 0.88
 glyphs = ".:-=+*#"
-lit_at = 0.52
-kick_lift = 0.18
+lit_at = 0.64
+kick_lift = 0.3
 kick_time = 0.55
 kick_sigma = 2.2
-snare_frac = 0.05
-snare_peak = 0.5
+snare_frac = 0.06
+snare_peak = 0.45
 snare_time = 0.25
 high_lift = 0.18
-reroll = 8.0
+high_time = 0.1
+reroll = 6.0

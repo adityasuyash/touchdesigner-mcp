@@ -4,8 +4,8 @@
 name = "Shimmer"
 slug = "shimmer"
 type = "pulse_grid"
-description = "a dense field with no sweep at all; the hats and the snare carry it"
-created = "2026-09-14T09:23:08+00:00"
+description = "a dense wall with no sweep; the hats and the snare carry all of it"
+created = "2026-09-14T11:34:35+00:00"
 source_song = ""
 
 [grid]
@@ -21,19 +21,19 @@ height = 1280
 
 [look]
 dim_hue = 0.5
-dim_sat = 0.22
-level_min = 0.1
-level_max = 0.38
+dim_sat = 0.18
+level_min = 0.06
+level_max = 0.26
 ceil = 0.58
-glow_base = 0.62
+glow_base = 0.34
 glow_lfo = 0.08
 glow_low = 0.1
 glow_low_knee = 0.32
-glow_radius = 20.0
+glow_radius = 8.0
 glow_radius_lfo = 5.0
 glow_lfo_hz = 0.06
 bloom_size = 9.0
-bloom_bright = 0.35
+bloom_bright = 0.3
 
 [analysis]
 kick_thresh = 0.209028
@@ -48,16 +48,17 @@ low_lag_dn = 0.22
 [pulse]
 wave_beats = 4.0
 wave_width = 3.5
-wave_lift = 0.02
+wave_lift = 0.04
 vertical = false
 density = 0.95
 glyphs = ".:-=+*#"
-lit_at = 0.5
-kick_lift = 0.12
+lit_at = 0.58
+kick_lift = 0.15
 kick_time = 0.55
 kick_sigma = 2.2
-snare_frac = 0.14
-snare_peak = 0.56
-snare_time = 0.18
-high_lift = 0.35
+snare_frac = 0.18
+snare_peak = 0.8
+snare_time = 0.16
+high_lift = 0.7
+high_time = 0.34
 reroll = 5.0

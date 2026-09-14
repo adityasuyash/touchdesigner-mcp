@@ -4,8 +4,8 @@
 name = "Heartbeat"
 slug = "heartbeat"
 type = "pulse_grid"
-description = "almost no sweep; the kick is the whole picture, wide and slow"
-created = "2026-09-14T09:23:08+00:00"
+description = "no sweep at all — the kick is the entire picture, wide and slow"
+created = "2026-09-14T11:34:35+00:00"
 source_song = ""
 
 [grid]
@@ -21,19 +21,19 @@ height = 1280
 
 [look]
 dim_hue = 0.02
-dim_sat = 0.45
-level_min = 0.1
-level_max = 0.38
-ceil = 0.58
-glow_base = 0.62
+dim_sat = 0.5
+level_min = 0.03
+level_max = 0.18
+ceil = 0.56
+glow_base = 0.6
 glow_lfo = 0.08
 glow_low = 0.1
 glow_low_knee = 0.32
-glow_radius = 20.0
+glow_radius = 26.0
 glow_radius_lfo = 5.0
 glow_lfo_hz = 0.06
-bloom_size = 9.0
-bloom_bright = 0.35
+bloom_size = 14.0
+bloom_bright = 0.55
 
 [analysis]
 kick_thresh = 0.209028
@@ -48,16 +48,17 @@ low_lag_dn = 0.22
 [pulse]
 wave_beats = 8.0
 wave_width = 6.0
-wave_lift = 0.06
+wave_lift = 0.05
 vertical = false
-density = 0.6
+density = 0.55
 glyphs = ".:-=+*#"
 lit_at = 0.52
-kick_lift = 0.45
+kick_lift = 0.85
 kick_time = 0.9
-kick_sigma = 4.5
+kick_sigma = 5.0
 snare_frac = 0.03
-snare_peak = 0.35
+snare_peak = 0.3
 snare_time = 0.25
-high_lift = 0.05
+high_lift = 0.04
+high_time = 0.22
 reroll = 12.0

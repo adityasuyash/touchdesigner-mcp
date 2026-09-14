@@ -118,6 +118,16 @@ class Cueing:
     # as a grid rather than a scattering.
     gap_min: int = 2
     gap_max: int = 7
+    # Where a line of words SITS. For a long time there was exactly one answer
+    # -- a snaking path from a random start -- so every lyric style, however it
+    # was tinted or timed, was the same picture. This is the axis that makes two
+    # looks read differently, and it was the one nobody could reach.
+    #
+    #   snake    a continuous path, wrapping (what it always did)
+    #   rows     each line centred on its own row -- the classic lyric video
+    #   columns  words running top to bottom, filling across
+    #   scatter  every word its own block, no reading order
+    layout: str = "snake"
 
 
 @dataclass
@@ -456,6 +466,10 @@ class Params:
                 f"glow_radius {lk.glow_radius} minus its LFO swing "
                 f"{lk.glow_radius_lfo} goes negative — blur size cannot"
             )
+        if c.layout not in {k for k, _ in LAYOUTS}:
+            out.append(
+                f"layout {c.layout!r} is not one of "
+                f"{', '.join(k for k, _ in LAYOUTS)}")
         if c.gap_min > c.gap_max:
             out.append("gap_min must not exceed gap_max")
         if c.ambient_target > g.band * g.cols * 0.9:
@@ -528,6 +542,14 @@ class Params:
 # span stays usable. `reconcile()` then enforces the relationships `validate()`
 # checks, so a control cannot be dragged into an invalid config -- raising
 # Brightness cannot push `level_max` past `ceil`.
+
+LAYOUTS: tuple[tuple[str, str], ...] = (
+    ("snake", "a continuous path that wraps through the field"),
+    ("rows", "each line centred on its own row"),
+    ("columns", "words running top to bottom"),
+    ("scatter", "every word its own block, anywhere"),
+)
+
 
 @dataclass(frozen=True)
 class Control:

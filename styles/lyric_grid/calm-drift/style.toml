@@ -4,8 +4,8 @@
 name = "Calm Drift"
 slug = "calm-drift"
 type = "lyric_grid"
-description = "longer dissolves, slower drift and a softer beat than the default"
-created = "2026-09-14T09:23:08+00:00"
+description = "longer dissolves, slower drift, wide spacing and a softer beat"
+created = "2026-09-14T11:34:35+00:00"
 source_song = ""
 
 [grid]
@@ -44,13 +44,14 @@ ramp_up = 0.12
 hold = 1.25
 ramp_dn = 0.45
 lead = 0.15
-letter_spread = 0.09
+letter_spread = 0.11
 offset = 0.0
 stanza_size = 5
 ambient_target = 190
 ambient_cycle = 6.0
-gap_min = 2
-gap_max = 7
+gap_min = 3
+gap_max = 10
+layout = "snake"
 
 [beat]
 ripple_time = 0.55

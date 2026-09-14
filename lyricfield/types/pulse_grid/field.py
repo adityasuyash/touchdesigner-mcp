@@ -33,7 +33,7 @@ DEFAULTS = {
     'lit_at': 0.52,
     'kick_lift': 0.26, 'kick_time': 0.55, 'kick_sigma': 2.2,
     'snare_frac': 0.06, 'snare_peak': 0.5, 'snare_time': 0.25,
-    'high_lift': 0.18, 'reroll': 12.0,
+    'high_lift': 0.18, 'high_time': 0.22, 'reroll': 12.0,
     # Track structure, measured per song. Neutral, never a particular song's
     # numbers -- a fallback that is convincingly wrong is worse than one that is
     # obviously wrong.
@@ -123,6 +123,7 @@ def _init():
     S['rings'] = []
     S['beat_i'] = -1
     S['drums'] = None
+    S['high_t'] = -1.0e9
 
 
 def onSetupParameters(scriptOp):
@@ -214,12 +215,30 @@ def onCook(scriptOp):
     sparks = np.where((spark_age >= 0) & (spark_age < 1.0),
                       (1.0 - spark_age), 0.0).astype(np.float32)
 
+    # ---- hi-hat shimmer, with a tail ---------------------------------------
+    # The hats used to be a ONE-FRAME flash: `high` is a per-frame boolean from
+    # the onset table, so the shimmer existed only on the 13% of frames that
+    # carried a strike and was gone by the next. The kick and the snare both
+    # have decay times; this one did not, so it read as a strobe rather than a
+    # shimmer, and in the one style built around it that strobe was 40% of the
+    # whole picture's variance.
+    if not held and high > 0.5:
+        S['high_t'] = t
+    high_env = max(0.0, 1.0 - (t - S.get('high_t', -1.0e9)) / max(1e-6, HIGH_TIME))
+
     # ---- compose ------------------------------------------------------------
     base = LEVEL_MIN + (LEVEL_MAX - LEVEL_MIN) * S['bias']
     v = base + WAVE_LIFT * wave + KICK_LIFT * ripple
-    v = np.maximum(v, SNARE_PEAK * sparks)
-    if not held and HIGH_LIFT > 0 and high > 0.0:
-        v = v + HIGH_LIFT * min(1.0, high) * S['bias']
+    # The snare ADDS, with the headroom above the base as its room. It used to
+    # replace -- `maximum(v, snare_peak * sparks)` -- against a field whose mean
+    # already sat near `snare_peak`, so it won on between 0.13% and 1.6% of
+    # cell-frames and contributed, measured across all five shipped styles,
+    # 0.0% of the picture's variance. A whole drum nobody could hear.
+    if SNARE_PEAK > 0:
+        room = np.maximum(1e-6, (CEIL + WAVE_LIFT) - base)   # per cell
+        v = v + SNARE_PEAK * sparks * room
+    if not held and HIGH_LIFT > 0 and high_env > 0.0:
+        v = v + HIGH_LIFT * high_env * S['bias']
     v = np.clip(v, 0.0, CEIL + WAVE_LIFT)
 
     blank = S['chars'] == ' '

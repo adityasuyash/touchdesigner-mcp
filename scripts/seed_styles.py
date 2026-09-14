@@ -28,6 +28,9 @@ from lyricfield import types as types_mod             # noqa: E402
 
 # Backdrop previews are not styles; see `backdrop_previews`.
 BACKDROP_ROOT = styles_mod.DEFAULT_ROOT / "_backdrops"
+# Each renderer's own defaults, so the "Built-in" tiles are not the only ones in
+# the gallery showing "no preview yet".
+BUILTIN_ROOT = styles_mod.DEFAULT_ROOT / "_builtin"
 
 # (type, name, description, {section.field: value})
 LOOKS: list[tuple[str, str, str, dict]] = [
@@ -37,46 +40,172 @@ LOOKS: list[tuple[str, str, str, dict]] = [
     # the thing it sits next to. Calm means calmer than the default, not equal
     # to it -- longer dissolve, slower drift, softer beat.
     ("lyric_grid", "Calm Drift",
-     "longer dissolves, slower drift and a softer beat than the default",
+     "longer dissolves, slower drift, wide spacing and a softer beat",
      {"look.dissolve": 3.6, "look.drift_min": 4.5, "look.drift_max": 9.0,
-      "cueing.hold": 1.25, "cueing.ramp_dn": 0.45, "cueing.letter_spread": 0.09,
+      "cueing.hold": 1.25, "cueing.ramp_dn": 0.45, "cueing.letter_spread": 0.11,
+      # Words sat too close together. The gap is blank cells between one word
+      # and the next along the line's path, against a fixed 2-cell pitch inside
+      # a word -- so 3..10 roughly doubles the air between words. Measured
+      # rather than picked: a line that cannot place is dropped SILENTLY, and
+      # at these values every sung line still places (the path wraps, so with
+      # 1800 tries it always finds room). 10 is also the top of the declared
+      # range; past it the decoration starts failing to place and the layout
+      # rebuild jumps from ~8ms to ~19ms per stanza.
+      "cueing.gap_min": 3, "cueing.gap_max": 10,
       "beat.ripple_lift": 0.12, "beat.spark_peak": 0.45,
       "beat.spark_frac": 0.05, "beat.twinkle_lift": 0.14}),
 
+    # The beatsync looks, rebuilt. The old five measured as about two and a
+    # half distinguishable pictures: cascade and shimmer correlated at 0.82,
+    # sweep and cascade at 0.62, and the differences were mostly density and
+    # hue rather than behaviour. They were also timid -- every one sat at the
+    # type's default level_min/level_max/ceil and at the DEFAULT of all nine
+    # glow and bloom values, and none had moved `lit_at`, which is the single
+    # strongest control in the renderer: it is the hard threshold where a cell
+    # leaves the dim layer for the bold one, gaining the white alpha channel,
+    # the bold typeface and a tight bloom all at once.
+    #
+    # The recipe, measured rather than guessed: a DARK, sparse baseline so the
+    # base never approaches the threshold, a HIGH `lit_at`, and LARGE lifts.
+    # Raising the lifts alone just promotes more of the field and flattens it;
+    # lowering the floor and raising the threshold at the same time is what
+    # turns promotion back into an event.
+
+    # Lyric looks that differ STRUCTURALLY, not just in tint. Each picks a
+    # different arrangement -- where the words sit was the axis no style could
+    # reach, which is why more presets could never have answered "more styles".
+    ("lyric_grid", "Marquee",
+     "each line centred on its own row — the most readable of the set",
+     {"cueing.layout": "rows", "cueing.gap_min": 1, "cueing.gap_max": 3,
+      "cueing.hold": 1.10, "cueing.ramp_up": 0.08, "cueing.ramp_dn": 0.30,
+      "cueing.letter_spread": 0.04, "cueing.ambient_target": 90,
+      "look.dim_hue": 0.60, "look.dim_sat": 0.22, "look.dissolve": 1.8,
+      "look.drift_min": 5.0, "look.drift_max": 10.0,
+      "look.glow_base": 0.44, "look.glow_radius": 12.0,
+      "look.bloom_bright": 0.50, "look.bloom_size": 7.0}),
+
+    ("lyric_grid", "Spotlight",
+     "one line at a time out of near-black, blooming as it is sung",
+     {"cueing.layout": "rows", "cueing.gap_min": 1, "cueing.gap_max": 3,
+      "cueing.ambient_target": 0, "cueing.hold": 1.40,
+      "cueing.ramp_up": 0.16, "cueing.ramp_dn": 0.55,
+      "cueing.letter_spread": 0.07,
+      "look.dim_hue": 0.10, "look.dim_sat": 0.30,
+      "look.level_min": 0.05, "look.level_max": 0.22,
+      "look.glow_base": 0.62, "look.glow_radius": 30.0,
+      "look.bloom_bright": 0.55, "look.bloom_size": 16.0,
+      "look.dissolve": 2.2,
+      # Nothing between the words otherwise, so the beat fills the dark.
+      "backdrop.back_level": 0.04, "backdrop.back_lift": 0.16,
+      "backdrop.back_kick": 1.0, "backdrop.back_density": 0.30}),
+
+    ("lyric_grid", "Ticker",
+     "words running top to bottom, tight and mechanical",
+     {"cueing.layout": "columns", "cueing.gap_min": 1, "cueing.gap_max": 4,
+      "cueing.hold": 0.55, "cueing.ramp_up": 0.03, "cueing.ramp_dn": 0.08,
+      "cueing.letter_spread": 0.0, "cueing.ambient_target": 150,
+      "look.dim_hue": 0.33, "look.dim_sat": 0.45, "look.dissolve": 0.8,
+      "look.drift_min": 1.0, "look.drift_max": 2.5,
+      "look.glow_base": 0.32, "look.glow_radius": 8.0,
+      "look.bloom_bright": 0.25, "look.bloom_size": 5.0}),
+
+    ("lyric_grid", "Static",
+     "words surfacing out of a dense restless field, each on its own",
+     {"cueing.layout": "scatter", "cueing.hold": 0.90,
+      "cueing.ramp_up": 0.05, "cueing.ramp_dn": 0.20,
+      "cueing.letter_spread": 0.15, "cueing.ambient_target": 300,
+      "look.dim_hue": 0.72, "look.dim_sat": 0.15,
+      "look.level_min": 0.06, "look.level_max": 0.30,
+      "look.dissolve": 1.2, "look.drift_min": 0.8, "look.drift_max": 2.0,
+      "look.glow_base": 0.38, "look.glow_radius": 14.0,
+      "look.bloom_bright": 0.45,
+      "beat.spark_frac": 0.12, "beat.spark_peak": 0.55}),
+
     ("pulse_grid", "Sweep",
-     "a crest crossing the field in time with the beat — the balanced one",
-     {"look.dim_hue": 0.55, "pulse.wave_width": 4.5, "pulse.wave_lift": 0.38,
-      "pulse.density": 0.68, "pulse.reroll": 14.0}),
+     "a hard crest crossing a dark field — the balanced one",
+     {"look.dim_hue": 0.55, "look.level_min": 0.04, "look.level_max": 0.22,
+      "look.glow_base": 0.52, "look.glow_radius": 16.0, "look.bloom_bright": 0.45,
+      "pulse.wave_beats": 4.0, "pulse.wave_width": 3.0, "pulse.wave_lift": 0.75,
+      "pulse.lit_at": 0.68, "pulse.density": 0.70,
+      "pulse.kick_lift": 0.45, "pulse.snare_peak": 0.55, "pulse.snare_frac": 0.07,
+      "pulse.high_lift": 0.22, "pulse.high_time": 0.18, "pulse.reroll": 14.0}),
 
     ("pulse_grid", "Cascade",
-     "the same crest turned on its side and quickened, so it reads as falling",
-     {"look.dim_hue": 0.62, "pulse.vertical": True, "pulse.wave_beats": 2.0,
-      "pulse.wave_width": 1.8, "pulse.wave_lift": 0.40, "pulse.density": 0.80,
-      "pulse.kick_lift": 0.18, "pulse.snare_frac": 0.05, "pulse.reroll": 8.0}),
+     "falling: a narrow crest dropping fast down a busy field",
+     {"look.dim_hue": 0.62, "look.dim_sat": 0.30,
+      "look.level_min": 0.05, "look.level_max": 0.24,
+      "look.glow_base": 0.40, "look.glow_radius": 10.0, "look.bloom_bright": 0.50,
+      "pulse.vertical": True, "pulse.wave_beats": 1.5, "pulse.wave_width": 1.2,
+      "pulse.wave_lift": 0.70, "pulse.lit_at": 0.64, "pulse.density": 0.88,
+      "pulse.kick_lift": 0.30, "pulse.snare_peak": 0.45, "pulse.snare_frac": 0.06,
+      "pulse.high_lift": 0.18, "pulse.high_time": 0.10, "pulse.reroll": 6.0}),
 
     ("pulse_grid", "Heartbeat",
-     "almost no sweep; the kick is the whole picture, wide and slow",
-     {"look.dim_hue": 0.02, "look.dim_sat": 0.45, "pulse.wave_beats": 8.0,
-      "pulse.wave_width": 6.0, "pulse.wave_lift": 0.06, "pulse.density": 0.60,
-      "pulse.kick_lift": 0.45, "pulse.kick_time": 0.90, "pulse.kick_sigma": 4.5,
-      "pulse.snare_peak": 0.35, "pulse.snare_frac": 0.03,
-      "pulse.high_lift": 0.05}),
+     "no sweep at all — the kick is the entire picture, wide and slow",
+     {"look.dim_hue": 0.02, "look.dim_sat": 0.50,
+      "look.level_min": 0.03, "look.level_max": 0.18, "look.ceil": 0.56,
+      "look.glow_base": 0.60, "look.glow_radius": 26.0, "look.bloom_bright": 0.55,
+      "look.bloom_size": 14.0,
+      "pulse.wave_beats": 8.0, "pulse.wave_width": 6.0, "pulse.wave_lift": 0.05,
+      "pulse.lit_at": 0.52, "pulse.density": 0.55,
+      "pulse.kick_lift": 0.85, "pulse.kick_time": 0.90, "pulse.kick_sigma": 5.0,
+      "pulse.snare_peak": 0.30, "pulse.snare_frac": 0.03,
+      "pulse.high_lift": 0.04, "pulse.reroll": 12.0}),
 
     ("pulse_grid", "Shimmer",
-     "a dense field with no sweep at all; the hats and the snare carry it",
-     {"look.dim_hue": 0.50, "look.dim_sat": 0.22, "pulse.wave_lift": 0.02,
-      "pulse.density": 0.95, "pulse.high_lift": 0.35, "pulse.snare_frac": 0.14,
-      "pulse.snare_peak": 0.56, "pulse.snare_time": 0.18,
-      "pulse.kick_lift": 0.12, "pulse.lit_at": 0.50, "pulse.reroll": 5.0}),
+     "a dense wall with no sweep; the hats and the snare carry all of it",
+     {"look.dim_hue": 0.50, "look.dim_sat": 0.18,
+      "look.level_min": 0.06, "look.level_max": 0.26,
+      "look.glow_base": 0.34, "look.glow_radius": 8.0, "look.bloom_bright": 0.30,
+      "pulse.wave_beats": 4.0, "pulse.wave_width": 3.5, "pulse.wave_lift": 0.04,
+      "pulse.lit_at": 0.58, "pulse.density": 0.95,
+      "pulse.kick_lift": 0.15,
+      "pulse.snare_peak": 0.80, "pulse.snare_frac": 0.18, "pulse.snare_time": 0.16,
+      "pulse.high_lift": 0.70, "pulse.high_time": 0.34, "pulse.reroll": 5.0}),
 
     ("pulse_grid", "Constellation",
-     "sparse, slow and wide — few points, held a long time",
-     {"look.dim_hue": 0.68, "look.level_min": 0.08, "pulse.wave_beats": 12.0,
-      "pulse.wave_width": 7.0, "pulse.wave_lift": 0.30, "pulse.density": 0.22,
-      "pulse.glyphs": ".:*+", "pulse.kick_lift": 0.22, "pulse.kick_time": 0.90,
-      "pulse.kick_sigma": 3.0, "pulse.snare_frac": 0.03,
-      "pulse.high_lift": 0.10, "pulse.reroll": 45.0}),
+     "nearly black, crossed very slowly — a few points, held a long time",
+     # Deliberately NOT kick-led. Measured against Heartbeat it correlated at
+     # 0.93 when both led with the kick: same behaviour, different density and
+     # hue, which is the trap the whole rebuild is meant to escape. Its identity
+     # is a slow wide crest through an almost empty field, so the crest leads
+     # and the kick is a punctuation.
+     {"look.dim_hue": 0.68, "look.level_min": 0.02, "look.level_max": 0.14,
+      "look.glow_base": 0.62, "look.glow_radius": 32.0, "look.bloom_bright": 0.55,
+      "look.bloom_size": 18.0,
+      "pulse.wave_beats": 16.0, "pulse.wave_width": 8.0, "pulse.wave_lift": 0.68,
+      "pulse.lit_at": 0.80, "pulse.density": 0.18, "pulse.glyphs": ".:*+",
+      "pulse.kick_lift": 0.22, "pulse.kick_time": 0.90, "pulse.kick_sigma": 3.0,
+      "pulse.snare_peak": 0.35, "pulse.snare_frac": 0.03,
+      "pulse.high_lift": 0.06, "pulse.reroll": 45.0}),
+
+    # `swell` shipped with NO styles at all -- a whole renderer with no tile to
+    # pick. It expresses the beat as coverage rather than light, so its
+    # brightness cannot exceed level_max and it has no stacking problem; what
+    # makes a swell look pronounced is the coverage swing and the glyph ramp.
+    # It is also the only type that reads kick_in / high_in / duration, so it
+    # is the only one with a beginning, an arrival and an ending.
+    ("swell", "Tide",
+     "the field breathes — wide and slow, thickening on the downbeat",
+     {"look.dim_hue": 0.56, "look.level_min": 0.06, "look.level_max": 0.42,
+      "look.glow_base": 0.55, "look.glow_radius": 24.0, "look.bloom_bright": 0.45,
+      "swell.bar_beats": 8.0, "swell.attack": 0.22,
+      "swell.open_min": 0.06, "swell.open_max": 0.96, "swell.lit_at": 0.72,
+      "swell.kick_open": 0.55, "swell.snare_frac": 0.10,
+      "swell.high_grain": 0.30, "swell.outro": 18.0}),
+
+    ("swell", "Stutter",
+     "short, hard breaths — a fast bar with a near-instant attack",
+     {"look.dim_hue": 0.12, "look.dim_sat": 0.40,
+      "look.level_min": 0.04, "look.level_max": 0.38,
+      "look.glow_base": 0.36, "look.glow_radius": 9.0, "look.bloom_bright": 0.52,
+      "swell.bar_beats": 1.0, "swell.attack": 0.05,
+      "swell.open_min": 0.02, "swell.open_max": 0.88, "swell.lit_at": 0.60,
+      "swell.glyphs": ".-=#", "swell.kick_open": 0.70,
+      "swell.snare_frac": 0.14, "swell.snare_time": 0.16,
+      "swell.high_grain": 0.45, "swell.reroll": 6.0}),
 ]
+
 
 def build_styles() -> list[styles_mod.Style]:
     import importlib
@@ -101,6 +230,41 @@ def build_styles() -> list[styles_mod.Style]:
             .isoformat(timespec="seconds"),
             params=params))
     return out
+
+
+def builtin_previews(client, live, moments_for) -> list[str]:
+    """One capture per RENDERER, of its own defaults.
+
+    The gallery synthesises a "Built-in" tile per registered type and hardcoded
+    `has_preview: false`, so Lyric grid, Pulse grid and Swell have never shown
+    anything — the three tiles that introduce the three renderers were the three
+    with nothing to look at.
+
+    Not styles: no `style.toml`, so `_style_dirs` skips them, and they live
+    beside `_backdrops` under the same served mount.
+    """
+    from lyricfield import styles as S
+
+    failed = []
+    for vt in types_mod.list_types():
+        draft = S.Style(name=vt.name, slug=vt.slug, type=vt.slug,
+                        description=vt.description,
+                        params=vt.default_params())
+        if draft.preview_video(BUILTIN_ROOT).exists():
+            print(f"{vt.name} (built-in): preview already there")
+            continue
+        for at in moments_for(vt.family):
+            print(f"{vt.name} (built-in): recording from {at:.1f}s")
+            try:
+                S.capture_preview(client, draft, at=at, seconds=4.0,
+                                  root=BUILTIN_ROOT, live=live,
+                                  progress=lambda m: print("   ", m))
+                break
+            except S.StillPreview as e:
+                print(f"    {e}")
+        else:
+            failed.append(f"{vt.name} (built-in)")
+    return failed
 
 
 def backdrop_previews(client, live, root, moments) -> list[str]:
@@ -205,18 +369,37 @@ def main(argv: list[str]) -> int:
     # of the duration landed on a stretch of one song with no low-band events at
     # all, and five beatsync previews came back as still frames.
     from lyricfield import analysis
-    moments = [analysis.busiest_window(source, seconds=4.0)]
-    moments += [m for m in (live.track.duration * f for f in (0.55, 0.3, 0.7))
-                if 1.0 < m < live.track.duration - 8.0]
-    print(f"previewing from {moments[0]:.1f}s "
-          f"(fallbacks {', '.join(f'{m:.0f}s' for m in moments[1:])})")
+    spread = [m for m in (live.track.duration * f for f in (0.55, 0.3, 0.7))
+              if 1.0 < m < live.track.duration - 8.0]
+    beat_moments = [analysis.busiest_window(source, seconds=4.0)] + spread
+
+    # A lyric style is parked where the WORDS are, not where the drums are.
+    # The words a lyric preview shows are `styles.PREVIEW_CUES`, which spans
+    # 0.4s to 7.5s and nothing else -- so parking at the busiest drum window,
+    # often a minute in, records a field with no lyrics in it. Four of the five
+    # lyric previews peaked at luma 68-123 of 255: the dim layer only, never one
+    # bold cell. `cueing.offset` cannot rescue it either, being bounded to +-5s.
+    # So slide the window over the table that is actually pushed, which is the
+    # same rule `busiest_window` uses over the drums.
+    from lyricfield.cues import CueTable
+    from lyricfield.run import preview_window
+    words = CueTable.load(styles_mod.PREVIEW_CUES).cues
+    word_moments = [preview_window(live, words, 4.0)]
+    last = max(c.start for c in words) if words else 0.0
+    word_moments += [m for m in spread if m < last - 1.0]
+    print(f"previewing beats from {beat_moments[0]:.1f}s, "
+          f"words from {word_moments[0]:.1f}s "
+          f"({len(words)} placeholder cues to {last:.1f}s)")
+
+    def moments_for(family):
+        return word_moments if family == types_mod.LYRIC else beat_moments
 
     failed = []
     for st in made:
         if st.preview_video(root).exists():
             print(f"{st.name}: preview already there")
             continue
-        for at in moments:
+        for at in moments_for(types_mod.get_type(st.type).family):
             print(f"{st.name}: recording from {at:.1f}s")
             try:
                 styles_mod.capture_preview(
@@ -227,7 +410,8 @@ def main(argv: list[str]) -> int:
                 print(f"    {e}")
         else:
             failed.append(st.name)
-    failed += backdrop_previews(client, live, root, moments)
+    failed += backdrop_previews(client, live, root, beat_moments)
+    failed += builtin_previews(client, live, moments_for)
     if failed:
         print(f"no moving preview for: {', '.join(failed)}")
         return 1

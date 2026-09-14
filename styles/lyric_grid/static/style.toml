@@ -1,0 +1,94 @@
+# lyricfield style. Reusable across songs; contains no song data.
+
+[meta]
+name = "Static"
+slug = "static"
+type = "lyric_grid"
+description = "words surfacing out of a dense restless field, each on its own"
+created = "2026-09-14T11:34:35+00:00"
+source_song = ""
+
+[grid]
+cols = 24
+vrows = 24
+band = 22
+band_top = 1
+font = "Courier New"
+font_px = 50.0
+glyph_aspect = 0.8
+width = 720
+height = 1280
+letter_frac = 0.28
+
+[look]
+dim_hue = 0.72
+dim_sat = 0.15
+level_min = 0.06
+level_max = 0.3
+ceil = 0.58
+glow_base = 0.38
+glow_lfo = 0.08
+glow_low = 0.1
+glow_low_knee = 0.32
+glow_radius = 14.0
+glow_radius_lfo = 5.0
+glow_lfo_hz = 0.06
+bloom_size = 9.0
+bloom_bright = 0.45
+dissolve = 1.2
+drift_min = 0.8
+drift_max = 2.0
+
+[cueing]
+ramp_up = 0.05
+hold = 0.9
+ramp_dn = 0.2
+lead = 0.15
+letter_spread = 0.15
+offset = 0.0
+stanza_size = 5
+ambient_target = 300
+ambient_cycle = 6.0
+gap_min = 2
+gap_max = 7
+layout = "scatter"
+
+[beat]
+ripple_time = 0.55
+ripple_sigma = 2.2
+ripple_lift = 0.2
+spark_time = 0.25
+spark_peak = 0.55
+spark_frac = 0.12
+twinkle_frac_lo = 0.04
+twinkle_frac_hi = 0.11
+twinkle_decay = 0.22
+twinkle_lift = 0.2
+
+[backdrop]
+back_level = 0.0
+back_lift = 0.045
+back_wave = 0.0
+back_swell = 0.0
+back_kick = 1.0
+back_snare = 1.0
+back_high = 0.0
+back_hue = 0.58
+back_sat = 0.2
+back_density = 0.55
+back_glyphs = ".:-=+*#"
+back_beats = 4.0
+back_width = 3.5
+back_vertical = false
+back_attack = 0.14
+back_reroll = 16.0
+
+[analysis]
+kick_thresh = 0.209028
+snare_thresh = 0.311515
+rythm_thresh = 49.4591
+low_thresh = 0.1
+low_smooth = 0.0
+high_gain = 3.5
+low_lag_up = 0.08
+low_lag_dn = 0.22

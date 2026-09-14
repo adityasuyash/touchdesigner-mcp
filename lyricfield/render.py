@@ -446,7 +446,36 @@ def sample_frames(video: str | Path, times: list[float],
     return made
 
 
-def measure_motion(video: str | Path, width: int = 96) -> dict:
+def _gray_frames(video: str | Path, width: int):
+    """Every frame of `video` as one float array, scaled to `width`."""
+    import numpy as np
+
+    proc = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(video), "-vf", f"scale={width}:-2",
+         "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+        capture_output=True)
+    raw = proc.stdout
+    probe = _ffprobe(video) or {}
+    stream = next((s for s in probe.get("streams", [])
+                   if s.get("codec_type") == "video"), {})
+    h, w = int(stream.get("height") or 0), int(stream.get("width") or 0)
+    if not (raw and h and w):
+        return None
+    height = max(1, round(width * h / w / 2) * 2)
+    n = len(raw) // (width * height)
+    if n < 1:
+        return None
+    return (np.frombuffer(raw, np.uint8)[:n * width * height]
+            .reshape(n, height, width).astype(np.float32))
+
+
+# What counts as a pixel in the bold layer, in 0-255 luma. The same number
+# `measure_output` uses for a lit word, so the two agree on what "lit" means.
+LIT_LUMA = 200
+
+
+def measure_motion(video: str | Path, width: int = 96,
+                   peak_width: int = 0) -> dict:
     """How much a finished clip actually moves, frame to frame.
 
     A preview exists to show motion -- it is the whole reason a style ships a
@@ -458,6 +487,11 @@ def measure_motion(video: str | Path, width: int = 96) -> dict:
     renderer that does not work.
 
     `moving` is the honest question: are any two frames different at all.
+
+    `peak` is the second honest question, for a lyric preview: did any pixel
+    ever reach the bold layer. A field can move plenty and still never light a
+    word -- the dim layer drifts on its own -- so motion alone passes a preview
+    of a lyric renderer with no lyrics in it.
     """
     import numpy as np
 
@@ -475,17 +509,31 @@ def measure_motion(video: str | Path, width: int = 96) -> dict:
     h = int(stream.get("height") or 0)
     w = int(stream.get("width") or 0)
     if not (raw and h and w):
-        return {"frames": 0, "motion": 0.0, "mean": 0.0, "moving": False}
+        return {"frames": 0, "motion": 0.0, "mean": 0.0, "moving": False,
+                "peak": 0.0, "lit": 0.0}
     height = max(1, round(width * h / w / 2) * 2)
     n = len(raw) // (width * height)
     if n < 2:
-        return {"frames": n, "motion": 0.0, "mean": 0.0, "moving": False}
+        return {"frames": n, "motion": 0.0, "mean": 0.0, "moving": False,
+                "peak": 0.0, "lit": 0.0}
     a = (np.frombuffer(raw, np.uint8)[:n * width * height]
          .reshape(n, height, width).astype(np.float32))
     motion = float(np.abs(np.diff(a, axis=0)).mean())
+
+    # Peak is asked at full resolution, not off the 96px thumbnail the motion
+    # measure uses. Downscaling averages a glyph's strokes together with the
+    # black between them, so a genuinely white word reads as mid-grey: the one
+    # preview that did light a word measured 255 at native width and 189 at 96.
+    b = a
+    if peak_width and peak_width != width:
+        b = _gray_frames(video, peak_width)
+        if b is None:
+            b = a
     return {"frames": n, "motion": round(motion, 4),
             "mean": round(float(a.mean()), 3),
-            "moving": motion > 0.005}
+            "moving": motion > 0.005,
+            "peak": round(float(b.max()) / 255.0, 4),
+            "lit": round(float((b >= LIT_LUMA).mean()), 6)}
 
 
 def measure_output(video: str | Path, cue_times, start: float,

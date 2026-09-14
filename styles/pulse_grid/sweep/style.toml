@@ -4,8 +4,8 @@
 name = "Sweep"
 slug = "sweep"
 type = "pulse_grid"
-description = "a crest crossing the field in time with the beat — the balanced one"
-created = "2026-09-14T09:23:08+00:00"
+description = "a hard crest crossing a dark field — the balanced one"
+created = "2026-09-14T11:34:35+00:00"
 source_song = ""
 
 [grid]
@@ -22,18 +22,18 @@ height = 1280
 [look]
 dim_hue = 0.55
 dim_sat = 0.35
-level_min = 0.1
-level_max = 0.38
+level_min = 0.04
+level_max = 0.22
 ceil = 0.58
-glow_base = 0.62
+glow_base = 0.52
 glow_lfo = 0.08
 glow_low = 0.1
 glow_low_knee = 0.32
-glow_radius = 20.0
+glow_radius = 16.0
 glow_radius_lfo = 5.0
 glow_lfo_hz = 0.06
 bloom_size = 9.0
-bloom_bright = 0.35
+bloom_bright = 0.45
 
 [analysis]
 kick_thresh = 0.209028
@@ -47,17 +47,18 @@ low_lag_dn = 0.22
 
 [pulse]
 wave_beats = 4.0
-wave_width = 4.5
-wave_lift = 0.38
+wave_width = 3.0
+wave_lift = 0.75
 vertical = false
-density = 0.68
+density = 0.7
 glyphs = ".:-=+*#"
-lit_at = 0.52
-kick_lift = 0.26
+lit_at = 0.68
+kick_lift = 0.45
 kick_time = 0.55
 kick_sigma = 2.2
-snare_frac = 0.06
-snare_peak = 0.5
+snare_frac = 0.07
+snare_peak = 0.55
 snare_time = 0.25
-high_lift = 0.18
+high_lift = 0.22
+high_time = 0.18
 reroll = 14.0

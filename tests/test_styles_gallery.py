@@ -107,7 +107,8 @@ def test_measuring_something_that_is_not_a_video_does_not_raise(tmp_path):
     junk = tmp_path / "notavideo.mp4"
     junk.write_bytes(b"not a container")
     assert R.measure_motion(junk) == {
-        "frames": 0, "motion": 0.0, "mean": 0.0, "moving": False}
+        "frames": 0, "motion": 0.0, "mean": 0.0, "moving": False,
+        "peak": 0.0, "lit": 0.0}
 
 
 # -------------------------------------------------- choosing the moment
@@ -206,3 +207,76 @@ def test_the_backdrop_previews_differ_from_the_standalone_ones():
             continue
         assert hashlib.md5(behind.read_bytes()).digest() != \
             hashlib.md5(alone.read_bytes()).digest(), st.slug
+
+
+# ------------------------------------------------- a preview with words in it
+
+LYRIC_PREVIEWS = [st for st in SHIPPED
+                  if types_mod.get_type(st.type).needs_lyrics]
+
+
+@pytest.mark.ffmpeg
+def test_peak_is_measured_at_full_resolution(media):
+    """A white word on black averages away when the frame is scaled down.
+
+    The 96px thumbnail the motion measure works from turned a pixel-perfect
+    white glyph into mid-grey, which is exactly the difference between "a word
+    lit" and "the field drifted", so the peak has to be asked at native size.
+    """
+    out = media / "thin_white_line.mp4"
+    if not out.exists():
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i", "color=black:size=240x240:rate=10:duration=2",
+             "-vf", "geq=lum='if(lt(mod(X,24),1)*between(T,0.5,1.5),255,0)'"
+                    ":cb=128:cr=128",
+             "-pix_fmt", "yuv420p", str(out)],
+            check=True)
+    small = R.measure_motion(out)
+    native = R.measure_motion(out, peak_width=240)
+    assert native["peak"] > small["peak"], (
+        f"scaling did not dim the line: {native['peak']} vs {small['peak']}")
+    assert native["peak"] >= S.BOLD_PEAK
+
+
+@pytest.mark.ffmpeg
+@pytest.mark.parametrize("st", LYRIC_PREVIEWS, ids=[s.slug for s in LYRIC_PREVIEWS])
+def test_a_lyric_preview_actually_lights_a_word(st):
+    """The one thing a lyric preview exists to show.
+
+    Every lyric preview shipped without a single lit pixel in it: they were
+    parked at the busiest *drum* window, which on a real song is minutes past
+    the last placeholder cue, and `styles.PREVIEW_CUES` stops at 7.5s. Motion
+    passed them all, because the ambient field drifts whether or not a word is
+    being sung.
+    """
+    video = st.preview_video(ROOT)
+    if not video.exists():
+        pytest.skip(f"{st.slug} has no preview recorded")
+    m = R.measure_motion(video, peak_width=240)
+    assert m["peak"] >= S.BOLD_PEAK, (
+        f"{st.slug}: peak {m['peak']:.2f} never reaches the bold layer's "
+        f"{S.BOLD_PEAK}; re-record with scripts/seed_styles.py --preview")
+
+
+def test_a_preview_parked_away_from_the_words_is_refused_before_rendering():
+    """Arithmetic, not a render.
+
+    The wordless previews cost a TouchDesigner capture each before anything
+    noticed, and nothing ever did -- they shipped. Whether a placeholder word is
+    sung in the window is known from the cue table alone, so it is asked first
+    and with no client at all.
+    """
+    st = next(s for s in SHIPPED if types_mod.get_type(s.type).needs_lyrics)
+    with pytest.raises(S.WordlessPreview) as e:
+        S.capture_preview(None, st, at=56.61, seconds=4.0)
+    assert "56.6" in str(e.value)
+
+
+def test_a_preview_over_the_words_gets_past_that_check():
+    """The same call at a moment the placeholder cues cover must not be refused
+    for this reason -- it has to get far enough to need a client."""
+    st = next(s for s in SHIPPED if types_mod.get_type(s.type).needs_lyrics)
+    with pytest.raises(Exception) as e:
+        S.capture_preview(None, st, at=3.55, seconds=4.0)
+    assert not isinstance(e.value, S.WordlessPreview), str(e.value)

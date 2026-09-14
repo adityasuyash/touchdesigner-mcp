@@ -40,6 +40,7 @@ class Pulse:
     snare_peak: float = 0.5
     snare_time: float = 0.25
     high_lift: float = 0.18      # hi-hat shimmer
+    high_time: float = 0.22      # ... and how long it takes to fade
     reroll: float = 12.0         # seconds between re-scattering the glyphs
 
 
@@ -121,7 +122,8 @@ RANGES: dict[str, tuple[float, float, float]] = {
     "kick_sigma": (0.5, 8, 0.1),
     "snare_frac": (0, 0.4, 0.005), "snare_peak": (0, 1, 0.01),
     "snare_time": (0.05, 2, 0.05),
-    "high_lift": (0, 1, 0.01), "reroll": (1, 60, 1),
+    "high_lift": (0, 1, 0.01), "high_time": (0.02, 1.5, 0.01),
+    "reroll": (1, 60, 1),
 }
 # Bounds for tunables the shared sections no longer carry here.
 RANGES = {k: v for k, v in RANGES.items()

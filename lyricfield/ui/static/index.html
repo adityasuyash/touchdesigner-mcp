@@ -1026,9 +1026,13 @@ function renderGallery() {
   // look could never both be chosen. The lyric row picks the words; the
   // beatsync row picks what moves behind them -- or, with no words chosen, the
   // whole picture.
+  // Each renderer's own defaults, captured like any other look. These three
+  // tiles introduce the three renderers and were the only ones in the gallery
+  // with nothing to look at.
   const builtins = (TYPES || []).map(t => ({
     slug: '', type: t.slug, name: t.name, family: t.family || 'lyric',
-    has_preview: false, builtin: true, description: t.description || ''}));
+    preview: `/styles/_builtin/${t.slug}/${t.slug}/preview.mp4`,
+    has_preview: true, builtin: true, description: t.description || ''}));
 
   const fams = {};
   for (const st of [...builtins, ...STYLES]) (fams[st.family || 'lyric'] ||= []).push(st);
