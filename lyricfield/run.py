@@ -295,7 +295,7 @@ def _ingest(ctx: Ctx, say) -> dict:
 
     say(f"{vt.name} is a {vt.family} type; it needs {', '.join(sorted(vt.needs))}")
     res = pipeline.prepare(
-        source, ws.config_path, ws.cues_path,
+        source, ws.config_path, ws.cues_path, ws.drums_path,
         stem_root=ws.stems_dir,
         needs=vt.needs,
         groq_key=ctx.options.get("api_key"),
@@ -372,7 +372,10 @@ def _push(ctx: Ctx, say) -> dict:
     # A type that needs no lyrics gets no cue table: pushing one would leave
     # another renderer's words in the project for this one to ignore.
     table = CueTable.load(ws.cues_path) if cfg.video_type.needs_lyrics else None
-    done = attempt(lambda: sync.push_all(ctx.client, cfg, table), say)
+    # Every renderer answers the drums, words or not, so this goes in always.
+    from .drums import DrumTable
+    drums = DrumTable.load(ws.drums_path)
+    done = attempt(lambda: sync.push_all(ctx.client, cfg, table, drums), say)
     return {"pushed": done}
 
 

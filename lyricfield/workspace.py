@@ -113,6 +113,13 @@ class Workspace:
         return self.dir / "cues.tsv"
 
     @property
+    def drums_path(self) -> Path:
+        """When each drum is struck. A sidecar rather than a config field:
+        a busy track has hundreds of hits, and they do not belong in a TOML the
+        UI rewrites on every edit."""
+        return self.dir / "drums.tsv"
+
+    @property
     def source_dir(self) -> Path:
         return self.dir / "source"
 

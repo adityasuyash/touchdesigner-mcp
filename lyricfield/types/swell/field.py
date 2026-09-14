@@ -181,6 +181,7 @@ def _init():
     S['sparks'] = np.full((rows, cols), -1.0e9, np.float32)
     S['rings'] = []
     S['beat_i'] = -1
+    S['drums'] = None
 
 
 def _weights(t, kick=0.0, snare=0.0, high=0.0):
@@ -201,13 +202,11 @@ def _weights(t, kick=0.0, snare=0.0, high=0.0):
     w = np.clip(w, 0.0, 1.0).astype(np.float32)
 
     # kick: a ring of extra weight, so blanks fill in along it
+    # One ring per strike; see pulse_grid for why the beat-cell throttle went.
     if not held and kick > 0.5:
-        bi = int(np.floor((t - BEAT_ANCHOR) / BEAT))
-        if bi != S.get('beat_i'):
-            S['beat_i'] = bi
-            rng = S['rng']
-            S['rings'].append(
-                (t, int(rng.integers(0, rows)), int(rng.integers(0, cols))))
+        rng = S['rng']
+        S['rings'].append(
+            (t, int(rng.integers(0, rows)), int(rng.integers(0, cols))))
     S['rings'] = [r for r in S['rings'] if t - r[0] < KICK_TIME]
     if S['rings'] and not held and KICK_OPEN > 0:
         rr, cc = np.mgrid[0:rows, 0:cols]
@@ -258,15 +257,20 @@ def onCook(scriptOp):
     prev = S.get('last_t', -1.0)
     if prev < 0 or t < prev:                 # first cook, or a backward scrub
         _init()
+    # See lyric_grid: capture the previous cook time before advancing, or
+    # the drum window below is empty and nothing ever fires.
+    S['since_t'] = prev if prev >= 0 else t - 1.0 / 60.0
     S['last_t'] = t
 
     if REROLL > 0 and t - S.get('rolled', 0.0) > REROLL:
         _init()
 
-    aa = op(ANALYSIS_CHOP)
-    kick = float(aa['kick'].eval()) if aa else 0.0
-    snare = float(aa['snare'].eval()) if aa else 0.0
-    high = float(aa['high'].eval()) if aa else 0.0
+    if S.get('drums') is None:
+        S['drums'] = _read_drums()
+    since = S.get('since_t', t - 1.0 / 60.0)
+    kick = 1.0 if _struck(S['drums']['kick'], t, since) else 0.0
+    snare = 1.0 if _struck(S['drums']['snare'], t, since) else 0.0
+    high = 1.0 if _struck(S['drums']['hat'], t, since) else 0.0
 
     w = _weights(t, kick, snare, high)
     rows, cols = BAND, COLS

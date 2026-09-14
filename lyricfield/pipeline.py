@@ -42,6 +42,7 @@ class Prepared:
     duration: float = 0.0
     cues: int = 0
     lines: int = 0
+    drums: int = 0
     vocal_in: float = 0.0
     skipped: list[str] = field(default_factory=list)
     # Two kinds of bad news, deliberately separated. `problems` means the
@@ -72,6 +73,7 @@ class Prepared:
 def prepare(track: str | Path,
             config_path: str | Path,
             cues_path: str | Path,
+            drums_path: str | Path | None = None,
             stem_root: str | Path = separate_mod.DEFAULT_ROOT,
             model: str = separate_mod.DEFAULT_MODEL,
             device: str | None = None,
@@ -148,6 +150,21 @@ def prepare(track: str | Path,
     cfg.track.beat_period = res.beat_period
     cfg.track.beat_anchor = res.beat_anchor
     cfg.track.hold_windows = [list(w) for w in res.hold_windows]
+
+    # The drum hits go to a sidecar, not into the config: a busy track has
+    # hundreds, and they do not belong in a TOML the UI rewrites on every edit.
+    # Kept beside cues.tsv and pushed the same way.
+    if drums_path is not None:
+        from .drums import DrumTable
+        drums = res.drum_table()
+        if not len(drums) and Path(drums_path).exists():
+            drums = DrumTable.load(drums_path)   # a reused analysis has none
+            say(f"keeping existing drum table ({len(drums)} hits)")
+        else:
+            drums.save(drums_path)
+            c = drums.counts()
+            say(f"{c['kick']} kicks, {c['snare']} snares, {c['hat']} hats")
+        out.drums = len(drums)
 
     # ---- 3. cues ----
     cues_path = Path(cues_path)

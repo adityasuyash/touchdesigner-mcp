@@ -22,7 +22,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 @pytest.fixture
 def pulse_mod():
-    src = (REPO / "lyricfield" / "types" / "pulse_grid" / "field.py").read_text()
+    src = types_mod.get_type("pulse_grid").field_source()
     mod = pytypes.ModuleType("pulse_under_test")
     mod.__dict__["np"] = np
     exec(compile(src, "field.py", "exec"), mod.__dict__)

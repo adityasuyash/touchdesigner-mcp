@@ -56,6 +56,15 @@ class Analysis:
     # this, or it means something different on every track.
     level: float = 0.0
     kick_times: list[float] = field(default_factory=list)
+    snare_times: list[float] = field(default_factory=list)
+    hat_times: list[float] = field(default_factory=list)
+
+    def drum_table(self):
+        """The hits as the table the renderer is given."""
+        from .drums import DrumTable
+        return DrumTable.from_detection({
+            "kick": self.kick_times, "snare": self.snare_times,
+            "hat": self.hat_times})
 
     def to_dict(self) -> dict:
         return {
@@ -69,6 +78,8 @@ class Analysis:
             "beat_anchor": self.beat_anchor,
             "bpm": self.bpm,
             "kick_count": len(self.kick_times),
+            "snare_count": len(self.snare_times),
+            "hat_count": len(self.hat_times),
         }
 
 
@@ -572,9 +583,18 @@ def analyse(instrumental: str | Path) -> Analysis:
     full = _frame_rms(x, 50.0)
     level = float(np.percentile(full, 90)) if len(full) else 0.0
 
-    period, bpm = estimate_tempo(x)
-    anchor = lock_phase(x, period, search_from=max(0.0, kick_in - period))
-    kicks = detect_kicks(x)
+    rough, _bpm = estimate_tempo(x)
+    drums = detect_drums(x)
+    # The grid comes from the strikes, not from an autocorrelation lag measured
+    # in whole frames -- that could only ever resolve the period to 10 ms, and a
+    # 1.6 ms/beat error accumulates to 0.39 of a beat across a three-minute
+    # track. Falls back to the rough estimate when there is nothing to fit.
+    onsets = drums["kick"] or drums["snare"]
+    if len(onsets) >= 4:
+        period, anchor = fit_beat_grid(onsets, rough)
+    else:
+        period = rough
+        anchor = lock_phase(x, period, search_from=max(0.0, kick_in - period))
 
     return Analysis(
         duration=round(dur, 3),
@@ -584,9 +604,11 @@ def analyse(instrumental: str | Path) -> Analysis:
         high_in=high_in,
         beat_period=period,
         beat_anchor=anchor,
-        bpm=bpm,
+        bpm=round(60.0 / period, 2) if period else 0.0,
         level=level,
-        kick_times=kicks,
+        kick_times=drums["kick"],
+        snare_times=drums["snare"],
+        hat_times=drums["hat"],
     )
 
 

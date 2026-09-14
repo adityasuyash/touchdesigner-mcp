@@ -109,6 +109,9 @@ def network(cfg) -> list[OpSpec]:
         # Content, not structure: sync writes these and a cue table may exist
         # only here (sync.pull_cues exists to recover exactly that case).
         OpSpec("lyrics", "tableDAT", (-1600, -300), preserve=True),
+        # Preserved for the same reason the cue table is: it is pushed in from
+        # the repo and a rebuild must not wipe what was measured.
+        OpSpec("drums", "tableDAT", (-1600, -400), preserve=True),
         OpSpec("params", "textDAT", (-1600, -420), preserve=True),
         OpSpec("v7_script_callbacks", "textDAT", (-1600, -540), preserve=True),
         OpSpec("v7_chars_dim", "textDAT", (-1600, -660), preserve=True),

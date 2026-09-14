@@ -357,6 +357,8 @@ def _init():
     S['spark_t'] = np.full((VROWS, COLS), -1.0e9, np.float32)
     S['last_kick'] = 0.0
     S['last_snare'] = 0.0
+    S['drums'] = None          # re-read: the table may have been pushed again
+    S['hat_t'] = -1.0e9
     S['last_t'] = -1.0
     S['twinkle'] = set()
     S['twinkle_t'] = None
@@ -696,6 +698,11 @@ def onCook(scriptOp):
         S['spark_t'] = np.full((VROWS, COLS), -1.0e9, np.float32)
         S['twinkle'] = set(); S['twinkle_t'] = None
         S['beat_i'] = -1; S['hold_anchor'] = None
+    # Remember where the last cook was BEFORE advancing, because the drum
+    # lookup below needs the window (since, t] and `last_t` is about to
+    # become `t`. Reading it afterwards made every window empty, so no
+    # strike ever fired -- caught by the onCook harness, not by eye.
+    S['since_t'] = prev_t if prev_t >= 0 else t - 1.0 / 60.0
     S['last_t'] = t
     try:
         off = float(scriptOp.par.Cueoffset.eval())
@@ -710,10 +717,19 @@ def onCook(scriptOp):
         S['hold_anchor'] = None
     t_level = S['hold_anchor'] if held else t     # freezes drift while held
 
-    aa = op(ANALYSIS_CHOP)
-    kv = float(aa['kick'].eval()) if aa else 0.0
-    sv = float(aa['snare'].eval()) if aa else 0.0
-    hv = float(aa['high'].eval()) if aa else 0.0
+    # Onsets from the pushed table, not level gates on the live mix. `kv`/`sv`
+    # stay 0/1 flags so the rising-edge tests below read unchanged; `hv` keeps
+    # its continuous sense for the intro twinkle, which wants density rather
+    # than an event, so it decays over a beat rather than snapping back.
+    if S.get('drums') is None:
+        S['drums'] = _read_drums()
+    since = S.get('since_t', t - 1.0 / 60.0)
+    kv = 1.0 if _struck(S['drums']['kick'], t, since) else 0.0
+    sv = 1.0 if _struck(S['drums']['snare'], t, since) else 0.0
+    if _struck(S['drums']['hat'], t, since):
+        S['hat_t'] = t
+    hat_age = t - S.get('hat_t', -1.0e9)
+    hv = max(0.0, 1.0 - hat_age / max(1e-6, BEAT_PERIOD)) if hat_age >= 0 else 0.0
 
     if (not held) and kv > 0.5 >= S['last_kick']:
         S['rings'].append({'r': float(rng.integers(BAND_TOP, BAND_TOP + BAND)),

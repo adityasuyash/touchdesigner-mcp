@@ -122,6 +122,7 @@ def _init():
     S['sparks'] = np.full((rows, cols), -1.0e9, np.float32)
     S['rings'] = []
     S['beat_i'] = -1
+    S['drums'] = None
 
 
 def onSetupParameters(scriptOp):
@@ -146,6 +147,9 @@ def onCook(scriptOp):
     prev = S.get('last_t', -1.0)
     if prev < 0 or t < prev:                 # first cook, or a backward scrub
         _init()
+    # See lyric_grid: capture the previous cook time before advancing, or
+    # the drum window below is empty and nothing ever fires.
+    S['since_t'] = prev if prev >= 0 else t - 1.0 / 60.0
     S['last_t'] = t
 
     if REROLL > 0 and t - S.get('rolled', 0.0) > REROLL:
@@ -154,10 +158,16 @@ def onCook(scriptOp):
     rows, cols = BAND, COLS
     held = _held(t)
 
-    aa = op(ANALYSIS_CHOP)
-    kick = float(aa['kick'].eval()) if aa else 0.0
-    snare = float(aa['snare'].eval()) if aa else 0.0
-    high = float(aa['high'].eval()) if aa else 0.0
+    # The drums come from the table pushed in, looked up by time. They used to
+    # be read off the analysis CHOP, whose kick and snare are level gates on two
+    # broad bands of the whole mix -- measured live, their firing phase within
+    # the beat was statistically uniform.
+    if S.get('drums') is None:
+        S['drums'] = _read_drums()
+    since = S.get('since_t', t - 1.0 / 60.0)
+    kick = 1.0 if _struck(S['drums']['kick'], t, since) else 0.0
+    snare = 1.0 if _struck(S['drums']['snare'], t, since) else 0.0
+    high = 1.0 if _struck(S['drums']['hat'], t, since) else 0.0
 
     # ---- the sweep, on the measured beat grid -------------------------------
     # Phase runs 0..1 over `wave_beats` beats, anchored to the track's own
@@ -174,12 +184,13 @@ def onCook(scriptOp):
         np.ones((rows, 1), np.float32) * shape[None, :]
 
     # ---- kick ripples -------------------------------------------------------
+    # One ring per strike. This used to be throttled to one per beat cell,
+    # which was never edge detection -- it spawned at the first frame the gate
+    # happened to be high inside a cell. A table of onsets fires each exactly
+    # once, so the throttle is gone.
     if not held and kick > 0.5:
-        bi = int(np.floor((t - BEAT_ANCHOR) / BEAT))
-        if bi != S.get('beat_i'):
-            S['beat_i'] = bi
-            rng = S['rng']
-            S['rings'].append((t, int(rng.integers(0, rows)), int(rng.integers(0, cols))))
+        rng = S['rng']
+        S['rings'].append((t, int(rng.integers(0, rows)), int(rng.integers(0, cols))))
     S['rings'] = [r for r in S['rings'] if t - r[0] < KICK_TIME]
 
     ripple = np.zeros((rows, cols), np.float32)

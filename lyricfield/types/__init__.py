@@ -105,8 +105,22 @@ class VideoType:
         return HERE / self.slug / self.field_file
 
     def field_source(self) -> str | None:
+        """The code that runs inside TouchDesigner, prelude included.
+
+        A field script is pushed as a single DAT and cannot import a sibling, so
+        anything every renderer needs has to travel with it. Concatenating
+        `_prelude.py` is how three copies of the same drum lookup are avoided --
+        the ring maths was already duplicated between two of them before this
+        existed.
+        """
         p = self.field_path
-        return p.read_text(encoding="utf-8") if p and p.exists() else None
+        if not (p and p.exists()):
+            return None
+        body = p.read_text(encoding="utf-8")
+        prelude = Path(__file__).parent / "_prelude.py"
+        if prelude.exists():
+            return prelude.read_text(encoding="utf-8") + "\n\n" + body
+        return body
 
     def regions(self, cfg) -> dict:
         """Crops a rendered still should be measured over, as (x, y, w, h).

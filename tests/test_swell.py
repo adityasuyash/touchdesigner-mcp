@@ -26,7 +26,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 @pytest.fixture
 def sw():
-    src = (REPO / "lyricfield" / "types" / "swell" / "field.py").read_text()
+    src = types_mod.get_type("swell").field_source()
     mod = pytypes.ModuleType("swell_under_test")
     mod.__dict__["np"] = np
     exec(compile(src, "field.py", "exec"), mod.__dict__)

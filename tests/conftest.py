@@ -167,8 +167,13 @@ def field_mod():
     import, and `S` is module state.
     """
     import types as pytypes
+
     import numpy as np
-    src = (REPO / "lyricfield" / "types" / "lyric_grid" / "field.py").read_text()
+
+    from lyricfield import types as types_mod
+    # Through `field_source`, not the file: that is what gets pushed, and it
+    # carries the shared prelude every renderer needs.
+    src = types_mod.get_type("lyric_grid").field_source()
     mod = pytypes.ModuleType("field_under_test")
     mod.__dict__["np"] = np
     exec(compile(src, "field.py", "exec"), mod.__dict__)
@@ -255,7 +260,8 @@ def cooker(field_mod):
     m = field_mod
     dats = {}
 
-    def cook(t, cues=None, kick=0.0, snare=0.0, high=0.0, reset=False, **params):
+    def cook(t, cues=None, drums=None, kick=0.0, snare=0.0, high=0.0,
+             reset=False, **params):
         if cues is not None or not dats:
             # (word, start_seconds, line) -- the columns `_cues` reads.
             rows = cues if cues is not None else [
@@ -271,7 +277,13 @@ def cooker(field_mod):
             reset = True
         for name in (m.DIM_DAT, m.LIT_DAT):
             dats.setdefault(name, _FakeDAT())
+        dats.setdefault(m.DRUM_DAT, _FakeDAT([("kind", "start_seconds")]))
 
+        if drums is not None:
+            dats[m.DRUM_DAT] = _FakeDAT(
+                [("kind", "start_seconds")]
+                + [(k, f"{v:.3f}") for k, vs in drums.items() for v in vs])
+            reset = True
         chop = _FakeCHOP(kick=kick, snare=snare, high=high)
         m.__dict__["op"] = lambda p: chop if p == m.ANALYSIS_CHOP else dats.get(p)
         m.__dict__["root"] = type("R", (), {

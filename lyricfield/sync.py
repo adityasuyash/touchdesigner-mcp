@@ -27,6 +27,7 @@ SCRIPT_TOP = f"{ROOT}/v7_script"
 CALLBACKS = f"{ROOT}/v7_script_callbacks"
 PARAMS_DAT = f"{ROOT}/params"          # created on first push
 CUE_DAT = f"{ROOT}/lyrics"
+DRUM_DAT = f"{ROOT}/drums"
 DIM_DAT = f"{ROOT}/v7_chars_dim"
 LIT_DAT = f"{ROOT}/v7_chars_lit"
 OUT_TOP = f"{ROOT}/out"
@@ -95,6 +96,21 @@ def push_field(client: TDClient, cfg: Config) -> None:
 
 def push_cues(client: TDClient, table: CueTable) -> None:
     client.write(CUE_DAT, table.to_dat_text())
+
+
+def push_drums(client: TDClient, table) -> None:
+    """Write the detected drum hits into the network.
+
+    The field scripts look these up by time instead of evaluating the analysis
+    CHOP, so the beat response is the same in a preview as in a render and does
+    not depend on how fast TouchDesigner happens to be cooking.
+    """
+    client.write(DRUM_DAT, table.to_dat_text())
+
+
+def pull_drums(client: TDClient, dat: str = DRUM_DAT):
+    from .drums import DrumTable
+    return DrumTable.from_dat_text(client.dat_text(dat))
 
 
 def pull_cues(client: TDClient, dat: str = CUE_DAT) -> CueTable:
@@ -367,11 +383,14 @@ def timeline_state(client: TDClient) -> dict:
     return d
 
 
-def push_all(client: TDClient, cfg: Config, table: CueTable | None = None) -> list[str]:
+def push_all(client: TDClient, cfg: Config, table: CueTable | None = None,
+             drums=None) -> list[str]:
     done: list[str] = []
     push_params(client, cfg); done.append(f"params ({cfg.type})")
     push_field(client, cfg); done.append("field script")
     if table is not None:
         push_cues(client, table); done.append(f"{len(table.cues)} cues")
+    if drums is not None:
+        push_drums(client, drums); done.append(f"{len(drums)} drum hits")
     reset_field_state(client); done.append("state reset")
     return done
