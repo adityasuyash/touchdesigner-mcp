@@ -169,6 +169,17 @@ def prepare(track: str | Path,
     cfg.track.beat_period = res.beat_period
     cfg.track.beat_anchor = res.beat_anchor
     cfg.track.hold_windows = [list(w) for w in res.hold_windows]
+
+    # Where the singing starts. This is a fact about the vocal stem and nothing
+    # else, so it is measured here rather than inside the cue-gap check further
+    # down -- which ran *after* `cfg.save` and inside `if table.cues`, so the
+    # value never reached the config and a song with no words never got one at
+    # all. "Start before the vocals" reads exactly this number.
+    if out.vocals:
+        try:
+            out.vocal_in = analysis_mod.vocal_entry(out.vocals)
+        except Exception:      # a measurement, never a reason to fail the run
+            out.vocal_in = 0.0
     if out.vocal_in:
         cfg.track.vocal_in = out.vocal_in
 
@@ -185,6 +196,13 @@ def prepare(track: str | Path,
             c = drums.counts()
             say(f"{c['kick']} kicks, {c['snare']} snares, {c['hat']} hats")
         out.drums = len(drums)
+        # `DrumTable.problems()` opens with "no drum hits were detected at all"
+        # and was called from nowhere in the package. Every renderer answers the
+        # drums, so a table with none is a video that never moves -- and it was
+        # announced as "0 kicks, 0 snares, 0 hats" and counted as a success.
+        for msg in drums.problems(res.duration):
+            out.warnings.append(msg)
+            say(msg)
 
     # ---- 3. cues ----
     cues_path = Path(cues_path)
@@ -219,7 +237,7 @@ def prepare(track: str | Path,
     # render.
     out.problems = list(cfg.validate())
     if CUES in needs:
-        out.warnings = list(table.problems(res.duration))
+        out.warnings.extend(table.problems(res.duration))
 
     # Did transcription drop any lines? Compare the cue table against the stem
     # itself: sustained singing with no word cued against it means words were
@@ -227,7 +245,6 @@ def prepare(track: str | Path,
     if table.cues and out.vocals:
         try:
             starts = [c.start for c in table.cues]
-            out.vocal_in = analysis_mod.vocal_entry(out.vocals)
             gaps = analysis_mod.missed_windows(out.vocals, starts,
                                                min_voiced=LATE_CUE_GAP)
         except Exception:      # a measurement, never a reason to fail the run

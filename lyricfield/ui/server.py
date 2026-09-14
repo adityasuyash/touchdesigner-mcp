@@ -928,8 +928,13 @@ def custom_style(payload: DescribeIn):
         source_song=cfg.track.title or (CURRENT.slug if CURRENT else ""))
 
     def job(say):
+        # The project is already wearing this draft, so this one happened to
+        # record the right thing -- by luck rather than by instruction. Saying
+        # which look to record makes it true on purpose, and keeps every call
+        # site honest.
         path = styles_mod.capture_preview(
-            client, draft, at=1.0, seconds=4.0, root=STYLES_ROOT, progress=say)
+            client, draft, at=1.0, seconds=4.0, root=STYLES_ROOT, progress=say,
+            live=cfg)
         return {"preview": draft.preview_url(), "path": str(path),
                 "slug": draft.slug}
     _run_job("custom-style", job)
@@ -1074,9 +1079,15 @@ def make_preview(slug: str, payload: PreviewIn):
         raise HTTPException(404, str(e)) from e
 
     def job(say):
+        # `live=` is what makes this a preview of THIS style rather than of
+        # whatever look the project happens to be wearing. Without it,
+        # `capture_preview` records the current state and commits it under this
+        # style's name -- asked for five looks it produces five copies of one,
+        # and every check passes. The docstring on `capture_preview` says so;
+        # this call site was simply never updated when the parameter was added.
         path = styles_mod.capture_preview(
             client, st, at=payload.at, seconds=payload.seconds,
-            root=STYLES_ROOT, progress=say)
+            root=STYLES_ROOT, progress=say, live=load_config())
         return {"preview": st.preview_url(), "path": str(path)}
     _run_job("style-preview", job)
     return {"started": True}

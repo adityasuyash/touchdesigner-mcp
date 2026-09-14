@@ -127,8 +127,17 @@ def _init():
 
 
 def onSetupParameters(scriptOp):
-    page = scriptOp.appendCustomPage('Pulse')
-    page.appendFloat('Cueoffset', label='Cue offset')
+    """Deliberately empty.
+
+    This used to append a `Cueoffset` float. Two things were wrong with that.
+    It was never read -- `onCook` here has no cue table to nudge -- and a knob
+    that is offered, pushed and ignored is the one thing this project treats as
+    worse than no knob at all. And it was unguarded: the callback also runs when
+    the DAT is merely reassigned, TouchDesigner raises on a duplicate parameter
+    name, and `sync.push_field` turns that into a hard failure. Pushing this
+    script into any project that had ever been a lyric_grid -- which is the
+    default type -- could not work.
+    """
     return
 
 

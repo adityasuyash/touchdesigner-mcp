@@ -10,8 +10,11 @@ from __future__ import annotations
 import ast
 import collections
 import re
+import types
+import types as pytypes
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from lyricfield import types as types_mod
@@ -315,3 +318,66 @@ def test_no_tunable_collides_with_a_measured_track_fact(vt):
     clash = sorted(set(flatten(vt.default_params())) & _track_fields())
     assert not clash, (
         f"{vt.slug} declares {clash}, which the track overwrites in as_params()")
+
+
+# ------------------------------------------- the setup callback runs twice
+
+class _DupePar:
+    """A parameter bag that raises on a duplicate name, as TouchDesigner does."""
+
+    def __init__(self):
+        self._names = set()
+
+    def add(self, name):
+        if name in self._names:
+            raise Exception(f"Parameter name {name!r} already exists")
+        self._names.add(name)
+
+
+class _FakePage:
+    def __init__(self, bag):
+        self._bag = bag
+
+    def appendFloat(self, name, **kw):
+        self._bag.add(name)
+        par = types.SimpleNamespace(default=0.0, normMin=0.0, normMax=1.0, val=0.0)
+        return [par]
+
+    appendInt = appendFloat
+    appendToggle = appendFloat
+    appendStr = appendFloat
+
+
+class _FakeScriptOp:
+    def __init__(self):
+        self._bag = _DupePar()
+        self.par = types.SimpleNamespace()
+
+    def appendCustomPage(self, name):
+        return _FakePage(self._bag)
+
+
+@pytest.mark.parametrize("vt", types_mod.list_types(),
+                         ids=[t.slug for t in types_mod.list_types()])
+def test_setting_up_parameters_twice_does_not_raise(vt):
+    """`onSetupParameters` runs again whenever the DAT is reassigned, and
+    TouchDesigner raises on a duplicate parameter name -- which `push_field`
+    turns into a hard "the field script does not run".
+
+    Two renderers appended a parameter with no guard, so pushing either into a
+    project that had ever been a `lyric_grid` -- the default type -- could not
+    work. A renderer is free to declare no custom parameters; it is not free to
+    declare one twice.
+    """
+    src = vt.field_source()
+    if not src:
+        pytest.skip(f"{vt.slug} ships no field script")
+    mod = pytypes.ModuleType(f"{vt.slug}_setup_under_test")
+    mod.__dict__["np"] = np
+    exec(compile(src, "field.py", "exec"), mod.__dict__)
+    setup = mod.__dict__.get("onSetupParameters")
+    if setup is None:
+        pytest.skip(f"{vt.slug} declares no parameters")
+    op = _FakeScriptOp()
+    setup(op)
+    setup(op)          # the reassignment that used to raise

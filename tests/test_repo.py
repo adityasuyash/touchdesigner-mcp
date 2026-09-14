@@ -237,3 +237,27 @@ def test_the_look_controls_do_not_need_a_saved_song():
     assert "$('#detailSections').hidden = false;" in body
     assert "needsSong(" in body, \
         "nothing tells the song-specific sections they have no song yet"
+
+
+def test_every_preview_capture_says_which_style_it_is_recording():
+    """`capture_preview` records whatever the project is wearing unless it is
+    told otherwise, which is what `live=` is for -- its docstring: "asked for
+    five looks it would have produced five copies of the current one and
+    reported success each time."
+
+    One call site was never updated when the parameter was added, so the UI's
+    per-style preview committed the wrong video under the right name with every
+    check passing. Any call that omits `live=` is that bug again.
+    """
+    import re
+    for path in ((REPO / "lyricfield").rglob("*.py"),
+                 (REPO / "scripts").rglob("*.py")):
+        for f in path:
+            src = f.read_text(encoding="utf-8")
+            for m in re.finditer(r"(\w*\s*)capture_preview\((.*?)\)", src, re.S):
+                if m.group(1).strip() == "def":
+                    continue          # the definition, not a call
+                call = m.group(2)
+                assert "live=" in call, (
+                    f"{f.relative_to(REPO)} calls capture_preview without "
+                    f"live=, so it will record whatever look is loaded")

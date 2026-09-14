@@ -555,7 +555,13 @@ def _verify(ctx: Ctx, say) -> dict:
     # problems" -- every regional brightness check passed, because the frames
     # were perfectly good frames of the wrong thing.
     match = {}
-    cues = CueTable.load(ws.cues_path).cues if ws.cues_path.exists() else []
+    # Only for a renderer that draws them. `_push` already refuses to send
+    # words to a beatsync type, but `cues.tsv` stays on disk -- so switching a
+    # song from lyric_grid to pulse_grid made this correlate a wordless picture
+    # against word times, report "the picture does not follow the words", burn a
+    # second render on the repair, and then refuse a perfectly good take.
+    cues = (CueTable.load(ws.cues_path).cues
+            if cfg.video_type.needs_lyrics and ws.cues_path.exists() else [])
     prev_detail = ctx.run.stage("preview").detail if ctx.run else {}
     start = float(prev_detail.get("start") or 0.0)
     # The window in which a word is at full brightness, from this song's own
@@ -640,6 +646,17 @@ def _verify(ctx: Ctx, say) -> dict:
 
     return {"stills": out, "regions": list(regions), "problems": problems,
             "earlier_problems": earlier, "ready": ready, "match": match}
+
+
+def _forget_problems(problems: list[str], keys) -> None:
+    """Drop the problems belonging to the stages that are about to run again.
+
+    Problems are recorded as "<stage>: <note>", which is what makes this
+    possible: a retry can forget its own findings without forgetting that the
+    build could not calibrate the glyph geometry an hour earlier.
+    """
+    prefixes = tuple(f"{k}: " for k in keys)
+    problems[:] = [p for p in problems if not p.startswith(prefixes)]
 
 
 STAGES: list[tuple[str, str, Callable]] = [
@@ -748,8 +765,14 @@ def execute(run: Run, ctx: Ctx, on_change=None, from_stage: str | None = None) -
                 retried = True
                 say("the finished file did not measure well; repairing and "
                     "rendering once more")
-                run.problems.clear()
                 redo = ("preview", "verify", "save")
+                # Only the stages about to run again. This was `clear()`, which
+                # also erased an ingest or provision problem -- and `_verify`
+                # decides whether to write the "verified" marker from exactly
+                # this list, so the retry could hand a marker to a take whose
+                # run had failed earlier. That is the defect the comment above
+                # `earlier = ...` was written to close, re-opened by the repair.
+                _forget_problems(run.problems, redo)
                 for again in redo:
                     back = run.stage(again)
                     back.state, back.message, back.detail = PENDING, "", {}
