@@ -27,6 +27,7 @@ from . import separate as separate_mod
 from . import transcribe as transcribe_mod
 from .config import Config
 from .cues import CueTable
+from .drums import DrumTable
 
 # How far a first cue may trail the first singing before it counts as a lost
 # opening line. Generous enough for a held breath or an ad-lib the transcriber
@@ -123,15 +124,22 @@ def prepare(track: str | Path,
     # module's own promise that a stage whose output exists is not repeated.
     cfg = Config.load(config_path)
     # Analyse the instrumental when one exists, the source mix otherwise. Vocals
-    # do pollute onset detection, which is exactly why a type that wants clean
-    # onsets asks for an instrumental.
     # The song for the song-wide facts, the drums stem for the rhythm. NOT the
     # instrumental for either: it still carries the bassline, and measured
     # against the raw mix it detects fewer kicks and locks to the beat less
     # well (0.287 against 0.342; the drums stem gets 0.378).
     analysis_src = track
     rhythm_src = (stems.rhythm if stems else None) or track
-    measured = (cfg.track.duration and cfg.track.beat_period
+
+    # Reusing an analysis is right when it was measured from the same audio AND
+    # actually produced the drum table the renderer reads. Without that second
+    # half a song analysed before drum detection existed keeps its cached
+    # facts forever, writes an empty table, and renders with no beat response
+    # at all -- a silent downgrade, which is the thing this pipeline keeps
+    # having to be taught not to do.
+    have_drums = bool(drums_path) and Path(drums_path).exists() \
+        and len(DrumTable.load(drums_path)) > 0
+    measured = (cfg.track.duration and cfg.track.beat_period and have_drums
                 and cfg.track.drums == str(stems.rhythm or "" if stems else ""))
     if measured and not force_analyse:
         say(f"keeping existing analysis ({cfg.track.duration:.1f}s, "
@@ -166,7 +174,6 @@ def prepare(track: str | Path,
     # hundreds, and they do not belong in a TOML the UI rewrites on every edit.
     # Kept beside cues.tsv and pushed the same way.
     if drums_path is not None:
-        from .drums import DrumTable
         drums = res.drum_table()
         if not len(drums) and Path(drums_path).exists():
             drums = DrumTable.load(drums_path)   # a reused analysis has none
