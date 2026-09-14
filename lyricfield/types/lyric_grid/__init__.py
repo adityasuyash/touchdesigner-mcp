@@ -10,7 +10,7 @@ Needs lyrics: the cue table is the whole subject.
 
 from __future__ import annotations
 
-from .. import CUES, INSTRUMENTAL, LYRIC, VideoType
+from .. import CUES, DRUMS, INSTRUMENTAL, LYRIC, VideoType
 from .build import build as _build, verify as _verify
 from .params import (Analysis, Beat, Cueing, Grid, Look, LyricGrid, LyricLook,
                      Params)
@@ -23,7 +23,7 @@ TYPE = VideoType(
     family=LYRIC,
     # A clean instrumental, because vocals pollute onset detection, and the cue
     # table, because the words are the whole subject.
-    needs=frozenset({INSTRUMENTAL, CUES}),
+    needs=frozenset({INSTRUMENTAL, CUES, DRUMS}),
     field_file="field.py",
     build=_build,
     verify=_verify,

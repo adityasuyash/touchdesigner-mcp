@@ -19,7 +19,7 @@ beginning, an arrival and an ending.
 
 from __future__ import annotations
 
-from .. import BEATSYNC, MIX, VideoType
+from .. import BEATSYNC, DRUMS, VideoType
 from .build import build as _build, verify as _verify
 from .params import Analysis, Grid, Look, Params, Swell
 
@@ -30,9 +30,8 @@ TYPE = VideoType(
                 "no lyrics needed",
     params_cls=Params,
     family=BEATSYNC,
-    # The mix is enough. Separation would spend minutes producing a vocal stem
-    # this renderer would never look at.
-    needs=frozenset({MIX}),
+    # The drums alone; see pulse_grid for why the raw mix was not enough.
+    needs=frozenset({DRUMS}),
     field_file="field.py",
     build=_build,
     verify=_verify,

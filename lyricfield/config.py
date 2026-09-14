@@ -38,6 +38,10 @@ class Track:
     back_style: str = ""
     vocals: str = ""
     instrumental: str = ""
+    # The isolated drums, when separation produced one. What the beat is
+    # measured from; a song separated before four-stem mode has none and falls
+    # back to the mix, which measures better than the instrumental does.
+    drums: str = ""
     duration: float = 0.0
     kick_in: float = 0.0
     beat_anchor: float = 0.0
@@ -176,7 +180,7 @@ class Config:
             elif t.duration and v > t.duration:
                 out.append(f"{name} ({v:.1f}s) is past the end of the "
                            f"{t.duration:.1f}s track")
-        for name in ("vocals", "instrumental", "source"):
+        for name in ("vocals", "instrumental", "drums", "source"):
             path = getattr(t, name)
             if path and not Path(path).exists():
                 out.append(f"{name} file is recorded but missing: {path}")

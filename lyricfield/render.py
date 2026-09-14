@@ -373,13 +373,17 @@ def render(client: TDClient, out_path: str | Path, duration: float,
     # the real audio attached here. Which audio depends on what this video type
     # asked ingest for: a type that needs no separation has no stems, and used
     # to end up with a silent file.
-    if vocals and instrumental:
-        say("muxing stem audio")
-        mux_stems(raw, out_path, Path(vocals), Path(instrumental), duration, start)
-        raw.unlink(missing_ok=True)
-    elif source:
+    # The song's own file first. Reconstituting it by adding stems back together
+    # is strictly worse -- it carries every separation artefact and depends on
+    # the sum being level-accurate -- and the mix is right there. Stems are the
+    # fallback for a song that only ever existed as stems.
+    if source and Path(source).exists():
         say("muxing the source mix")
         mux_audio(raw, out_path, Path(source), duration, start)
+        raw.unlink(missing_ok=True)
+    elif vocals and instrumental:
+        say("muxing stem audio")
+        mux_stems(raw, out_path, Path(vocals), Path(instrumental), duration, start)
         raw.unlink(missing_ok=True)
     else:
         say("no audio to attach; the file will be silent")

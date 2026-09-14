@@ -65,8 +65,11 @@ def test_it_is_registered_as_a_second_beatsync_type():
     assert others, "swell is meant to be a *second* beatsync renderer"
 
 
-def test_it_does_not_ask_for_stem_separation():
+def test_it_asks_for_drums_and_nothing_else():
+    """See pulse_grid: the raw mix was a false economy."""
     vt = types_mod.get_type("swell")
+    assert types_mod.DRUMS in vt.needs
+    assert vt.needs_separation
     assert types_mod.VOCALS not in vt.needs
     assert types_mod.CUES not in vt.needs
 

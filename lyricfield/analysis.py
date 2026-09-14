@@ -548,9 +548,18 @@ def busiest_window(source: str | Path, seconds: float = 4.0,
     return round(best, 3)
 
 
-def analyse(instrumental: str | Path) -> Analysis:
+def analyse(instrumental: str | Path, rhythm: str | Path | None = None) -> Analysis:
+    """Measure a track.
+
+    `rhythm` is what the drums are detected from -- the isolated drums stem when
+    there is one. It is a separate input because the two halves want different
+    audio: onsets, tempo and the beat grid want drums alone, while loudness and
+    the silence windows are facts about the SONG and would be nonsense measured
+    on a stem that is silent between hits.
+    """
     path = Path(instrumental)
     x = decode_mono(path)
+    beat_x = decode_mono(Path(rhythm)) if rhythm else x
     dur = len(x) / SR
 
     holds = find_hold_windows(x)
@@ -568,8 +577,12 @@ def analyse(instrumental: str | Path) -> Analysis:
     if dur - cursor > 0.5:
         segments.append(Segment(round(cursor, 2), round(dur, 2)))
 
-    low = _band_rms(x, 20.0, 150.0, 50.0)
-    high = _band_rms(x, 4000.0, SR / 2 - 1, 50.0)
+    # Entry times are rhythmic facts -- when the drums come in, when the hats
+    # do -- so they read the drums stem when there is one. `hold_windows`,
+    # `level` and `duration` stay on the song, because a drums stem is silent
+    # between hits and would report the whole track as one long splice.
+    low = _band_rms(beat_x, 20.0, 150.0, 50.0)
+    high = _band_rms(beat_x, 4000.0, SR / 2 - 1, 50.0)
     low_n = low / (low.max() + 1e-9)
     high_n = high / (high.max() + 1e-9)
 
@@ -583,8 +596,8 @@ def analyse(instrumental: str | Path) -> Analysis:
     full = _frame_rms(x, 50.0)
     level = float(np.percentile(full, 90)) if len(full) else 0.0
 
-    rough, _bpm = estimate_tempo(x)
-    drums = detect_drums(x)
+    rough, _bpm = estimate_tempo(beat_x)
+    drums = detect_drums(beat_x)
     # The grid comes from the strikes, not from an autocorrelation lag measured
     # in whole frames -- that could only ever resolve the period to 10 ms, and a
     # 1.6 ms/beat error accumulates to 0.39 of a beat across a three-minute

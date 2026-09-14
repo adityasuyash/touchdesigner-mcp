@@ -12,7 +12,7 @@ song's own words and there were none.
 
 from __future__ import annotations
 
-from .. import BEATSYNC, INSTRUMENTAL, MIX, VideoType
+from .. import BEATSYNC, DRUMS, VideoType
 from .build import build as _build, verify as _verify
 from .params import Analysis, Grid, Look, Params, Pulse
 
@@ -22,9 +22,11 @@ TYPE = VideoType(
     description="the beat as light across a character field; no lyrics needed",
     params_cls=Params,
     family=BEATSYNC,
-    # The mix is enough to drive it. Separation is minutes of work and a vocal
-    # stem this renderer would never look at.
-    needs=frozenset({MIX}),
+    # The drums, and nothing else: no words to transcribe, no vocal to isolate.
+    # It asked for the raw mix until the detection was measured -- a kick
+    # detector on a full mix fires on the bassline, and its events had a phase
+    # concentration within the beat of 0.12, which is uniform.
+    needs=frozenset({DRUMS}),
     field_file="field.py",
     build=_build,
     verify=_verify,

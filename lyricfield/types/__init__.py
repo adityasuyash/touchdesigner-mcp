@@ -34,6 +34,13 @@ HERE = Path(__file__).parent
 # a beatsync video on an instrumental track should not pay for a Demucs vocal
 # split and a Groq transcription it will never read.
 MIX, INSTRUMENTAL, VOCALS, CUES = "mix", "instrumental", "vocals", "cues"
+# The isolated drums. Every renderer answers the beat, and a kick detector
+# looking at 20-150 Hz cannot tell a kick from a sustained bass note -- so the
+# mix and even the instrumental are the wrong input. Measured on one track, kick
+# phase-lock within the beat was 0.287 from the instrumental, 0.342 from the raw
+# mix and 0.378 from the drums stem. It costs nothing extra: demucs computes all
+# four sources whatever is asked of it.
+DRUMS = "drums"
 
 LYRIC, BEATSYNC = "lyric", "beatsync"
 
@@ -145,7 +152,7 @@ class VideoType:
 
     @property
     def needs_separation(self) -> bool:
-        return bool(self.needs & {INSTRUMENTAL, VOCALS})
+        return bool(self.needs & {INSTRUMENTAL, VOCALS, DRUMS})
 
     def to_dict(self) -> dict:
         return {

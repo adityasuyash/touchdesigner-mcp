@@ -43,6 +43,7 @@ class Prepared:
     cues: int = 0
     lines: int = 0
     drums: int = 0
+    drums_stem: str = ""
     vocal_in: float = 0.0
     skipped: list[str] = field(default_factory=list)
     # Two kinds of bad news, deliberately separated. `problems` means the
@@ -93,7 +94,7 @@ def prepare(track: str | Path,
     track asks for the mix alone, so neither Demucs nor Groq is ever started --
     minutes and money not spent on stems and words nothing will read.
     """
-    from .types import CUES, INSTRUMENTAL, VOCALS
+    from .types import CUES, DRUMS, INSTRUMENTAL, VOCALS
 
     track = Path(track).expanduser()
     say = progress or (lambda m: None)
@@ -102,7 +103,7 @@ def prepare(track: str | Path,
 
     # ---- 1. stems ----
     stems = None
-    if needs & {INSTRUMENTAL, VOCALS}:
+    if needs & {INSTRUMENTAL, VOCALS, DRUMS}:
         say("separating stems")
         stems = separate_mod.separate(
             track, root=stem_root, model=model, device=device,
@@ -111,6 +112,7 @@ def prepare(track: str | Path,
             out.skipped.append("separation (stems already present)")
         out.vocals = str(stems.vocals)
         out.instrumental = str(stems.instrumental)
+        out.drums_stem = str(stems.rhythm or "")
     else:
         say("this video type needs no stems; skipping separation")
         out.skipped.append("separation (not needed by this video type)")
@@ -123,9 +125,14 @@ def prepare(track: str | Path,
     # Analyse the instrumental when one exists, the source mix otherwise. Vocals
     # do pollute onset detection, which is exactly why a type that wants clean
     # onsets asks for an instrumental.
-    analysis_src = Path(stems.instrumental) if stems else track
+    # The song for the song-wide facts, the drums stem for the rhythm. NOT the
+    # instrumental for either: it still carries the bassline, and measured
+    # against the raw mix it detects fewer kicks and locks to the beat less
+    # well (0.287 against 0.342; the drums stem gets 0.378).
+    analysis_src = track
+    rhythm_src = (stems.rhythm if stems else None) or track
     measured = (cfg.track.duration and cfg.track.beat_period
-                and cfg.track.instrumental == str(analysis_src))
+                and cfg.track.drums == str(stems.rhythm or "" if stems else ""))
     if measured and not force_analyse:
         say(f"keeping existing analysis ({cfg.track.duration:.1f}s, "
             f"kick {cfg.track.kick_in:.1f}s)")
@@ -136,13 +143,17 @@ def prepare(track: str | Path,
             beat_anchor=cfg.track.beat_anchor, level=cfg.track.level,
             hold_windows=[tuple(w) for w in cfg.track.hold_windows])
     else:
-        say(f"analysing {'the instrumental' if stems else 'the mix'}")
-        res = analysis_mod.analyse(analysis_src)
+        # Say which input, always. A silent downgrade to the mix is exactly
+        # the kind of thing this project keeps having to go back and find.
+        say(f"analysing the mix; beat from "
+            f"{'the drums stem' if (stems and stems.rhythm) else 'the mix'}")
+        res = analysis_mod.analyse(analysis_src, rhythm=rhythm_src)
     out.duration = res.duration
     out.analysis = res.to_dict()
 
     cfg.track.vocals = out.vocals
     cfg.track.instrumental = out.instrumental or str(analysis_src)
+    cfg.track.drums = out.drums_stem
     cfg.track.duration = res.duration
     cfg.track.kick_in = res.kick_in
     cfg.track.high_in = res.high_in

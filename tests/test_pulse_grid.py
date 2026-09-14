@@ -37,12 +37,19 @@ def test_it_is_registered_as_a_beatsync_type():
     assert vt.needs_lyrics is False
 
 
-def test_it_does_not_ask_for_stem_separation():
-    """Separation is minutes of work for a vocal stem this renderer would never
-    look at."""
+def test_it_asks_for_drums_and_nothing_else():
+    """It used to ask for the raw mix, to save the minutes separation costs.
+
+    That was a false economy twice over: a kick detector on a full mix fires on
+    the bassline (phase concentration 0.12 within the beat -- uniform), and
+    demucs computes all four sources whatever you ask it for, so the drums stem
+    was being produced and discarded on every separation anyway.
+    """
     vt = types_mod.get_type("pulse_grid")
-    assert types_mod.VOCALS not in vt.needs
-    assert types_mod.CUES not in vt.needs
+    assert types_mod.DRUMS in vt.needs
+    assert vt.needs_separation
+    assert types_mod.VOCALS not in vt.needs   # still no vocal to isolate
+    assert types_mod.CUES not in vt.needs     # and still nothing to transcribe
 
 
 def test_defaults_are_valid():
