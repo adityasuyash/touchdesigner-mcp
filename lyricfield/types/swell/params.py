@@ -21,6 +21,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .._controls import Control, bind_controls
+
 from ..lyric_grid.params import RANGES as GRID_RANGES
 from ..lyric_grid.params import Analysis, Grid, Look, reconcile_look
 
@@ -153,15 +155,6 @@ RANGES = {k: v for k, v in RANGES.items()
                    for f in vars(s)}}
 
 
-@dataclass(frozen=True)
-class Control:
-    key: str
-    label: str
-    hint: str
-    lead: str
-    targets: dict[str, tuple[float, float]]
-
-
 CONTROLS: tuple[Control, ...] = (
     Control("brightness", "Brightness",
             "How strongly the whole field reads.",
@@ -192,16 +185,6 @@ CONTROLS: tuple[Control, ...] = (
 )
 
 
-def _get(params: "Params", path: str) -> float:
-    section, name = path.split(".")
-    return float(getattr(getattr(params, section), name))
-
-
-def _set(params: "Params", path: str, value: float) -> None:
-    section, name = path.split(".")
-    setattr(getattr(params, section), name, value)
-
-
 def reconcile(params: "Params") -> None:
     """Settle the relationships `validate()` insists on."""
     reconcile_look(params.look)
@@ -216,28 +199,7 @@ def reconcile(params: "Params") -> None:
     s.arrive = min(1.0, max(0.1, s.arrive))
 
 
-def control_values(params: "Params") -> dict[str, float]:
-    out = {}
-    for c in CONTROLS:
-        lo, hi = c.targets[c.lead]
-        v = (_get(params, c.lead) - lo) / (hi - lo) if hi != lo else 0.0
-        out[c.key] = round(min(1.0, max(0.0, v)), 4)
-    return out
-
-
-def apply_control(params: "Params", key: str, value: float) -> dict:
-    control = next((c for c in CONTROLS if c.key == key), None)
-    if control is None:
-        raise KeyError(f"no such control: {key}")
-    v = min(1.0, max(0.0, float(value)))
-    for path, (lo, hi) in control.targets.items():
-        _set(params, path, round(lo + (hi - lo) * v, 4))
-    reconcile(params)
-    return {p: _get(params, p) for p in control.targets}
-
-
-def controls_payload(params: "Params") -> list[dict]:
-    now = control_values(params)
-    return [{"key": c.key, "label": c.label, "hint": c.hint,
-             "value": now[c.key], "drives": sorted(c.targets)}
-            for c in CONTROLS]
+# Bound to this type's own controls and its own `reconcile`; the
+# machinery itself is shared, because it was identical in every type.
+control_values, apply_control, controls_payload = bind_controls(
+    CONTROLS, reconcile)
