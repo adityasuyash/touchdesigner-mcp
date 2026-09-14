@@ -183,8 +183,12 @@ def test_every_beatsync_look_has_a_preview_of_it_behind_words():
     """Its own preview was captured as the whole picture, at a brightness and
     density it is not allowed behind lyrics -- so the tile would promise
     something the render cannot deliver."""
+    from lyricfield.types.lyric_grid.params import can_back_words
+    # Only the looks that share the grid's field; see test_run_pick for why a
+    # renderer with its own network cannot be another one's ambient layer.
     beat = [st for st in SHIPPED
-            if types_mod.get_type(st.type).family == types_mod.BEATSYNC]
+            if types_mod.get_type(st.type).family == types_mod.BEATSYNC
+            and can_back_words(st.params)]
     if not BACKDROP_ROOT.exists():
         pytest.skip("no backdrop previews on this machine")
     missing = [st.slug for st in beat
@@ -196,8 +200,12 @@ def test_every_beatsync_look_has_a_preview_of_it_behind_words():
 def test_the_backdrop_previews_differ_from_the_standalone_ones():
     """If they were the same file the whole point would be lost."""
     import hashlib
+    from lyricfield.types.lyric_grid.params import can_back_words
+    # Only the looks that share the grid's field; see test_run_pick for why a
+    # renderer with its own network cannot be another one's ambient layer.
     beat = [st for st in SHIPPED
-            if types_mod.get_type(st.type).family == types_mod.BEATSYNC]
+            if types_mod.get_type(st.type).family == types_mod.BEATSYNC
+            and can_back_words(st.params)]
     if not BACKDROP_ROOT.exists():
         pytest.skip("no backdrop previews on this machine")
     for st in beat:

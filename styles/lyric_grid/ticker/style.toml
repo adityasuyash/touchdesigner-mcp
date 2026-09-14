@@ -5,7 +5,7 @@ name = "Ticker"
 slug = "ticker"
 type = "lyric_grid"
 description = "words running top to bottom, tight and mechanical"
-created = "2026-09-14T15:16:51+00:00"
+created = "2026-09-14T15:23:49+00:00"
 source_song = ""
 
 [grid]

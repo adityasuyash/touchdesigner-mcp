@@ -34,6 +34,131 @@ BUILTIN_ROOT = styles_mod.DEFAULT_ROOT / "_builtin"
 
 # (type, name, description, {section.field: value})
 LOOKS: list[tuple[str, str, str, dict]] = [
+    # ---------------------------------------------------------- monument
+    # One word, filling the frame. The two looks pull the same renderer in
+    # opposite directions: struck hard and cut clean, or held and breathing.
+    ("monument", "Headline",
+     "a word struck hard and cut clean, filling the frame",
+     {"stage.fill": 0.93, "stage.cap_px": 340.0,
+      "word.punch": 1.34, "word.settle": 0.12, "word.hold": 0.4,
+      "word.fade": 0.16, "word.ghost": 0.1, "word.drift": 0.01,
+      "look.hue": 0.0, "look.sat": 0.0, "look.glow": 0.16, "look.bloom": 7.0,
+      "beat.kick_lift": 0.05}),
+    ("monument", "Echo",
+     "the word before still hanging behind this one, soft and wide",
+     {"stage.fill": 0.7, "stage.cap_px": 230.0,
+      "word.punch": 1.06, "word.settle": 0.45, "word.hold": 1.1,
+      "word.fade": 0.6, "word.ghost": 0.4, "word.ghost_scale": 2.1,
+      "word.drift": 0.09,
+      "look.hue": 0.58, "look.sat": 0.34, "look.glow": 0.5,
+      "look.bloom": 26.0, "beat.kick_lift": 0.13}),
+
+    # ---------------------------------------------------------- window
+    ("window", "Tide",
+     "wide slow bands moving behind the letters",
+     {"line.size": 126.0, "line.wrap": 10,
+      "field_.bands": 2.6, "field_.drift": 0.2, "field_.warp": 0.7,
+      "field_.kick_push": 0.5, "field_.hat_grain": 0.06,
+      "look.hue": 0.55, "look.sat": 0.62, "look.glow": 0.36}),
+    ("window", "Static",
+     "a fine restless grain, read through the type",
+     {"line.size": 92.0, "line.wrap": 15,
+      "field_.bands": 22.0, "field_.drift": 1.1, "field_.warp": 0.12,
+      "field_.kick_push": 0.2, "field_.hat_grain": 0.34,
+      "field_.hat_time": 0.07,
+      "look.hue": 0.12, "look.sat": 0.25, "look.glow": 0.14,
+      "look.bloom": 6.0}),
+
+    # ---------------------------------------------------------- orbit
+    ("orbit", "Ring",
+     "the line carried round a slowly turning circle",
+     {"path.shape": "circle", "path.radius": 0.4, "path.spin": 0.045,
+      "path.spread": 0.03, "line.size": 54.0,
+      "look.hue": 0.75, "look.sat": 0.45, "look.glow": 0.34}),
+    ("orbit", "Undertow",
+     "the line riding a slow travelling wave, read left to right",
+     {"path.shape": "wave", "path.radius": 0.26, "path.spin": 0.1,
+      "path.twist": 2.2, "line.size": 60.0,
+      "look.hue": 0.5, "look.sat": 0.5, "look.glow": 0.4,
+      "beat.kick_push": 0.2}),
+
+    # ---------------------------------------------------------- swarm
+    ("swarm", "Settle",
+     "words drifting in from far out and easing into place",
+     {"flight.throw": 0.95, "flight.stiff": 12.0, "flight.damp": 4.4,
+      "flight.stagger": 0.14, "burst.push": 0.5,
+      "line.size": 54.0, "look.hue": 0.55, "look.sat": 0.3,
+      "look.glow": 0.36}),
+    ("swarm", "Scatter",
+     "a tight snap into place, knocked apart on every kick",
+     {"flight.throw": 0.3, "flight.stiff": 74.0, "flight.damp": 9.5,
+      "flight.stagger": 0.02, "burst.push": 3.0, "burst.spin": 1.1,
+      "line.size": 66.0, "look.hue": 0.02, "look.sat": 0.45,
+      "look.glow": 0.2}),
+
+    # ---------------------------------------------------------- horizon
+    ("horizon", "Sunset",
+     "a wide low sun over a slow grid",
+     {"ground.horizon": 0.58, "ground.rungs": 9.0, "ground.lanes": 13.0,
+      "ground.speed": 0.3, "sun.radius": 0.42, "sun.rise": 0.1,
+      "sun.bands": 7.0, "line.size": 78.0,
+      "look.hot": 0.94, "look.cold": 0.55, "look.sky": 0.4}),
+    ("horizon", "Runway",
+     "a dense grid rushing past a small high sun",
+     {"ground.horizon": 0.42, "ground.rungs": 22.0, "ground.lanes": 26.0,
+      "ground.speed": 1.2, "ground.weight": 0.035,
+      "sun.radius": 0.17, "sun.rise": 0.3, "sun.bands": 13.0,
+      "line.size": 66.0, "line.line_y": 0.2,
+      "look.hot": 0.85, "look.cold": 0.45, "look.sky": 0.2,
+      "beat.kick_lift": 0.55}),
+
+    # ---------------------------------------------------------- rings
+    ("rings", "Sonar",
+     "slow wide rings on a dark field, a long way apart",
+     {"ring.speed": 0.3, "ring.thick": 0.014, "ring.birth": 0.95,
+      "ring.decay": 2.0, "spoke.peak": 0.2, "grain.lift": 0.05,
+      "look.hue": 0.48, "look.sat": 0.6, "look.core": 0.1,
+      "look.glow": 0.5, "look.bloom": 26.0}),
+    ("rings", "Bloom",
+     "thick fast rings over a bright core, crowding each other",
+     {"ring.speed": 1.15, "ring.thick": 0.075, "ring.birth": 0.6,
+      "ring.decay": 0.7, "spoke.peak": 0.6, "spoke.count": 22,
+      "grain.lift": 0.24, "grain.freq": 70.0,
+      "look.hue": 0.08, "look.sat": 0.5, "look.core": 0.3,
+      "look.glow": 0.25, "look.bloom": 10.0}),
+
+    # ---------------------------------------------------------- strata
+    ("strata", "Ledger",
+     "many thin bands, struck quietly and often",
+     {"band.count": 20, "band.gap": 0.42, "band.rest": 0.05,
+      "band.lit": 0.6, "band.decay": 0.2, "band.walk": 1,
+      "shear.amount": 0.05, "flicker.lift": 0.06,
+      "look.hue": 0.52, "look.sat": 0.3, "look.glow": 0.08}),
+    ("strata", "Slab",
+     "few heavy bands, struck hard and sheared wide",
+     {"band.count": 5, "band.gap": 0.1, "band.rest": 0.14,
+      "band.lit": 0.97, "band.decay": 0.75, "band.walk": 2,
+      "shear.amount": 0.34, "shear.snap": 0.5,
+      "flicker.lift": 0.2, "flicker.rows": 17.0,
+      "look.hue": 0.03, "look.sat": 0.7, "look.glow": 0.2,
+      "look.bloom": 12.0}),
+
+    # ---------------------------------------------------------- scope
+    ("scope", "Trace",
+     "a thin sharp figure with almost no trail",
+     {"curve.freqx": 5.0, "curve.freqy": 3.0, "curve.slip": 0.02,
+      "curve.size": 0.42, "curve.rate": 1.4,
+      "trail.seconds": 0.16, "trail.taper": 5.0, "trail.weight": 1.0,
+      "look.hue": 0.45, "look.sat": 0.85, "look.glow": 0.35,
+      "look.bloom": 10.0, "beat.kick_bend": 0.12}),
+    ("scope", "Smoke",
+     "a long lazy trail that keeps most of where it has been",
+     {"curve.freqx": 2.0, "curve.freqy": 3.0, "curve.slip": 0.13,
+      "curve.size": 0.3, "curve.rate": 0.4,
+      "trail.seconds": 1.3, "trail.taper": 1.1, "trail.weight": 0.4,
+      "look.hue": 0.86, "look.sat": 0.5, "look.glow": 0.8,
+      "look.bloom": 34.0, "beat.kick_bend": 0.9}),
+
     # The lyric look. It has to be *distinct from the defaults*, or the gallery
     # shows two tiles for one look: when the built-in timing was tuned it was
     # tuned to match this file exactly, and the style quietly became a copy of
@@ -294,6 +419,13 @@ def backdrop_previews(client, live, root, moments) -> list[str]:
     for st in S.list_styles():
         vt = types_mod.get_type(st.type)
         if vt.family != types_mod.BEATSYNC:
+            continue
+        # Only the looks that share the grid's own field can become the layer
+        # behind words. A renderer with its own network cannot be somebody
+        # else's ambient layer, and a preview of that would be a promise the
+        # run could not keep.
+        if not P.can_back_words(st.params):
+            print(f"{st.name}: its own renderer, not a layer behind words")
             continue
         params = lyric.default_params()
         clamped = P.backdrop_from(params, st.params)

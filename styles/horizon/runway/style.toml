@@ -1,0 +1,55 @@
+# lyricfield style. Reusable across songs; contains no song data.
+
+[meta]
+name = "Runway"
+slug = "runway"
+type = "horizon"
+description = "a dense grid rushing past a small high sun"
+created = "2026-09-14T15:23:49+00:00"
+source_song = ""
+
+[frame]
+width = 720
+height = 1280
+scale = 0.6
+
+[ground]
+horizon = 0.42
+lanes = 26.0
+rungs = 22.0
+speed = 1.2
+weight = 0.035
+lift = 0.9
+haze = 2.1
+
+[sun]
+radius = 0.17
+rise = 0.3
+bands = 13.0
+duck = 0.55
+glowr = 0.85
+
+[line]
+font = "Arial"
+size = 66.0
+lead = 0.3
+hold = 0.8
+fade = 0.4
+line_y = 0.2
+wrap = 14
+
+[look]
+hot = 0.85
+cold = 0.45
+sat = 0.85
+sky = 0.2
+floor = 0.02
+glow = 0.42
+bloom = 22.0
+
+[beat]
+kick_lift = 0.55
+kick_time = 0.28
+intro_open = 0.4
+arrive = 0.88
+outro = 12.0

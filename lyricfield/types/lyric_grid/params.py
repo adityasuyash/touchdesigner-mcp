@@ -214,6 +214,21 @@ class Backdrop:
 # The four things the "Behind the words" row offers, as presets over the numbers
 # above rather than as an enum -- so every one of them stays reachable from a
 # slider and from a written description.
+def can_back_words(source) -> bool:
+    """Can this renderer's look sit BEHIND lyric_grid's words?
+
+    Only if it draws into the same character field, which is exactly what a
+    `pulse` or `swell` section means. `rings`, `strata` and `scope` have their
+    own networks -- there is no sense in which their picture can become the
+    ambient layer of somebody else's grid, and offering it would put a choice
+    in the gallery that cannot render.
+
+    This was free to assume while every beatsync type WAS the grid. It is the
+    kind of assumption that survives right up until it is wrong.
+    """
+    return bool(getattr(source, "pulse", None) or getattr(source, "swell", None))
+
+
 def backdrop_from(params: "Params", source) -> list[str]:
     """Set the backdrop from a beatsync renderer's own parameters.
 

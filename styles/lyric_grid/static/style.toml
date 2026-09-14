@@ -5,7 +5,7 @@ name = "Static"
 slug = "static"
 type = "lyric_grid"
 description = "words surfacing out of a dense restless field, each on its own"
-created = "2026-09-14T15:16:51+00:00"
+created = "2026-09-14T15:23:49+00:00"
 source_song = ""
 
 [grid]

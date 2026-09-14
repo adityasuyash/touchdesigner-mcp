@@ -1,0 +1,45 @@
+# lyricfield style. Reusable across songs; contains no song data.
+
+[meta]
+name = "Tide"
+slug = "tide"
+type = "window"
+description = "wide slow bands moving behind the letters"
+created = "2026-09-14T15:23:49+00:00"
+source_song = ""
+
+[frame]
+width = 720
+height = 1280
+scale = 0.5
+
+[line]
+font = "Arial"
+size = 126.0
+lead = 0.35
+hold = 0.9
+fade = 0.45
+line_y = 0.5
+wrap = 10
+
+[field_]
+bands = 2.6
+drift = 0.2
+warp = 0.7
+kick_push = 0.5
+kick_time = 0.35
+hat_grain = 0.06
+hat_time = 0.18
+
+[look]
+hue = 0.55
+sat = 0.62
+peak = 0.92
+floor = 0.03
+glow = 0.36
+bloom = 16.0
+
+[beat]
+intro_open = 0.35
+arrive = 0.85
+outro = 11.0

@@ -16,6 +16,7 @@ import pytest
 from lyricfield import run as run_mod
 from lyricfield import styles as S
 from lyricfield import types as types_mod
+from lyricfield.types.lyric_grid import params as P
 from lyricfield.workspace import Workspace
 
 REPO = Path(__file__).resolve().parents[1]
@@ -79,9 +80,16 @@ def test_no_pick_at_all_leaves_the_song_alone(song):
 BEATSYNC_STYLES = [st for st in S.list_styles()
                    if types_mod.get_type(st.type).family == types_mod.BEATSYNC]
 
+# Only the beat looks that draw into the grid's own character field can become
+# the layer BEHIND lyric_grid's words. `rings`, `strata` and `scope` have their
+# own networks; there is no sense in which one renderer's picture is another
+# renderer's ambient layer. This was free to assume while every beatsync type
+# WAS the grid.
+BACKABLE = [st for st in BEATSYNC_STYLES if P.can_back_words(st.params)]
 
-@pytest.mark.parametrize("st", BEATSYNC_STYLES, ids=[s.slug for s in BEATSYNC_STYLES])
-def test_any_beatsync_style_can_go_behind_the_words(st, tmp_path):
+
+@pytest.mark.parametrize("st", BACKABLE, ids=[s.slug for s in BACKABLE])
+def test_a_grid_beat_style_can_go_behind_the_words(st, tmp_path):
     """The thing that was asked for: a lyric look AND a beat look, together."""
     ws = Workspace.create(f"Behind {st.slug}", root=tmp_path, copy_source=False)
     said = []
@@ -104,7 +112,7 @@ def test_the_five_looks_stay_distinguishable_behind_words():
     from lyricfield.types.lyric_grid.params import Params, backdrop_from
 
     seen = {}
-    for st in BEATSYNC_STYLES:
+    for st in BACKABLE:
         p = Params()
         backdrop_from(p, st.params)
         b = p.backdrop
