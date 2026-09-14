@@ -385,6 +385,12 @@
     <span class="wordmark">lyricfield</span>
     <span class="spacer"></span>
     <span class="status"><span class="dot" id="tddot"></span><span id="tdtext">checking…</span></span>
+    <span class="status" id="staleBox" hidden>
+      <span class="dot" style="background:var(--warn)"></span>
+      <span id="staleText"></span>
+      <button type="button" class="btn quiet" id="btnRestart"
+              style="padding:2px 10px;margin-left:6px">Restart</button>
+    </span>
     <button class="icon-btn" id="themeToggle" aria-label="Light or dark">◐</button>
   </div>
 </header>
@@ -692,6 +698,16 @@ async function poll() {
     if (typeof s.now === 'number') NOW_SKEW = s.now - Date.now() / 1000;
     $('#tddot').classList.toggle('on', s.td_connected);
     $('#tdtext').textContent = s.td_connected ? 'TouchDesigner ready' : 'TouchDesigner offline';
+    // The control server cannot notice its own modules are old, but it can see
+    // that the files are newer than itself. A run from stale code would push a
+    // mixture of cached behaviour and current data -- which once produced a
+    // field script that raised on every cook and a render that waited half an
+    // hour to report the wrong thing.
+    const stale = s.stale || [];
+    $('#staleBox').hidden = !stale.length;
+    if (stale.length)
+      $('#staleText').textContent =
+        `server is running older code — ${stale.length} file${stale.length > 1 ? 's' : ''} changed`;
     renderStages(s.run);
     setControls(s.run);
     const busy = s.run && s.run.state === 'running';
@@ -1154,6 +1170,14 @@ $('#btnPrimary').onclick = () => {
     return showErr(new Error('Pick a look from at least one row — with both on '
                              + 'None there is nothing to draw.'));
   api('/api/run', {method:'POST', body: runBody()}).then(poll).catch(showErr);
+};
+$('#btnRestart').onclick = async () => {
+  const b = $('#btnRestart');
+  b.disabled = true; b.textContent = 'Restarting…';
+  try { await api('/api/restart', {method: 'POST'}); } catch (e) { showErr(e); }
+  // It re-execs, so the next few polls fail; the existing 2s loop reconnects
+  // on its own once it is back.
+  setTimeout(() => { b.disabled = false; b.textContent = 'Restart'; }, 4000);
 };
 $('#btnSecondary').onclick = () =>
   api('/api/run/restart', {method:'POST'}).then(poll).catch(showErr);

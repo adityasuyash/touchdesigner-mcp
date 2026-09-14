@@ -87,11 +87,35 @@ def _seed_cue_offset(client: TDClient, offset) -> None:
 
 
 def push_field(client: TDClient, cfg: Config) -> None:
-    """Push the active video type's field script into the Script TOP's callbacks DAT."""
+    """Push the active video type's field script into the Script TOP's callbacks DAT.
+
+    Then check it actually runs. Writing the text is not the same as the script
+    working, and the difference cost thirty minutes once: a body that raised
+    `NameError` on every cook was pushed, reported as success, and the render
+    waited out its whole timeout for a file that could never be written.
+    """
     src = cfg.video_type.field_source()
     if src is None:
         return                      # a type with no in-TD code is legitimate
     client.write(CALLBACKS, src)
+    bad = field_errors(client)
+    if bad:
+        raise TDError(f"the field script does not run:\n{bad}")
+
+
+def field_errors(client: TDClient) -> str:
+    """What TouchDesigner says is wrong with the Script TOP, or "".
+
+    Cooks it first, because a script that has not been asked to run yet has no
+    errors to report. This is the cheapest possible question -- one round trip,
+    no rendering -- and it is the one nothing was asking.
+    """
+    try:
+        client.run(f"def go():\n    o = op({SCRIPT_TOP!r})\n"
+                   "    if o is not None:\n        o.cook(force=True)\ngo()")
+    except TDError:
+        pass
+    return client.op_errors(SCRIPT_TOP)
 
 
 def push_cues(client: TDClient, table: CueTable) -> None:

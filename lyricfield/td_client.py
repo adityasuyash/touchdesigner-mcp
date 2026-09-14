@@ -15,7 +15,7 @@ import json
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -104,6 +104,26 @@ class TDClient:
 
     # ---------- tools ----------
 
+    #: Operators TD reported as erroring, from the most recent `run`. The
+    #: server attaches this to every response; see `run`.
+    last_op_errors: list = field(default_factory=list)
+
+    def op_errors(self, path: str) -> str:
+        """What TouchDesigner says is wrong with one operator, or "".
+
+        A Script TOP that raises is not a broken *render* until something looks:
+        the picture simply stops changing, the recorder writes nothing, and the
+        only symptom is a timeout much later.
+        """
+        try:
+            raw = self.call("inspect", path=path)
+            info = json.loads(raw)
+        except (TDError, json.JSONDecodeError, TypeError):
+            return ""
+        if not isinstance(info, dict):
+            return ""
+        return str(info.get("errors") or "").strip()
+
     def call(self, tool: str, timeout: float | None = None, **arguments) -> str:
         result = self._rpc(
             "tools/call",
@@ -143,6 +163,16 @@ class TDClient:
             payload = json.loads(raw)
         except json.JSONDecodeError:
             return raw
+        # The server scans the whole network for operators in an error state and
+        # attaches the result to EVERY run response. Nothing ever read it. A
+        # Script TOP raising NameError on every cook sat in these payloads for
+        # thirty minutes while a render waited for a file that could not be
+        # written, and the run finally failed reporting the missing file.
+        # Keeping the last scan costs nothing and makes the real cause
+        # available to anyone who asks.
+        w = payload.get("warnings")
+        if isinstance(w, list):
+            self.last_op_errors = w
         # printed output lands in "output"; a bare expression lands in "result"
         if payload.get("output"):
             return payload["output"]

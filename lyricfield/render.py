@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from .sync import OUT_TOP, SCRIPT_TOP, reset_field_state
+from .sync import OUT_TOP, SCRIPT_TOP, field_errors, reset_field_state
 from .td_client import TDClient, TDUnavailable
 
 
@@ -69,6 +69,14 @@ def _reporter(progress):
         except TypeError:
             progress(m)
     return say
+
+
+class FieldBroken(RuntimeError):
+    """The Script TOP cannot run, so no frame will ever be drawn.
+
+    Its own class because it is not a transient TouchDesigner problem to retry
+    -- it is a bug in the pushed code, and the traceback is the answer.
+    """
 
 
 class SeekFailed(RuntimeError):
@@ -142,6 +150,15 @@ def park(client: TDClient, at_seconds: float = 0.0,
             f"silently, and anything recorded now would be the wrong part of "
             f"the song."
         )
+    # `park` is the one place that deliberately cooks the chain before
+    # recording, so a script that raises is guaranteed to have said so by now.
+    # Asking costs one round trip; not asking cost thirty minutes of waiting
+    # for a frame that was never going to be drawn.
+    bad = field_errors(client)
+    if bad:
+        raise FieldBroken(
+            "the field script is raising on every cook, so nothing will be "
+            f"drawn:\n{bad}")
     reset_field_state(client)
     return landed / rate
 
@@ -274,6 +291,15 @@ def wait_for_container(path: Path, timeout: float = 900.0,
             if st.get("recording") and st.get("expected"):
                 say(f"recording {st['frames']} of {st['expected']} frames",
                     st.get("fraction"))
+            # A script can also start raising partway through -- on a stanza
+            # change, or the first kick. Waiting out the full timeout to then
+            # report a missing file is the wrong answer when TouchDesigner has
+            # been holding the traceback the whole time.
+            bad = client.op_errors(SCRIPT_TOP)
+            if bad:
+                raise FieldBroken(
+                    "the field script started raising during the render, so "
+                    f"the picture stopped:\n{bad}")
         time.sleep(poll)
     return False
 

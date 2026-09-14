@@ -63,7 +63,7 @@ def run(client, cfg, workspace=None, covers: float = 0.0,
         ("lyrics, for a type that needs them", _lyrics_present),
         ("the timeline and its play range", _timeline),
         ("the pushed parameters", _params),
-        ("the pushed field script", _field_script),
+        ("the pushed field script, and whether it runs", _field_script),
         ("the pushed cue table", _cues),
         ("a recorder left behind", _no_stranded_recorder),
     ):
@@ -161,13 +161,21 @@ def _field_script(client, cfg, ws, covers, repair, res, say):
     if not wanted:
         return
     current = _dat(client, sync.CALLBACKS)
-    if current is not None and current.strip() == wanted.strip():
-        return
-    if not repair:
-        res.problems.append("the field script in TouchDesigner is not the repo's")
-        return
-    sync.push_field(client, cfg)
-    res.repaired.append("field script")
+    if current is None or current.strip() != wanted.strip():
+        if not repair:
+            res.problems.append("the field script in TouchDesigner is not the repo's")
+            return
+        sync.push_field(client, cfg)
+        res.repaired.append("field script")
+
+    # Matching text is not a working script, and this check used to stop at the
+    # text. A body that raised on every cook matched its own source byte for
+    # byte, passed here, and the render then waited out its entire timeout for
+    # a frame that was never going to be drawn -- failing with "no valid
+    # container", which is the symptom, not the cause. Ask whether it RUNS.
+    bad = sync.field_errors(client)
+    if bad:
+        res.problems.append(f"the field script does not run: {bad}")
 
 
 def _cues(client, cfg, ws, covers, repair, res, say):

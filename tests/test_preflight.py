@@ -18,11 +18,16 @@ class FakeTD:
     """Just enough TouchDesigner to answer what preflight asks."""
 
     def __init__(self, *, end=16072, range_end=16072, rate=60.0,
-                 recorder=False, project=""):
+                 recorder=False, project="", script_errors=""):
         self.end, self.range_end, self.rate = end, range_end, rate
         self.recorder = recorder
         self.project = project          # the .toe TD is holding
         self.dats: dict[str, str] = {}
+        # What TouchDesigner says is wrong with the Script TOP. A fake that
+        # cannot answer this is an incomplete fake: a script whose text matches
+        # the repo byte for byte can still raise on every cook, which is how a
+        # broken render once took thirty minutes to report the wrong thing.
+        self.script_errors = script_errors
 
     # --- the surface preflight uses ---
     def run(self, code, timeout=None):
@@ -46,6 +51,9 @@ class FakeTD:
 
     def write(self, path, text):
         self.dats[path] = text
+
+    def op_errors(self, path):
+        return self.script_errors
 
     def call(self, tool, **kw):
         if tool == "render":
@@ -182,3 +190,33 @@ def test_repair_can_be_turned_off_for_a_dry_run(ws, monkeypatch):
     res = preflight.run(td, cfg, ws, covers=200.0, repair=False)
     assert not res.ok
     assert res.repaired == []
+
+
+# -------------------------------------------------- a script that cannot run
+
+def test_a_field_script_that_raises_is_a_problem(cfg, ws):
+    """Matching text is not a working script.
+
+    The check used to stop at comparing the pushed text with the repo's, and a
+    body that raised `NameError` on every cook matched its own source exactly.
+    It passed, the render started, nothing was ever drawn, and the failure
+    arrived a timeout later as "no valid container" -- the symptom, not the
+    cause.
+    """
+    td = FakeTD(project=str(ws.project))
+    td.dats[sync.CALLBACKS] = cfg.video_type.field_source()
+    td.dats[sync.PARAMS_DAT] = sync.params_text(cfg)
+    td.script_errors = ("Error: Traceback (most recent call last):\n"
+                        "NameError: name '_read_drums' is not defined")
+    res = preflight.run(td, cfg, ws, covers=10.0, progress=lambda m: None)
+    assert not res.ok
+    assert any("does not run" in p and "_read_drums" in p for p in res.problems), \
+        res.problems
+
+
+def test_a_healthy_field_script_is_not_a_problem(cfg, ws):
+    td = FakeTD(project=str(ws.project))
+    td.dats[sync.CALLBACKS] = cfg.video_type.field_source()
+    td.dats[sync.PARAMS_DAT] = sync.params_text(cfg)
+    res = preflight.run(td, cfg, ws, covers=10.0, progress=lambda m: None)
+    assert not [p for p in res.problems if "does not run" in p], res.problems

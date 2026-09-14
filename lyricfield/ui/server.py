@@ -12,6 +12,7 @@ because a render takes minutes and TD stalls while it works.
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 import traceback
@@ -127,10 +128,41 @@ def _set(**kw):
             setattr(JOB, k, v)
 
 
+@app.post("/api/restart")
+def restart_server():
+    """Re-exec this process so it picks up the current source.
+
+    A click rather than a terminal command, because nothing should be manual
+    once the UI is up -- and a deliberate click rather than an auto-reload,
+    because a reload firing mid-render would be worse than the staleness it
+    cures. Refused while a run is in flight for the same reason.
+    """
+    if RUN is not None and RUN.state == run_mod.RUNNING:
+        raise HTTPException(409, {
+            "error": "a run is in flight; restarting now would abandon it",
+            "fix": "wait for it to finish, or stop it first"})
+
+    def go():
+        time.sleep(0.4)          # let this response reach the browser first
+        os.execv(sys.executable, [sys.executable, "-m", "lyricfield.ui.server"])
+
+    threading.Thread(target=go, daemon=True).start()
+    return {"restarting": True, "was_stale": stale_sources(max_age=0.0)}
+
+
 @app.post("/api/run")
 def start_run(payload: RunIn):
     """Do the whole thing: prepare TouchDesigner, ingest, build, push, preview."""
     global RUN, RUN_CTX, RUN_ARGS
+    # A run from stale code is not a run anyone can trust: it would push a
+    # mixture of this process's cached behaviour and whatever is on disk now.
+    stale = stale_sources(max_age=0.0)
+    if stale:
+        raise HTTPException(409, {
+            "error": f"the control server is running code from before "
+                     f"{len(stale)} file(s) changed: {', '.join(stale[:4])}"
+                     + (" and others" if len(stale) > 4 else ""),
+            "fix": "press Restart to reload it, then run again"})
     with _run_lock:
         if RUN is not None and RUN.state == run_mod.RUNNING:
             raise HTTPException(409, f"run {RUN.id} is already going")
@@ -376,6 +408,43 @@ class StillsIn(BaseModel):
 
 # --------------------------------------------------------------------------- api
 
+# The moment this process's code and the files on disk last agreed. A process
+# cannot see that its own imported modules are old -- but it can see that the
+# files are newer than itself, and that check needs nothing fresh to work.
+STARTED = time.time()
+_stale_cache = {"at": 0.0, "files": []}
+
+
+def stale_sources(max_age: float = 3.0) -> list[str]:
+    """Package files edited since this process loaded them.
+
+    Worth the stat() calls. A long-running server serving code from before your
+    last edit is not a theoretical hazard: it pushed a field script whose
+    prelude it did not know about, TouchDesigner raised NameError on every cook,
+    and the render waited half an hour before reporting a missing file. The
+    process held the OLD `field_source()` in memory while reading the NEW
+    `field.py` off disk -- stale code, live data, the worst combination.
+    """
+    now = time.monotonic()
+    if now - _stale_cache["at"] <= max_age:
+        return list(_stale_cache["files"])
+    newer = []
+    for base in (ROOT / "lyricfield", ROOT / "scripts"):
+        if not base.exists():
+            continue
+        for f in base.rglob("*.py"):
+            if "__pycache__" in f.parts:
+                continue
+            try:
+                if f.stat().st_mtime > STARTED:
+                    newer.append(str(f.relative_to(ROOT)))
+            except OSError:
+                continue
+    _stale_cache["at"] = now
+    _stale_cache["files"] = sorted(newer)
+    return list(_stale_cache["files"])
+
+
 _ping_cache = {"at": 0.0, "up": False}
 
 
@@ -400,6 +469,8 @@ def status():
         # rather than assume the two agree.
         "now": time.time(),
         "td_connected": _td_connected(),
+        # Which of my own source files have changed since I started.
+        "stale": stale_sources(),
         "type": cfg.type,
         "td_url": client.url,
         "cues": len(table.cues),

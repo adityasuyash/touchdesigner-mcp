@@ -107,3 +107,48 @@ def test_the_control_ui_script_parses():
         probe = f"try {{ new Function({json.dumps(body)}) }} catch (e) {{ console.log(e.message); Deno.exit(1) }}"
         r = subprocess.run([deno, "eval", probe], capture_output=True, text=True)
         assert r.returncode == 0, f"script block {i} does not parse: {r.stdout.strip()}"
+
+
+def test_the_server_can_tell_its_own_source_has_changed():
+    """A process cannot see that its imported modules are old. It can see that
+    the files are newer than itself, and that check needs nothing fresh to work
+    -- which is the point, because everything else in a stale process is stale.
+
+    This is not theoretical: a server running from before `_prelude.py` existed
+    pushed a field script that called a function the prelude was meant to
+    define. TouchDesigner raised on every cook and the render waited thirty
+    minutes before reporting a missing file.
+    """
+    from lyricfield.ui import server
+
+    assert server.stale_sources(max_age=0.0) == [] or True   # whatever is true now
+    before = server.STARTED
+    try:
+        server.STARTED = 0.0            # pretend this process is ancient
+        stale = server.stale_sources(max_age=0.0)
+        assert stale, "no package file looks newer than the epoch"
+        assert any(p.startswith("lyricfield/") for p in stale)
+    finally:
+        server.STARTED = before
+
+
+def test_a_run_is_refused_while_the_server_is_stale():
+    """A run from stale code would push a mixture of this process's cached
+    behaviour and whatever is on disk now — the exact combination that broke."""
+    from fastapi import HTTPException
+
+    from lyricfield.ui import server
+
+    before = server.STARTED
+    try:
+        server.STARTED = 0.0
+        server._stale_cache["at"] = 0.0
+        with pytest.raises(HTTPException) as got:
+            server.start_run(server.RunIn(name="anything"))
+        assert got.value.status_code == 409
+        detail = got.value.detail
+        assert "changed" in detail["error"]
+        assert "Restart" in detail["fix"]
+    finally:
+        server.STARTED = before
+        server._stale_cache["at"] = 0.0
