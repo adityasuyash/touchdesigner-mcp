@@ -1,0 +1,42 @@
+# lyricfield style. Reusable across songs; contains no song data.
+
+[meta]
+name = "Equaliser"
+slug = "equaliser"
+type = "spectrum"
+description = "few wide bars mirrored about the middle, fast and heavy"
+created = "2026-09-14T18:58:04+00:00"
+source_song = ""
+
+[frame]
+width = 720
+height = 1280
+scale = 0.5
+
+[bars]
+count = 12
+fill = 0.82
+reach = 0.42
+floor_at = 0.5
+mirror = true
+settle = 0.08
+
+[caps]
+on = false
+thick = 0.008
+fall = 1.2
+hang = 0.1
+
+[look]
+hue = 0.92
+hue_span = 0.12
+sat = 0.45
+peak = 0.92
+floor = 0.03
+glow = 0.5
+bloom = 22.0
+
+[beat]
+intro_open = 0.3
+arrive = 0.85
+outro = 10.0

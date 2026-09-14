@@ -252,32 +252,19 @@ def test_peak_is_measured_at_full_resolution(media):
     assert native["peak"] >= S.BOLD_PEAK
 
 
-# Spotlight does not clear `BOLD_PEAK`, and this records that rather than
-# hiding it. It only became visible once the field script could read its params
-# at all -- before that every lyric_grid preview was a recording of the
-# renderer's defaults, which passed. With its own look applied the five styles
-# measure 0.855, 0.549, 0.867, 1.00 and 0.933, so the threshold is right and
-# Spotlight is the outlier.
+# Spotlight failed this for a while, at a peak of 0.55 where the other four
+# lyric_grid styles reached 0.855 to 1.00, and the cause turned out to have
+# nothing to do with the style: `styles._scratch_network` builds a preview with
+# `push=False`, and text calibration used to hang off `push`, so the glyphs in
+# every preview of a grid renderer sat on the font's natural 39.6px pitch while
+# the weights that light them sat on the grid's 53.3px. For a style whose words
+# sit low in the frame the two never met -- measured, the bold layer was exactly
+# zero at every frame while both its inputs peaked at 1.0.
 #
-# What has been ruled out, all measured: the field is not at fault -- run
-# standalone over the placeholder cues, Spotlight's lit character grid fills
-# (22 glyphs) and the lit weight reaches 1.0 at exactly the cells that hold
-# those glyphs. The style's own window is not at fault either: 3.5s is the only
-# stretch the placeholder cues cover, so there is nowhere else to record it.
-# The remaining suspect is the network between the two, and probing it a frame
-# at a time does not work -- the Text TOP lags the Script TOP by one cook, so
-# reading both in one call compares this frame's weights against last frame's
-# glyphs. Settling it needs a frame-by-frame capture.
-#
-# strict, so that this shouts the moment it starts passing.
+# See tests/test_calibration_container.py, which pins the fix. Spotlight now
+# measures 0.937.
 @pytest.mark.ffmpeg
-@pytest.mark.parametrize(
-    "st", [pytest.param(s, marks=pytest.mark.xfail(
-        strict=True,
-        reason="Spotlight's sung word peaks at 0.55 of white; see above"))
-           if s.slug == "spotlight" else s
-           for s in LYRIC_PREVIEWS],
-    ids=[s.slug for s in LYRIC_PREVIEWS])
+@pytest.mark.parametrize("st", LYRIC_PREVIEWS, ids=[s.slug for s in LYRIC_PREVIEWS])
 def test_a_lyric_preview_actually_lights_a_word(st):
     """The one thing a lyric preview exists to show.
 

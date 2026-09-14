@@ -120,6 +120,13 @@ class Workspace:
         return self.dir / "drums.tsv"
 
     @property
+    def bands_path(self) -> Path:
+        """How loud each frequency band is, over time. Beside `drums.tsv` and
+        for the same reason: thousands of rows on a long song, and none of them
+        belong in a TOML the UI rewrites on every edit."""
+        return self.dir / "bands.tsv"
+
+    @property
     def source_dir(self) -> Path:
         return self.dir / "source"
 

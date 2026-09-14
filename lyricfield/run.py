@@ -323,6 +323,7 @@ def _ingest(ctx: Ctx, say) -> dict:
     say(f"{vt.name} is a {vt.family} type; it needs {', '.join(sorted(vt.needs))}")
     res = pipeline.prepare(
         source, ws.config_path, ws.cues_path, ws.drums_path,
+        bands_path=ws.bands_path,
         stem_root=ws.stems_dir,
         needs=vt.needs,
         groq_key=ctx.options.get("api_key"),
@@ -400,9 +401,17 @@ def _push(ctx: Ctx, say) -> dict:
     # another renderer's words in the project for this one to ignore.
     table = CueTable.load(ws.cues_path) if cfg.video_type.needs_lyrics else None
     # Every renderer answers the drums, words or not, so this goes in always.
+    from . import types as types_mod
+    from .bands import BandTable
     from .drums import DrumTable
     drums = DrumTable.load(ws.drums_path)
-    done = attempt(lambda: sync.push_all(ctx.client, cfg, table, drums), say)
+    # Only for the renderer that draws one. Pushing a spectrum into a network
+    # with no `bands` DAT is a write to an operator that is not there, which
+    # `TDClient.write` reports as an error rather than ignoring.
+    bands = (BandTable.load(ws.bands_path)
+             if types_mod.BANDS in cfg.video_type.needs else None)
+    done = attempt(
+        lambda: sync.push_all(ctx.client, cfg, table, drums, bands), say)
     return {"pushed": done}
 
 

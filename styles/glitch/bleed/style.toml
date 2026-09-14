@@ -1,0 +1,50 @@
+# lyricfield style. Reusable across songs; contains no song data.
+
+[meta]
+name = "Bleed"
+slug = "bleed"
+type = "glitch"
+description = "permanently damaged — heavy scanlines and channels far apart"
+created = "2026-09-14T18:58:04+00:00"
+source_song = ""
+
+[stage]
+width = 720
+height = 1280
+font = "Arial"
+size = 64.0
+line_y = 0.5
+hold = 3.4
+
+[tear]
+throw = 0.05
+band = 0.025
+rest = 0.22
+kick_lift = 0.3
+kick_time = 0.2
+churn = 26.0
+
+[split]
+gap = 0.014
+snare_lift = 0.02
+snare_time = 0.18
+
+[lines]
+count = 170.0
+depth = 0.6
+roll = -20.0
+hat_lift = 0.15
+hat_time = 0.12
+
+[look]
+hue = 0.86
+sat = 0.35
+peak = 0.92
+floor = 0.04
+glow = 0.22
+bloom = 7.0
+
+[beat]
+intro_open = 0.3
+arrive = 0.85
+outro = 10.0

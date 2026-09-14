@@ -3,3 +3,5 @@
 -r requirements.txt
 pytest>=8.0
 httpx>=0.27        # for FastAPI's TestClient
+playwright>=1.40   # screenshots the control UI; see scripts/shoot_ui.py
+                   # (run `python -m playwright install chromium` once)

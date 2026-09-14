@@ -28,6 +28,7 @@ CALLBACKS = f"{ROOT}/v7_script_callbacks"
 PARAMS_DAT = f"{ROOT}/params"          # created on first push
 CUE_DAT = f"{ROOT}/lyrics"
 DRUM_DAT = f"{ROOT}/drums"
+BAND_DAT = f"{ROOT}/bands"
 DIM_DAT = f"{ROOT}/v7_chars_dim"
 LIT_DAT = f"{ROOT}/v7_chars_lit"
 OUT_TOP = f"{ROOT}/out"
@@ -160,6 +161,21 @@ def push_drums(client: TDClient, table) -> None:
     not depend on how fast TouchDesigner happens to be cooking.
     """
     client.write(DRUM_DAT, table.to_dat_text())
+
+
+def push_bands(client: TDClient, table) -> None:
+    """Write the measured spectrum into the network.
+
+    Measured offline for the same reason the drums are: a spectrum taken live
+    inside TouchDesigner depends on how fast it happens to be cooking, so a
+    preview and a render of the same second would not agree.
+    """
+    client.write(BAND_DAT, table.to_dat_text())
+
+
+def pull_bands(client: TDClient, dat: str = BAND_DAT):
+    from .bands import BandTable
+    return BandTable.from_dat_text(client.dat_text(dat))
 
 
 def pull_drums(client: TDClient, dat: str = DRUM_DAT):
@@ -438,7 +454,7 @@ def timeline_state(client: TDClient) -> dict:
 
 
 def push_all(client: TDClient, cfg: Config, table: CueTable | None = None,
-             drums=None) -> list[str]:
+             drums=None, bands=None) -> list[str]:
     done: list[str] = []
     push_params(client, cfg); done.append(f"params ({cfg.type})")
     push_field(client, cfg); done.append("field script")
@@ -446,5 +462,7 @@ def push_all(client: TDClient, cfg: Config, table: CueTable | None = None,
         push_cues(client, table); done.append(f"{len(table.cues)} cues")
     if drums is not None:
         push_drums(client, drums); done.append(f"{len(drums)} drum hits")
+    if bands is not None:
+        push_bands(client, bands); done.append(f"{len(bands)} band slices")
     reset_field_state(client); done.append("state reset")
     return done

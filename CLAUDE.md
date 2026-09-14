@@ -75,6 +75,7 @@ lyricfield/
   config.py      a song: track facts + video type + that type's params
   sections.py    the sectioned-dataclass/TOML machinery those share
   cues.py        per-word cue table, TSV, hand-editable
+  bands.py       per-band energy over time, TSV -- only `spectrum` reads it
   separate.py    Demucs stem separation (shells out to the CLI)
   transcribe.py  Groq Whisper -> word-level cues
   analysis.py    silences, kick entry, tempo, beat phase
@@ -96,11 +97,17 @@ lyricfield/
     orbit/       the line riding a parametric curve      (lyric)
     swarm/       words that fly in and are knocked apart (lyric)
     horizon/     a neon grid to a banded sun             (lyric)
+    approach/    words travelling out of the distance    (lyric)
+    glitch/      the words torn, split and scanlined     (lyric)
     pulse_grid/  the beat as light in the same field     (beatsync)
     swell/       the beat as coverage on a glyph ramp    (beatsync)
     rings/       rings leaving the centre                (beatsync)
     strata/      hard bands, struck one at a time        (beatsync)
     scope/       one glowing curve with a phosphor trail (beatsync)
+    halftone/    the beat as a printed dot screen        (beatsync)
+    spectrum/    the song's own frequency bars           (beatsync)
+docs/
+  visual-references.md   the looks these were built from, and what is out of reach
 tests/           pytest; `python -m pytest` with TouchDesigner shut
 ```
 
@@ -192,6 +199,19 @@ cost real time to discover. None is findable from the Python side.
   from the line's start, costs almost nothing and re-renders exactly.
 - **Whole-array or nothing.** 720x1280 is a million pixels a frame; a per-pixel
   Python loop is not an option. Precompute the coordinate grids once.
+- **A Text TOP has ONE font size for its whole Specification DAT.** Per-word
+  scale is therefore not available, which is why `approach` cuts its space into
+  depth slabs -- one Text TOP per slab, fixed at the size that depth calls for.
+- **A Remap TOP moves the pixels that are there**; input1 is the picture,
+  input2 the map, and `horzsource`/`vertsource` say which channel carries which
+  coordinate. It is how `glitch` tears. Drawing displaced rectangles instead
+  looks like rectangles.
+- **A Reorder TOP takes FOUR inputs**, so a three-way channel split is one
+  operator rather than a tree of them.
+- **A map that is linear in x can be computed eight pixels wide.** Interpolating
+  it back up to frame width is then exact, not approximate -- `glitch`'s tear
+  field is a per-row displacement, so a full-resolution map would be a million
+  floats a frame for no difference at all.
 
 ### Concepts
 
@@ -280,6 +300,15 @@ re-introduce them by calling the raw tools.
   reporting success. It now bypasses the Script TOP itself, applies the solved
   geometry to **both** text layers, puts the old geometry back if it fails, and
   reports failure as a build problem.
+- **Calibration belongs to the container, not to the push.** `calibrate_text`
+  solves the four glyph-placement numbers by measurement; it used to be called
+  only when `push` was true and to address `/project1` by name. `styles.
+  _scratch_network` builds a preview with `push=False`, so the solve never ran
+  there and every preview of a grid renderer drew its glyphs on the font's
+  natural 39.6px pitch while the weights that light them sat on the grid's
+  53.3px. The two never met for a style whose words sit low in the frame:
+  Spotlight's bold layer measured exactly zero at every frame of a capture while
+  both its inputs peaked at 1.0. Both halves are now addressed by container.
 - **A stopped run strands the recorder.** Halting playback leaves
   `_mcp_movieout` in the network and every later render refuses to start, so the
   stop path tears it down (`render.stop_recording`).

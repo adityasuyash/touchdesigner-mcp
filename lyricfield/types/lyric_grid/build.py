@@ -245,7 +245,8 @@ def load_analysis_component(client, cfg, progress=None, container: str = ROOT) -
 
 # ----------------------------------------------------------------- calibration
 
-def _glyph_centre(client, cfg, cell, tracking, spacing, posx=0.0, posy=0.0):
+def _glyph_centre(client, cfg, cell, tracking, spacing, posx=0.0, posy=0.0,
+                  container: str = ROOT):
     """Write one glyph at `cell` and return where its pixels actually land.
 
     Returns (cx, cy) in pixels from the top-left of the frame, or None if the
@@ -255,13 +256,13 @@ def _glyph_centre(client, cfg, cell, tracking, spacing, posx=0.0, posy=0.0):
     r, c = cell
     rows = [[" "] * g.cols for _ in range(g.vrows)]
     rows[r][c] = "#"
-    client.write(f"{ROOT}/v7_chars_dim", "\n".join("".join(x) for x in rows))
-    client.call("set", path=f"{ROOT}/v7_text_dim",
+    client.write(f"{container}/v7_chars_dim", "\n".join("".join(x) for x in rows))
+    client.call("set", path=f"{container}/v7_text_dim",
                 params={"trackingx": tracking, "linespacing": spacing,
                         "positionx": posx, "positiony": posy})
     out = _run(client, f"""
     import numpy as np
-    t = op({ROOT + '/v7_text_dim'!r})
+    t = op({container + '/v7_text_dim'!r})
     t.cook(force=True)
     a = t.numpyArray()
     lum = a[:, :, :3].max(axis=2)
@@ -284,7 +285,7 @@ def _glyph_centre(client, cfg, cell, tracking, spacing, posx=0.0, posy=0.0):
 def _text_geometry(client, container: str = ROOT) -> dict | None:
     """The four glyph-placement numbers as they stand, so they can be put back."""
     out = _run(client, f"""
-    t = op({TEXT_TOPS[0]!r})
+    t = op({container + '/v7_text_dim'!r})
     if t is None:
         return 'NONE'
     return '%r %r %r %r' % (t.par.trackingx.eval(), t.par.linespacing.eval(),
@@ -300,25 +301,27 @@ def _text_geometry(client, container: str = ROOT) -> dict | None:
 
 
 def apply_text_geometry(client, tracking: float, spacing: float,
-                        posx: float, posy: float) -> None:
+                        posx: float, posy: float,
+                        container: str = ROOT) -> None:
     """Put the solved geometry on BOTH text layers.
 
     The lit layer used to be left at whatever it was created with, because
     calibration only ever touched the dim layer it probed through -- so the bold
     words sat on a different grid from the dim ones.
     """
-    for path in TEXT_TOPS:
-        client.call("set", path=path,
+    for name in ("v7_text_dim", "v7_text_lit"):
+        client.call("set", path=f"{container}/{name}",
                     params={"trackingx": tracking, "linespacing": spacing,
                             "positionx": posx, "positiony": posy})
 
 
-def _give_up(client, before: dict | None, error: str) -> dict:
+def _give_up(client, before: dict | None, error: str,
+             container: str = ROOT) -> dict:
     """Abandon the solve without leaving probe values on the network."""
     if before:
-        apply_text_geometry(client, **before)
+        apply_text_geometry(client, container=container, **before)
     _run(client, f"""
-    sc = op({SCRIPT_TOP_NAME!r})
+    sc = op({container + '/v7_script'!r})
     if sc is not None:
         sc.bypass = False
     return 'ok'
@@ -326,7 +329,7 @@ def _give_up(client, before: dict | None, error: str) -> dict:
     return {"ok": False, "error": error}
 
 
-def calibrate_text(client, cfg, progress=None) -> dict:
+def calibrate_text(client, cfg, progress=None, container: str = ROOT) -> dict:
     """Solve the Text TOP geometry by measurement instead of by algebra.
 
     The four numbers that place glyphs on the grid -- positionx, positiony,
@@ -347,7 +350,7 @@ def calibrate_text(client, cfg, progress=None) -> dict:
     g = cfg.grid
     cell_w, cell_h = g.width / g.cols, g.height / g.vrows
     probe = lambda cell, t, sp, px=0.0, py=0.0: _glyph_centre(
-        client, cfg, cell, t, sp, px, py)
+        client, cfg, cell, t, sp, px, py, container=container)
 
     # Probing writes directly into the character DAT and reads the Text TOP
     # back, so the Script TOP must not be rewriting that DAT underneath it --
@@ -357,9 +360,9 @@ def calibrate_text(client, cfg, progress=None) -> dict:
     # value (trackingx 0.1, linespacing 0), which silently shrank the row pitch
     # from 53px to 40px and left the bottom third of every frame empty, while
     # the build still reported success.
-    before = _text_geometry(client, container=ROOT)
+    before = _text_geometry(client, container=container)
     _run(client, f"""
-    sc = op({SCRIPT_TOP_NAME!r})
+    sc = op({container + '/v7_script'!r})
     was = bool(sc.bypass) if sc is not None else False
     if sc is not None:
         sc.bypass = True
@@ -367,20 +370,42 @@ def calibrate_text(client, cfg, progress=None) -> dict:
 """)
 
     say("probing natural glyph advance")
-    # Measure across the whole grid, not between neighbouring cells. TouchDesigner
-    # lays glyphs on integer pixels, so a single step carries a rounding error that
-    # the solve then multiplies by the number of rows: one-step gave 39.27px per
-    # row where the true pitch is 40.05, and the bottom of the frame came out 14px
-    # adrift. Corner to corner, divided by the span, averages that away.
+    # Measure across as much of the grid as will fit, not between neighbouring
+    # cells. TouchDesigner lays glyphs on integer pixels, so a single step
+    # carries a rounding error that the solve then multiplies by the number of
+    # rows: one-step gave 39.27px per row where the true pitch is 40.05, and the
+    # bottom of the frame came out 14px adrift. A long span averages that away.
+    #
+    # "As much as will fit" rather than corner to corner, because at the natural
+    # advance a wide grid runs off the edge before its last column: 32 columns of
+    # a 50px font need about 960px of a 720px frame, the corner probe simply did
+    # not render, and the solve gave up -- leaving the Script TOP bypassed and
+    # the probe values on the Text TOP, which is a black preview. Three styles
+    # shipped that way.
     last_r, last_c = g.vrows - 1, g.cols - 1
+    if last_r < 1 or last_c < 1:
+        return _give_up(client, before, "a grid needs at least two rows and two "
+                                        "columns to measure an advance", container)
     p00 = probe((0, 0), 0.0, 0.0)
-    p0N = probe((0, last_c), 0.0, 0.0)
-    pN0 = probe((last_r, 0), 0.0, 0.0)
-    if None in (p00, p0N, pN0) or last_r < 1 or last_c < 1:
-        return {"ok": False, "error": "probe glyphs did not render; "
-                                      "check the font name and that the Script TOP is bypassed"}
-    adv_x0 = (p0N[0] - p00[0]) / last_c
-    adv_y0 = (pN0[1] - p00[1]) / last_r
+    p01 = probe((0, 1), 0.0, 0.0)
+    p10 = probe((1, 0), 0.0, 0.0)
+    if None in (p00, p01, p10):
+        return _give_up(client, before, "probe glyphs did not render; check the "
+                                        "font name and that the Script TOP is "
+                                        "bypassed", container)
+    # One step is enough to say how far the span may reach before it leaves the
+    # frame; it is not enough to solve from.
+    step_x = max(1e-3, abs(p01[0] - p00[0]))
+    step_y = max(1e-3, abs(p10[1] - p00[1]))
+    far_c = max(1, min(last_c, int(g.width * 0.92 / step_x)))
+    far_r = max(1, min(last_r, int(g.height * 0.92 / step_y)))
+
+    p0N = probe((0, far_c), 0.0, 0.0)
+    pN0 = probe((far_r, 0), 0.0, 0.0)
+    if p0N is None or pN0 is None:
+        return _give_up(client, before, "the span probe did not render", container)
+    adv_x0 = (p0N[0] - p00[0]) / far_c
+    adv_y0 = (pN0[1] - p00[1]) / far_r
 
     say(f"natural advance {adv_x0:.3f}px x {adv_y0:.3f}px; want {cell_w:.3f} x {cell_h:.3f}")
 
@@ -390,23 +415,27 @@ def calibrate_text(client, cfg, progress=None) -> dict:
     # corner 14px out of its cell. So measure both slopes the same way: nudge
     # the parameter by a known amount and see how far the advance actually moves.
     probe_t = 0.1
-    p0Nt = probe((0, last_c), probe_t, 0.0)
+    p0Nt = probe((0, far_c), probe_t, 0.0)
     p00t = probe((0, 0), probe_t, 0.0)
     if p0Nt is None or p00t is None:
-        return _give_up(client, before, 'tracking probe did not render')
-    k_x = (((p0Nt[0] - p00t[0]) / last_c) - adv_x0) / probe_t
+        return _give_up(client, before, 'tracking probe did not render',
+                        container)
+    k_x = (((p0Nt[0] - p00t[0]) / far_c) - adv_x0) / probe_t
     if abs(k_x) < 1e-6:
-        return _give_up(client, before, 'tracking has no measurable effect on advance')
+        return _give_up(client, before,
+                        'tracking has no measurable effect on advance', container)
     tracking = (cell_w - adv_x0) / k_x
 
     probe_s = 10.0
-    pN0s = probe((last_r, 0), 0.0, probe_s)
+    pN0s = probe((far_r, 0), 0.0, probe_s)
     p00s = probe((0, 0), 0.0, probe_s)
     if pN0s is None or p00s is None:
-        return _give_up(client, before, 'line spacing probe did not render')
-    k_y = (((pN0s[1] - p00s[1]) / last_r) - adv_y0) / probe_s
+        return _give_up(client, before, 'line spacing probe did not render',
+                        container)
+    k_y = (((pN0s[1] - p00s[1]) / far_r) - adv_y0) / probe_s
     if abs(k_y) < 1e-6:
-        return _give_up(client, before, 'line spacing has no measurable effect on advance')
+        return _give_up(client, before,
+                        'line spacing has no measurable effect on advance', container)
     spacing = (cell_h - adv_y0) / k_y
     say(f"advance slopes: {k_x:.4f}px per tracking unit, "
         f"{k_y:.4f}px per spacing unit")
@@ -415,7 +444,7 @@ def calibrate_text(client, cfg, progress=None) -> dict:
     say(f"solved tracking {tracking:.6f}, linespacing {spacing:.4f}; solving offset")
     base = probe((0, 0), tracking, spacing)  # noqa: E501
     if base is None:
-        return _give_up(client, before, 'offset probe did not render')
+        return _give_up(client, before, 'offset probe did not render', container)
     posx = cell_w / 2.0 - base[0]
     posy = -(cell_h / 2.0 - base[1])      # TD's positiony is +up, pixels are +down
 
@@ -438,12 +467,13 @@ def calibrate_text(client, cfg, progress=None) -> dict:
             res["error"] = (f"corner glyph is {worst:.1f}px off its cell centre; "
                             "the solve did not converge")
     if res["ok"]:
-        apply_text_geometry(client, tracking, spacing, posx, posy)
+        apply_text_geometry(client, tracking, spacing, posx, posy,
+                            container=container)
     elif before:
         say("calibration did not converge; putting the previous geometry back")
-        apply_text_geometry(client, **before)
+        apply_text_geometry(client, container=container, **before)
     _run(client, f"""
-    sc = op({SCRIPT_TOP_NAME!r})
+    sc = op({container + '/v7_script'!r})
     if sc is not None:
         sc.bypass = False
     return 'ok'
@@ -463,8 +493,10 @@ def build(client, cfg, progress=None, container: str = ROOT,
     sub-container is how a build is exercised without demolishing the network
     that is answering the call -- which is also how it is tested.
 
-    `push` and `calibrate` are off for that case: `sync` addresses `/project1` by
-    name, and calibration needs the real Script TOP bypassed.
+    `push` is off for that case, because `sync` addresses `/project1` by name.
+    `calibrate` is NOT -- it works on whatever container it is given, and a
+    sub-container that is never calibrated draws its glyphs on the font's
+    natural pitch rather than the grid's.
     """
     from ... import sync
 
@@ -492,18 +524,29 @@ def build(client, cfg, progress=None, container: str = ROOT,
         say("pushing field script, params and cues")
         sync.push_field(client, cfg)
         sync.push_params(client, cfg)
-        if calibrate:
-            cal = calibrate_text(client, cfg, say)
-            result["calibration"] = cal
-            # A build that could not place the glyphs is not a successful build.
-            # Silently carrying on left the row pitch at the font's natural
-            # advance, which is smaller than a cell, so the grid drew short of
-            # the frame and the bottom of every render was empty.
-            if not cal.get("ok"):
-                problems.append(
-                    "text calibration failed: " + str(cal.get("error", "unknown"))
-                    + " -- glyph placement is whatever it was before, so the "
-                      "grid may not line up with the frame")
+
+    # Calibration is about the container that was just built, not about whether
+    # anything was pushed into `/project1`. Tying the two together is how every
+    # preview of a grid renderer came back with the glyphs on the font's natural
+    # 39.6px pitch instead of the cell's 53.3px: `styles._scratch_network`
+    # builds with `push=False`, so the solve never ran in the scratch container,
+    # so the text drew short. It is not subtle once measured -- the lit words
+    # and the lit weights are on different grids, and their product, which is
+    # what the bold layer IS, was zero at every frame of Spotlight's preview.
+    if calibrate:
+        cal = calibrate_text(client, cfg, say, container=container)
+        result["calibration"] = cal
+        # A build that could not place the glyphs is not a successful build.
+        # Silently carrying on left the row pitch at the font's natural
+        # advance, which is smaller than a cell, so the grid drew short of
+        # the frame and the bottom of every render was empty.
+        if not cal.get("ok"):
+            problems.append(
+                "text calibration failed: " + str(cal.get("error", "unknown"))
+                + " -- glyph placement is whatever it was before, so the "
+                  "grid may not line up with the frame")
+
+    if push:
         say("resuming")
         sync.resume(client)
 

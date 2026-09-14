@@ -344,6 +344,95 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "swell.snare_frac": 0.14, "swell.snare_time": 0.16,
       "swell.high_grain": 0.45, "swell.reroll": 6.0,
       "grid.cols": 16}),
+
+    # ------------------------------------------------------- approach
+    # From the Chainsmokers' "Closer": the lyrics travelling through 3D space.
+    # The two styles are the two readings of that -- a slow drift out of the
+    # dark, and a hard rush past the camera.
+    ("approach", "Corridor",
+     "words drifting out of the dark, far apart and deep",
+     {"travel.far_z": 13.0, "travel.near_z": 0.7, "travel.seconds": 4.2,
+      "travel.spread": 0.22, "travel.size_at_one": 150.0,
+      "depth.layers": 6, "depth.fog": 0.10, "depth.haze": 7.0,
+      "stage.vanish_x": 0.5, "stage.vanish_y": 0.44,
+      "look.hue": 0.57, "look.sat": 0.30, "look.glow": 0.42,
+      "look.bloom": 26.0, "beat.kick_lift": 0.06}),
+
+    ("approach", "Flyby",
+     "words rushing past close and fast, thrown wide of the centre",
+     {"travel.far_z": 4.0, "travel.near_z": 0.4, "travel.seconds": 1.3,
+      "travel.spread": 0.8, "travel.size_at_one": 230.0,
+      "depth.layers": 4, "depth.fog": 0.4, "depth.haze": 2.0,
+      "stage.vanish_x": 0.42, "stage.vanish_y": 0.5,
+      "look.hue": 0.05, "look.sat": 0.22, "look.glow": 0.2,
+      "look.bloom": 9.0, "beat.kick_lift": 0.14}),
+
+    # --------------------------------------------------------- glitch
+    ("glitch", "Dropout",
+     "a clean signal that tears wide open on the beat",
+     {"tear.rest": 0.01, "tear.throw": 0.2, "tear.band": 0.09,
+      "tear.kick_lift": 0.85, "tear.churn": 14.0,
+      "split.gap": 0.001, "split.snare_lift": 0.045,
+      "lines.count": 150.0, "lines.depth": 0.2, "lines.roll": 90.0,
+      "lines.hat_lift": 0.3,
+      "stage.size": 92.0,
+      "look.hue": 0.52, "look.sat": 0.08, "look.glow": 0.36,
+      "look.bloom": 16.0}),
+
+    ("glitch", "Bleed",
+     "permanently damaged — heavy scanlines and channels far apart",
+     {"tear.rest": 0.22, "tear.throw": 0.05, "tear.band": 0.025,
+      "tear.kick_lift": 0.3, "tear.churn": 26.0,
+      "split.gap": 0.014, "split.snare_lift": 0.02,
+      # 420 lines over a 1280-high frame is three pixels each, which no
+      # player and no preview can resolve -- downscaled, the dark lines average
+      # into the glyph cores and the type stops reaching the bold layer at all
+      # (measured: a peak of 0.72 against the 0.78 a lit word has to clear).
+      # Coarser and deeper reads heavier, not lighter.
+      "lines.count": 170.0, "lines.depth": 0.6, "lines.roll": -20.0,
+      "lines.hat_lift": 0.15,
+      "stage.size": 64.0, "stage.hold": 3.4,
+      "look.hue": 0.86, "look.sat": 0.35, "look.floor": 0.04,
+      "look.glow": 0.22, "look.bloom": 7.0}),
+
+    # ------------------------------------------------------- halftone
+    ("halftone", "Newsprint",
+     "a fine grey screen, the way a photograph prints in a paper",
+     {"screen.pitch": 90.0, "screen.angle": 45.0, "screen.dot": 0.66,
+      "screen.soft": 0.09,
+      "ink.separate": False, "ink.hue": 0.1, "ink.sat": 0.05,
+      "tone.base": 0.06, "tone.kick_lift": 0.7, "tone.snare_lift": 0.35,
+      "tone.hat_lift": 0.06, "tone.wave": 0.1, "tone.vignette": 0.7,
+      "look.glow": 0.12, "look.bloom": 5.0}),
+
+    ("halftone", "Rosette",
+     "three coarse screens at printer's angles, beating into a rosette",
+     {"screen.pitch": 26.0, "screen.angle": 15.0, "screen.dot": 0.7,
+      "screen.soft": 0.16,
+      "ink.separate": True, "ink.spread": 30.0, "ink.hue": 0.02,
+      "ink.sat": 0.5,
+      "tone.base": 0.14, "tone.kick_lift": 0.6, "tone.snare_lift": 0.4,
+      "tone.hat_lift": 0.1, "tone.wave": 0.1, "tone.vignette": 0.35,
+      "look.glow": 0.4, "look.bloom": 18.0}),
+
+    # ------------------------------------------------------- spectrum
+    ("spectrum", "Analyser",
+     "the classic: tall thin bars off the floor, with peak caps",
+     {"bars.count": 40, "bars.fill": 0.55, "bars.reach": 0.72,
+      "bars.floor_at": 0.94, "bars.mirror": False, "bars.settle": 0.28,
+      "caps.on": True, "caps.thick": 0.005, "caps.fall": 0.4,
+      "caps.hang": 0.3,
+      "look.hue": 0.45, "look.hue_span": 0.4, "look.sat": 0.7,
+      "look.glow": 0.3, "look.bloom": 11.0}),
+
+    ("spectrum", "Equaliser",
+     "few wide bars mirrored about the middle, fast and heavy",
+     {"bars.count": 12, "bars.fill": 0.82, "bars.reach": 0.42,
+      "bars.floor_at": 0.5, "bars.mirror": True, "bars.settle": 0.08,
+      "caps.on": False, "caps.thick": 0.008, "caps.fall": 1.2,
+      "caps.hang": 0.1,
+      "look.hue": 0.92, "look.hue_span": 0.12, "look.sat": 0.45,
+      "look.floor": 0.03, "look.glow": 0.5, "look.bloom": 22.0}),
 ]
 
 
