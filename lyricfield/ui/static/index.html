@@ -396,6 +396,12 @@
 </header>
 
 <main>
+  <!-- Every message the app produces used to go to `note()`, which writes into
+       #checks -- a div inside a collapsed <details> inside a container that is
+       hidden until a song is selected. So an API refusal, an error, anything:
+       invisible. Pressing Make the video with a stale server did exactly what
+       it was told to do, said so, and looked completely dead. -->
+  <div class="banner" id="alerts" hidden></div>
   <section class="group"><div class="pad">
     <h2 class="title">Make a video</h2>
     <p class="sub">Pick a song and a look. Everything else happens on its own.</p>
@@ -597,6 +603,7 @@ let BACK_TYPE = '', BACK_STYLE = '';
 // server every time -- so picking a tile and then choosing a song silently put
 // the tile back. A pick is now the more recent truth until the page reloads.
 let PICKED = false;
+let STALE_SAID = false;
 // The run's timestamps are the server's. Usually the same machine, but not
 // necessarily the same clock, so measure the difference rather than assume it.
 let NOW_SKEW = 0;
@@ -611,7 +618,41 @@ async function api(path, opts) {
   }
   return r.status === 204 ? null : r.json();
 }
-function showErr(e) { note(String(e.message || e), 'bad'); }
+function showErr(e) { alertNow(String(e.message || e), 'bad'); }
+
+// Say it where it can be seen, and keep the drawer as the log.
+function alertNow(text, kind) {
+  note(text, kind);
+  const host = $('#alerts');
+  host.className = 'banner ' + (kind === 'bad' ? 'bad' : 'warn');
+  // An API refusal arrives as `409 {"error":...,"fix":...}` -- readable, but
+  // not a sentence. Unwrap it into one.
+  let msg = text, fix = '';
+  const brace = text.indexOf('{');
+  if (brace > -1) {
+    try {
+      const d = JSON.parse(text.slice(brace));
+      if (d && d.error) { msg = d.error; fix = d.fix || ''; }
+    } catch (e) { /* leave it as it came */ }
+  }
+  host.innerHTML = '';
+  const line = document.createElement('div');
+  line.textContent = msg;
+  host.append(line);
+  if (fix) {
+    const f = document.createElement('div');
+    f.style.opacity = '.8'; f.style.marginTop = '4px';
+    f.textContent = fix;
+    host.append(f);
+  }
+  const x = document.createElement('button');
+  x.type = 'button'; x.className = 'btn quiet';
+  x.style.cssText = 'padding:2px 10px;margin-top:6px';
+  x.textContent = 'Dismiss';
+  x.onclick = () => { host.hidden = true; };
+  host.append(x);
+  host.hidden = false;
+}
 function note(text, kind) {
   const host = $('#checks');
   if (host.querySelector('.empty')) host.innerHTML = '';
@@ -705,9 +746,18 @@ async function poll() {
     // hour to report the wrong thing.
     const stale = s.stale || [];
     $('#staleBox').hidden = !stale.length;
-    if (stale.length)
+    if (stale.length) {
       $('#staleText').textContent =
         `server is running older code — ${stale.length} file${stale.length > 1 ? 's' : ''} changed`;
+      // Runs are refused while stale, so this has to be visible before the
+      // button is pressed rather than only after it appears to do nothing.
+      if (!STALE_SAID) {
+        STALE_SAID = true;
+        alertNow('The control server is running code from before your last '
+                 + 'change, so a run would mix old behaviour with new data. '
+                 + 'Press Restart in the header, then try again.', 'warn');
+      }
+    } else { STALE_SAID = false; }
     renderStages(s.run);
     setControls(s.run);
     const busy = s.run && s.run.state === 'running';

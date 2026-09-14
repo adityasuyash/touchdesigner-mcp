@@ -152,3 +152,69 @@ def test_a_run_is_refused_while_the_server_is_stale():
     finally:
         server.STARTED = before
         server._stale_cache["at"] = 0.0
+
+
+def test_an_api_refusal_becomes_something_a_person_can_see():
+    """Every message the app produced went to `note()`, which writes into
+    `#checks` — a div inside a collapsed <details> inside a container hidden
+    until a song is selected. So pressing Make the video against a stale server
+    did exactly what it was told, said so, and looked completely dead.
+
+    Runs the page's whole script against a fake DOM and checks that a 409 with
+    a structured detail arrives as a visible sentence carrying its remedy.
+    """
+    import json
+    import shutil
+    import subprocess
+
+    deno = shutil.which("deno")
+    if not deno:
+        pytest.skip("no JavaScript engine available")
+
+    src = (REPO / "lyricfield" / "ui" / "static" / "index.html").read_text()
+    blocks = re.findall(r"<script[^>]*>(.*?)</script>", src, re.S)
+    probe = r"""
+class El {
+  constructor(t){ this.tag=t; this.children=[]; this.style={}; this.dataset={};
+    this.attrs={}; this.classList={add(){},remove(){},toggle(){}};
+    this._text=""; this._html=""; this.hidden=false; this.className=""; this.value=""; }
+  append(...k){ k.forEach(x=>this.children.push(x)); }
+  prepend(x){ this.children.unshift(x); }
+  setAttribute(k,v){ this.attrs[k]=v; }
+  removeChild(){} remove(){} querySelector(){ return null; }
+  querySelectorAll(){ return []; } addEventListener(){}
+  set textContent(v){ this._text=v; } get textContent(){ return this._text; }
+  set innerHTML(v){ this._html=v; if(v==="") this.children=[]; } get innerHTML(){ return this._html; }
+  get lastChild(){ return this.children[this.children.length-1]; }
+}
+const nodes = {};
+globalThis.document = { createElement: t => new El(t),
+  querySelector: s => (nodes[s] ||= new El("div")), querySelectorAll: () => [],
+  documentElement: { getAttribute(){return null;}, setAttribute(){} },
+  addEventListener(){}, title: "" };
+globalThis.window = { addEventListener(){}, matchMedia: () => ({matches:false}) };
+globalThis.localStorage = { getItem(){return null;}, setItem(){} };
+// Enough shape that init() does not reject; the test is about showErr, and an
+// unhandled rejection would kill the process before it is reached.
+globalThis.fetch = async () => ({ ok:true, status:200, json: async()=>({
+  config:{track:{}}, sections:[], ranges:{}, controls:[], type:"lyric_grid",
+  types:[], styles:[], songs:[], takes:[], cues:[], problems:[] }) });
+globalThis.addEventListener = () => {};
+globalThis.setInterval = () => 0; globalThis.setTimeout = () => 0;
+const api = new Function(SRC + "\nreturn {showErr};")();
+api.showErr(new Error(REFUSAL));
+const h = nodes["#alerts"];
+const said = h.children.map(c => c.textContent || "").join(" | ");
+console.log(JSON.stringify({hidden: h.hidden, said}));
+"""
+    refusal = ('409 ' + json.dumps({
+        "error": "the control server is running code from before 1 file changed",
+        "fix": "press Restart to reload it, then run again"}))
+    script = (f"const SRC = {json.dumps(chr(10).join(blocks))};\n"
+              f"const REFUSAL = {json.dumps(refusal)};\n" + probe)
+    r = subprocess.run([deno, "eval", script], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr[-800:]
+    out = json.loads(r.stdout.strip().splitlines()[-1])
+    assert out["hidden"] is False, "the refusal is still invisible"
+    assert "running code from before" in out["said"], out["said"]
+    assert "press Restart" in out["said"], "the remedy was dropped"
