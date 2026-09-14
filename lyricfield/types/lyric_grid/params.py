@@ -420,13 +420,22 @@ class Params:
                 "and below 1")
         if not bd.back_glyphs:
             out.append("back_glyphs cannot be empty; there would be nothing to draw")
-        # Turning the decoration off AND leaving no backdrop is a black screen in
-        # every lyric gap -- the exact failure `_stanzas` fills ambient windows to
-        # prevent. Two settings that are each fine alone.
-        if c.ambient_target == 0 and bd.back_level <= 0.0:
+        return out
+
+    def notes(self) -> list[str]:
+        """True things worth saying that are not faults.
+
+        `validate()` means "this render cannot be trusted" and blocks a push.
+        Words alone on black is unusual but it is a choice somebody can make on
+        purpose -- it is what the None backdrop is FOR -- so it belongs here.
+        Putting it in `validate()` made the one preset that expresses it
+        impossible to apply.
+        """
+        out: list[str] = []
+        if self.cueing.ambient_target == 0 and self.backdrop.back_level <= 0.0:
             out.append(
-                "ambient_target 0 with no backdrop leaves every lyric gap, and the "
-                "whole outro, completely black"
+                "nothing is drawn between the words, so every lyric gap and the "
+                "whole outro will be black"
             )
         return out
 

@@ -583,6 +583,14 @@ let TAKE_FILE = '';        // basename of the take on screen, for Download
 // Which renderer the gallery currently has selected. A style implies one; a
 // built-in tile names one directly.
 let TYPE_SLUG = '';
+// What sits behind the words, picked independently of the word look. Null means
+// "whatever the config already says"; a value is an explicit choice.
+let BACKDROP = '', BACKDROPS = [];
+// Set the moment anyone touches the gallery. `refreshAll` runs on song select
+// and when a run finishes, and it used to overwrite the selection from the
+// server every time -- so picking a tile and then choosing a song silently put
+// the tile back. A pick is now the more recent truth until the page reloads.
+let PICKED = false;
 // The run's timestamps are the server's. Usually the same machine, but not
 // necessarily the same clock, so measure the difference rather than assume it.
 let NOW_SKEW = 0;
@@ -956,8 +964,46 @@ function renderGallery() {
     for (const st of fams[fam]) grid.append(styleCard(st));
     if (fam === 'lyric') grid.append(customCard());
     wrap.append(h, grid); host.append(wrap);
+    if (fam === 'lyric') host.append(backdropRow());
   }
   showStyleNote();
+}
+
+// The word look and what sits behind it are two choices, not one. They used to
+// be a single radio group over whole renderers, so picking a beat look replaced
+// the lyric one -- there was no way to have both.
+function backdropRow() {
+  const wrap = document.createElement('div'); wrap.className = 'famrow';
+  const vt = (TYPES || []).find(t => t.slug === TYPE_SLUG);
+  // A beatsync renderer IS the backdrop; offering it a choice here would be a
+  // control that does nothing.
+  wrap.hidden = !(vt && vt.needs_lyrics);
+  const h = document.createElement('h3'); h.className = 'eyebrow';
+  h.textContent = 'Behind the words';
+  const grid = document.createElement('div'); grid.className = 'gallery';
+  const mine = (BACKDROPS || []).filter(b => b.type === TYPE_SLUG);
+  for (const b of mine) grid.append(backdropCard(b));
+  wrap.append(h, grid);
+  return wrap;
+}
+
+function backdropCard(b) {
+  const on = b.key === BACKDROP;
+  const el = document.createElement('button');
+  el.type = 'button'; el.className = 'scard';
+  el.setAttribute('role', 'radio'); el.setAttribute('aria-checked', String(on));
+  el.title = b.description || '';
+  const t = document.createElement('div'); t.className = 'thumb';
+  const poster = b.preview ? b.preview.replace(/\.mp4$/, '.png') : '';
+  if (b.has_preview && on)
+    t.innerHTML = `<video src="${b.preview}" autoplay loop muted playsinline poster="${poster}"></video>`;
+  else if (b.has_preview)
+    t.innerHTML = `<img src="${poster}" alt="${b.name}">`;
+  else t.innerHTML = '<span class="noprev">no preview yet</span>';
+  const c = document.createElement('span'); c.className = 'cap'; c.textContent = b.name;
+  el.append(t, c);
+  el.onclick = () => { BACKDROP = b.key; PICKED = true; renderGallery(); };
+  return el;
 }
 function styleCard(st) {
   // A built-in tile is identified by its type, since every one of them has an
@@ -981,6 +1027,11 @@ function styleCard(st) {
     // its own type and that has always won; this makes the built-ins say so too.
     STYLE_SLUG = st.slug || '';
     TYPE_SLUG = st.type || TYPE_SLUG;
+    PICKED = true;
+    // The advanced <select> is the same choice by another route; leaving it
+    // stale meant the two disagreed until the next refresh, and the refresh
+    // resolved it in favour of the select.
+    const sel = $('#vtype'); if (sel) sel.value = TYPE_SLUG;
     renderGallery();
   };
   return b;
@@ -1077,6 +1128,7 @@ function runBody(extra) {
     // had selected, so a beatsync look silently rendered as lyric_grid.
     type: TYPE_SLUG || null,
     style: STYLE_SLUG || null,
+    backdrop: BACKDROP || null,
     language: $('#lang').value.trim() || null,
     prompt: $('#prompt').value.trim() || null,
     force_separate: $('#fsep').checked,
@@ -1291,6 +1343,25 @@ function controls() {
   all.append(body); host.append(all);
 }
 
+// Which preset the config's current numbers match, so the row shows the truth
+// rather than a default. Presets are exact sets of values, so this is an exact
+// comparison -- a config that has been hand-tuned away from all of them matches
+// none, and the row shows nothing selected, which is honest.
+function backdropOf(cfg) {
+  for (const b of (BACKDROPS || [])) {
+    if (b.type !== cfg.type && b.type !== TYPE_SLUG) continue;
+    let all = true;
+    for (const [path, want] of Object.entries(b.sets || {})) {
+      const [sec, name] = path.split('.');
+      if (!cfg[sec] || Math.abs((cfg[sec][name] ?? NaN) - want) > 1e-6) {
+        all = false; break;
+      }
+    }
+    if (all) return b.key;
+  }
+  return '';
+}
+
 // ------------------------------------------------------------------- types
 async function loadTypes() {
   const d = await api('/api/types');
@@ -1299,6 +1370,7 @@ async function loadTypes() {
   // with no renderer chosen and the first Generate falls back to the default
   // without ever having said so.
   if (!TYPE_SLUG) TYPE_SLUG = d.default || (TYPES[0] || {}).slug || '';
+  BACKDROPS = (await api('/api/backdrops').catch(() => ({}))).backdrops || [];
   const sel = $('#vtype'); sel.innerHTML = '';
   for (const t of TYPES) {
     const o = document.createElement('option');
@@ -1306,7 +1378,8 @@ async function loadTypes() {
   }
 }
 $('#vtype').onchange = async e => {
-  if (!CURRENT_SLUG) return;
+  TYPE_SLUG = e.target.value; PICKED = true;
+  if (!CURRENT_SLUG) { renderGallery(); return; }
   await api(`/api/songs/${CURRENT_SLUG}/type`, {method:'POST',
     body: JSON.stringify({type: e.target.value})}).catch(showErr);
   await refreshAll();
@@ -1318,8 +1391,15 @@ async function refreshAll() {
   if (!c) return;
   CFG = c.config; CFG.__sections = c.sections; CFG_RANGES = c.ranges || {};
   CFG_CONTROLS = c.controls || [];
-  $('#vtype').value = c.type;
-  TYPE_SLUG = c.type || TYPE_SLUG;
+  $('#vtype').value = PICKED ? (TYPE_SLUG || c.type) : c.type;
+  // Adopt the server's choice only when nobody has made one here. This used to
+  // be unconditional, so selecting a song -- or simply finishing a run -- put
+  // the gallery back to whatever the song was last saved as, with no message.
+  if (!PICKED) {
+    TYPE_SLUG = c.type || TYPE_SLUG;
+    STYLE_SLUG = CFG.track.style || '';
+    BACKDROP = backdropOf(CFG);
+  }
   const vt = TYPES.find(t => t.slug === c.type);
   $('#vtypenote').textContent = vt ? `${vt.description} · needs ${vt.needs.join(', ')}` : '';
   $('#typeField').hidden = TYPES.length < 2;
@@ -1329,7 +1409,12 @@ async function refreshAll() {
     $('#fullLabel').textContent = `Full track ${m}:${String(s).padStart(2,'0')}`;
   }
   await loadStyles();
-  if (CFG.track.style) { STYLE_SLUG = CFG.track.style; renderGallery(); }
+  // and never half of it: STYLE_SLUG used to be adopted only when the song had
+  // a style, while TYPE_SLUG was adopted always. Changing the type clears
+  // track.style server-side, so the guard failed and left a beatsync style tile
+  // lit under a lyric renderer -- a mismatched pair that the run then resolved
+  // in favour of the style, switching renderer behind the UI.
+  renderGallery();
   (c.problems || []).forEach(p => note(p, 'warn'));
   if (CURRENT_SLUG) { $('#detailSections').hidden = false; controls(); loadCues(); loadTakes(); }
 }

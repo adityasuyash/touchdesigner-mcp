@@ -73,12 +73,83 @@ def test_no_pick_at_all_leaves_the_song_alone(song):
     assert song.load_config().type == types_mod.DEFAULT_TYPE
 
 
+# --------------------------------------------------------- the backdrop
+
+BACKDROPS = [b[0] for b in
+             types_mod.get_type(types_mod.DEFAULT_TYPE)._params_module().BACKDROPS]
+
+
+@pytest.mark.parametrize("key", BACKDROPS)
+def test_every_offered_backdrop_can_actually_be_applied(key, tmp_path):
+    """The UI offers exactly these, so every one of them has to work.
+
+    `none` did not. Its own preset -- no decoration, no backdrop -- tripped a
+    `validate()` rule against leaving the lyric gaps black, so the one choice
+    that expresses "the words alone" was the one choice that could not be made.
+    That rule is a note now: `validate()` means the render cannot be trusted,
+    not that the look is unusual.
+    """
+    ws = Workspace.create(f"Backdrop {key}", root=tmp_path, copy_source=False)
+    said = []
+    changed = run_mod._honour_pick(_ctx(ws, backdrop=key), said.append)
+    assert changed.get("backdrop") == key, said
+    assert ws.load_config().validate() == []
+
+
+def test_the_backdrop_and_the_word_look_compose(tmp_path):
+    """The whole point: one video wearing both."""
+    ws = Workspace.create("Both", root=tmp_path, copy_source=False)
+    run_mod._honour_pick(
+        _ctx(ws, video_type=types_mod.DEFAULT_TYPE, backdrop="pulse"),
+        lambda m: None)
+    cfg = ws.load_config()
+    assert cfg.type == types_mod.DEFAULT_TYPE      # still the lyric renderer
+    assert cfg.video_type.needs_lyrics             # still draws the words
+    assert cfg.backdrop.back_level > 0             # and a field behind them
+    assert cfg.backdrop.back_wave > 0
+
+
+def test_an_unknown_backdrop_is_reported_rather_than_applied(tmp_path):
+    ws = Workspace.create("Unknown backdrop", root=tmp_path, copy_source=False)
+    before = ws.load_config().backdrop.back_level
+    said = []
+    changed = run_mod._honour_pick(_ctx(ws, backdrop="nonsense"), said.append)
+    assert "backdrop" not in changed
+    assert ws.load_config().backdrop.back_level == before
+    assert any("no 'nonsense' backdrop" in m for m in said)
+
+
+def test_words_alone_says_what_it_implies(tmp_path):
+    ws = Workspace.create("Words alone", root=tmp_path, copy_source=False)
+    said = []
+    run_mod._honour_pick(_ctx(ws, backdrop="none"), said.append)
+    assert any("black" in m for m in said), said
+
+
 # ------------------------------------------------------------------- the UI
 
 def test_the_ui_sends_the_selected_type_with_the_run():
     body = re.search(r"function runBody\(extra\) \{(.+?)\n\}", INDEX.read_text(), re.S)
     assert body, "runBody() is gone or was renamed"
     assert "type:" in body.group(1), "runBody() does not send the renderer"
+    assert "backdrop:" in body.group(1), "runBody() does not send the backdrop"
+
+
+def test_the_gallery_offers_a_row_for_what_sits_behind_the_words():
+    src = INDEX.read_text()
+    assert "backdropRow" in src and "Behind the words" in src, \
+        "the gallery has no picker for the backdrop"
+
+
+def test_a_pick_is_not_overwritten_by_a_config_refresh():
+    """`refreshAll` runs on song select and when a run finishes. It used to
+    adopt the server's type unconditionally, so choosing a song after picking a
+    tile silently put the tile back."""
+    src = INDEX.read_text()
+    ref = re.search(r"async function refreshAll\(\) \{(.+?)\n\}", src, re.S)
+    assert ref, "refreshAll() is gone or was renamed"
+    assert "PICKED" in ref.group(1), \
+        "refreshAll() overwrites the gallery selection unconditionally"
 
 
 def test_the_gallery_offers_every_registered_renderer():

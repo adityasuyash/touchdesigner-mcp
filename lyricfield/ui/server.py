@@ -34,6 +34,7 @@ from ..td_client import TDClient, TDError, TDUnavailable
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
 STYLES_ROOT = ROOT / "styles"
+BACKDROP_ROOT = STYLES_ROOT / "_backdrops"
 
 app = FastAPI(title="lyricfield")
 client = TDClient()
@@ -90,6 +91,7 @@ class RunIn(BaseModel):
     source: str | None = None
     type: str | None = None
     style: str | None = None
+    backdrop: str | None = None     # what fills the space around the words
     api_key: str | None = None
     language: str | None = None
     prompt: str | None = None
@@ -138,6 +140,7 @@ def start_run(payload: RunIn):
         ctx = RUN_CTX = run_mod.Ctx(
             client=client, name=payload.name, source=payload.source or "",
             video_type=payload.type, style=payload.style,
+            backdrop=payload.backdrop,
             options={k: v for k, v in {
                 "language": payload.language, "prompt": payload.prompt,
                 "preview_seconds": payload.preview_seconds,
@@ -657,6 +660,24 @@ def list_video_types():
             "default": types_mod.DEFAULT_TYPE}
 
 
+@app.get("/api/backdrops")
+def list_backdrops():
+    """What can sit behind the words, for the types that have words.
+
+    Presets over the `backdrop` tunables rather than an enum, so every one of
+    them is still reachable from a slider and from a written description.
+    """
+    out = []
+    for vt in types_mod.list_types():
+        mod = getattr(vt, "_params_module", lambda: None)()
+        for key, label, why, deltas in getattr(mod, "BACKDROPS", ()):
+            out.append({"type": vt.slug, "key": key, "name": label,
+                        "description": why, "sets": deltas,
+                        "preview": f"/styles/_backdrops/{key}/preview.mp4",
+                        "has_preview": (BACKDROP_ROOT / key / "preview.mp4").exists()})
+    return {"backdrops": out}
+
+
 @app.post("/api/songs/{slug}/type")
 def set_song_type(slug: str, payload: dict):
     _select(slug)
@@ -725,6 +746,7 @@ class SongIn(BaseModel):
     source: str | None = None
     type: str | None = None
     style: str | None = None
+    backdrop: str | None = None     # what fills the space around the words
 
 
 @app.get("/api/songs")
@@ -1052,6 +1074,11 @@ app.mount("/stills", StaticFiles(directory=STILLS), name="stills")
 
 # style previews are served straight off disk so the dropdown can play them
 STYLES_ROOT.mkdir(parents=True, exist_ok=True)
+# Backdrop previews live under the styles mount but are not styles: `_style_dirs`
+# only yields a folder holding a `style.toml`, so this one is invisible to
+# `list_styles` while still being served and still being tracked by the
+# `!styles/**/preview.mp4` negation in .gitignore.
+BACKDROP_ROOT.mkdir(parents=True, exist_ok=True)
 app.mount("/styles", StaticFiles(directory=STYLES_ROOT), name="styles")
 
 _static = Path(__file__).parent / "static"

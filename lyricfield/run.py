@@ -102,6 +102,7 @@ class Ctx:
     name: str = ""
     source: str = ""
     video_type: str | None = None
+    backdrop: str | None = None
     style: str | None = None
     workspace: object = None
     options: dict = field(default_factory=dict)
@@ -235,7 +236,50 @@ def _honour_pick(ctx: Ctx, say) -> dict:
         ws.save_config(cfg)
         say(f"applied the {st.name} look")
         changed["style"] = st.slug
+
+    # What sits behind the words, applied last so it overrides whatever the
+    # style brought with it -- the style is the word look, this is the choice
+    # made on top of it.
+    if ctx.backdrop:
+        applied = _apply_backdrop(cfg, ctx.backdrop, say)
+        if applied:
+            ws.save_config(cfg)
+            changed["backdrop"] = ctx.backdrop
     return changed
+
+
+def _apply_backdrop(cfg, key: str, say) -> bool:
+    """Set the tunables one named backdrop stands for.
+
+    The presets live with the type's params rather than here, because what they
+    set is the type's vocabulary. A type with no backdrops -- every beatsync
+    one, which IS the backdrop -- simply has none to offer, and asking for one
+    is reported rather than silently ignored.
+    """
+    mod = cfg.video_type._params_module()
+    choices = {k: deltas for k, _label, _why, deltas in
+               getattr(mod, "BACKDROPS", ())}
+    if key not in choices:
+        say(f"{cfg.video_type.name} has no {key!r} backdrop; leaving it alone")
+        return False
+    for path, value in choices[key].items():
+        section, name = path.split(".")
+        target = getattr(cfg, section, None)
+        if target is None or not hasattr(target, name):
+            say(f"backdrop {key!r} names {path}, which this type does not have")
+            return False
+        setattr(target, name, value)
+    mod.reconcile(cfg.params)
+    problems = cfg.params.validate()
+    if problems:
+        # Refuse rather than render something known-broken, exactly as the
+        # described-settings path does.
+        say(f"backdrop {key!r} does not fit this look: {'; '.join(problems)}")
+        return False
+    for note in getattr(cfg.params, "notes", list)():
+        say(note)
+    say(f"put the {key} backdrop behind the words")
+    return True
 
 
 def _ingest(ctx: Ctx, say) -> dict:
