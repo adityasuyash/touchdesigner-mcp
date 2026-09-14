@@ -65,6 +65,7 @@ def run(client, cfg, workspace=None, covers: float = 0.0,
         ("the pushed parameters", _params),
         ("the pushed field script, and whether it runs", _field_script),
         ("the pushed cue table", _cues),
+        ("the pushed drum table", _drums),
         ("a recorder left behind", _no_stranded_recorder),
     ):
         res.checked.append(name)
@@ -176,6 +177,39 @@ def _field_script(client, cfg, ws, covers, repair, res, say):
     bad = sync.field_errors(client)
     if bad:
         res.problems.append(f"the field script does not run: {bad}")
+
+
+def _drums(client, cfg, ws, covers, repair, res, say):
+    """The drums are the one input EVERY renderer reads.
+
+    Preflight checked the song, the lyrics, the timeline, the params, the field
+    script, the cue table and the stranded recorder -- and not this, though a
+    beatsync render with no drum table is a slow sweep over a static field that
+    passes every other check it has. `pull_drums` has existed the whole time and
+    was called from nowhere.
+    """
+    if ws is None or not ws.drums_path.exists():
+        return
+    from .drums import DrumTable
+
+    wanted = DrumTable.load(ws.drums_path)
+    if not len(wanted):
+        res.problems.append(
+            "this song's drum table has no hits in it; every renderer answers "
+            "the drums, so the picture will not follow the beat")
+        return
+    try:
+        got = sync.pull_drums(client)
+    except Exception:
+        got = None
+    if got is not None and len(got) == len(wanted):
+        return
+    if not repair:
+        res.problems.append("the drum table in TouchDesigner is not this song's")
+        return
+    say(f"pushing {len(wanted)} drum hits")
+    sync.push_drums(client, wanted)
+    res.repaired.append("pushed the song's drum table")
 
 
 def _cues(client, cfg, ws, covers, repair, res, say):

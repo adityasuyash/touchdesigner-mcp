@@ -498,3 +498,13 @@ def test_decay_envelopes_are_clamped_at_both_ends(vt):
     assert not bad, (
         f"{vt.slug} has an envelope floored at zero but not capped at one: "
         f"{bad}")
+
+
+def test_no_registered_type_failed_to_import():
+    """A type with a syntax error or a bad import vanishes from discovery --
+    out of the gallery, out of the registry, and out of every meta-test in this
+    file, since they all iterate `list_types()`. The existing canary only
+    catches "no types at all"; nothing caught "one of them is missing".
+    """
+    broken = types_mod.broken_types()
+    assert not broken, f"video types that would not import: {broken}"

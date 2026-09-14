@@ -171,6 +171,8 @@ class VideoType:
 # ------------------------------------------------------------------ registry
 
 _CACHE: dict[str, VideoType] = {}
+# Types whose package would not import, by name, so something can say so.
+_BROKEN: dict[str, str] = {}
 
 
 def _discover() -> dict[str, VideoType]:
@@ -181,7 +183,16 @@ def _discover() -> dict[str, VideoType]:
             continue
         try:
             mod = importlib.import_module(f"{__name__}.{info.name}")
-        except Exception:
+        except Exception as e:
+            # A type with a syntax error or a bad import used to vanish in
+            # silence: gone from the gallery, gone from the registry, and gone
+            # from every meta-test, since all of them iterate `list_types()`.
+            # The suite's canary only notices "no types at all", never "one is
+            # missing". Say it where a person will see it.
+            _BROKEN[info.name] = f"{type(e).__name__}: {e}"
+            import warnings
+            warnings.warn(f"video type {info.name!r} could not be imported "
+                          f"and will not be offered: {e}", stacklevel=2)
             continue
         t = getattr(mod, "TYPE", None)
         if isinstance(t, VideoType):
@@ -202,3 +213,13 @@ def get_type(slug: str) -> VideoType:
 
 
 DEFAULT_TYPE = "lyric_grid"
+
+
+def broken_types() -> dict[str, str]:
+    """Types that failed to import, by name and reason.
+
+    Discovery skips them; this is how anything downstream finds out. Empty is
+    the healthy answer.
+    """
+    _discover()
+    return dict(_BROKEN)

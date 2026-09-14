@@ -629,6 +629,27 @@ def _verify(ctx: Ctx, say) -> dict:
                 f"the render is {got:.1f}s long but {wanted:.1f}s was asked for; "
                 f"the picture is stretched or compressed against its audio")
 
+    # Did the picture move at all?
+    #
+    # `measure_motion` exists because "a render can come back as the same frame
+    # repeated and every other check will pass it: the container parses, the
+    # brightness is in range, the band is filled" -- and it was called from
+    # exactly one place, the style-preview capture. So the guarantee covered the
+    # thumbnails and not the thing the person actually receives.
+    #
+    # It matters most for a beatsync take, where there are no cue times to
+    # correlate against and the only remaining content checks are blackness and
+    # frame fill. A completely frozen pulse render passed all of them.
+    try:
+        moved = render_mod.measure_motion(prev)
+        if moved["frames"] >= 2 and not moved["moving"]:
+            problems.append(
+                f"the finished file is a still frame (motion {moved['motion']} "
+                f"over {moved['frames']} frames); the renderer produced one "
+                f"picture and repeated it")
+    except Exception as e:                  # a measurement, never a reason to fail
+        say(f"could not measure motion: {e}")
+
     # Record the settings that produced this take, and whether it is trustworthy.
     #
     # "Trustworthy" now means the whole run was clean, not just this stage.
