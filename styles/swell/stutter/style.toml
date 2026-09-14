@@ -5,11 +5,11 @@ name = "Stutter"
 slug = "stutter"
 type = "swell"
 description = "short, hard breaths — a fast bar with a near-instant attack"
-created = "2026-09-14T15:23:49+00:00"
+created = "2026-09-14T15:36:35+00:00"
 source_song = ""
 
 [grid]
-cols = 24
+cols = 16
 vrows = 24
 band = 22
 band_top = 1
@@ -21,7 +21,7 @@ height = 1280
 
 [look]
 dim_hue = 0.12
-dim_sat = 0.4
+dim_sat = 0.5
 level_min = 0.04
 level_max = 0.38
 ceil = 0.58
@@ -46,7 +46,7 @@ bar_beats = 1.0
 attack = 0.05
 open_min = 0.02
 open_max = 0.88
-glyphs = ".-=#"
+glyphs = "_-=#"
 lit_at = 0.6
 intro_open = 0.3
 arrive = 0.78

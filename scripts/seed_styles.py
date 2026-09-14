@@ -253,21 +253,26 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "pulse.wave_beats": 4.0, "pulse.wave_width": 3.0, "pulse.wave_lift": 0.75,
       "pulse.lit_at": 0.68, "pulse.density": 0.70,
       "pulse.kick_lift": 0.45, "pulse.snare_peak": 0.55, "pulse.snare_frac": 0.07,
-      "pulse.high_lift": 0.22, "pulse.high_time": 0.18, "pulse.reroll": 14.0}),
+      "pulse.high_lift": 0.22, "pulse.high_time": 0.18, "pulse.reroll": 14.0,
+      "pulse.glyphs": ".:-=+*#",
+      "grid.cols": 24,
+      "look.dim_sat": 0.5}),
 
     ("pulse_grid", "Cascade",
      "falling: a narrow crest dropping fast down a busy field",
-     {"look.dim_hue": 0.62, "look.dim_sat": 0.30,
+     {"look.dim_hue": 0.62, "look.dim_sat": 0.42,
       "look.level_min": 0.05, "look.level_max": 0.24,
       "look.glow_base": 0.40, "look.glow_radius": 10.0, "look.bloom_bright": 0.50,
       "pulse.vertical": True, "pulse.wave_beats": 1.5, "pulse.wave_width": 1.2,
       "pulse.wave_lift": 0.70, "pulse.lit_at": 0.64, "pulse.density": 0.88,
       "pulse.kick_lift": 0.30, "pulse.snare_peak": 0.45, "pulse.snare_frac": 0.06,
-      "pulse.high_lift": 0.18, "pulse.high_time": 0.10, "pulse.reroll": 6.0}),
+      "pulse.high_lift": 0.18, "pulse.high_time": 0.10, "pulse.reroll": 6.0,
+      "pulse.glyphs": "'|!Ii#",
+      "grid.cols": 32}),
 
     ("pulse_grid", "Heartbeat",
      "no sweep at all — the kick is the entire picture, wide and slow",
-     {"look.dim_hue": 0.02, "look.dim_sat": 0.50,
+     {"look.dim_hue": 0.02, "look.dim_sat": 0.72,
       "look.level_min": 0.03, "look.level_max": 0.18, "look.ceil": 0.56,
       "look.glow_base": 0.60, "look.glow_radius": 26.0, "look.bloom_bright": 0.55,
       "look.bloom_size": 14.0,
@@ -275,18 +280,22 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "pulse.lit_at": 0.52, "pulse.density": 0.55,
       "pulse.kick_lift": 0.85, "pulse.kick_time": 0.90, "pulse.kick_sigma": 5.0,
       "pulse.snare_peak": 0.30, "pulse.snare_frac": 0.03,
-      "pulse.high_lift": 0.04, "pulse.reroll": 12.0}),
+      "pulse.high_lift": 0.04, "pulse.reroll": 12.0,
+      "pulse.glyphs": ".oO0@",
+      "grid.cols": 18}),
 
     ("pulse_grid", "Shimmer",
      "a dense wall with no sweep; the hats and the snare carry all of it",
-     {"look.dim_hue": 0.50, "look.dim_sat": 0.18,
+     {"look.dim_hue": 0.50, "look.dim_sat": 0.3,
       "look.level_min": 0.06, "look.level_max": 0.26,
       "look.glow_base": 0.34, "look.glow_radius": 8.0, "look.bloom_bright": 0.30,
       "pulse.wave_beats": 4.0, "pulse.wave_width": 3.5, "pulse.wave_lift": 0.04,
       "pulse.lit_at": 0.58, "pulse.density": 0.95,
       "pulse.kick_lift": 0.15,
       "pulse.snare_peak": 0.80, "pulse.snare_frac": 0.18, "pulse.snare_time": 0.16,
-      "pulse.high_lift": 0.70, "pulse.high_time": 0.34, "pulse.reroll": 5.0}),
+      "pulse.high_lift": 0.70, "pulse.high_time": 0.34, "pulse.reroll": 5.0,
+      "pulse.glyphs": "`'^*+x",
+      "grid.cols": 36}),
 
     ("pulse_grid", "Constellation",
      "nearly black, crossed very slowly — a few points, held a long time",
@@ -299,10 +308,12 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "look.glow_base": 0.62, "look.glow_radius": 32.0, "look.bloom_bright": 0.55,
       "look.bloom_size": 18.0,
       "pulse.wave_beats": 16.0, "pulse.wave_width": 8.0, "pulse.wave_lift": 0.68,
-      "pulse.lit_at": 0.80, "pulse.density": 0.18, "pulse.glyphs": ".:*+",
+      "pulse.lit_at": 0.80, "pulse.density": 0.18, "pulse.glyphs": ".,+x*",
       "pulse.kick_lift": 0.22, "pulse.kick_time": 0.90, "pulse.kick_sigma": 3.0,
       "pulse.snare_peak": 0.35, "pulse.snare_frac": 0.03,
-      "pulse.high_lift": 0.06, "pulse.reroll": 45.0}),
+      "pulse.high_lift": 0.06, "pulse.reroll": 45.0,
+      "grid.cols": 28,
+      "look.dim_sat": 0.55}),
 
     # `swell` shipped with NO styles at all -- a whole renderer with no tile to
     # pick. It expresses the beat as coverage rather than light, so its
@@ -317,18 +328,22 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "swell.bar_beats": 8.0, "swell.attack": 0.22,
       "swell.open_min": 0.06, "swell.open_max": 0.96, "swell.lit_at": 0.72,
       "swell.kick_open": 0.55, "swell.snare_frac": 0.10,
-      "swell.high_grain": 0.30, "swell.outro": 18.0}),
+      "swell.high_grain": 0.30, "swell.outro": 18.0,
+      "swell.glyphs": "~-=+#",
+      "grid.cols": 22,
+      "look.dim_sat": 0.6}),
 
     ("swell", "Stutter",
      "short, hard breaths — a fast bar with a near-instant attack",
-     {"look.dim_hue": 0.12, "look.dim_sat": 0.40,
+     {"look.dim_hue": 0.12, "look.dim_sat": 0.5,
       "look.level_min": 0.04, "look.level_max": 0.38,
       "look.glow_base": 0.36, "look.glow_radius": 9.0, "look.bloom_bright": 0.52,
       "swell.bar_beats": 1.0, "swell.attack": 0.05,
       "swell.open_min": 0.02, "swell.open_max": 0.88, "swell.lit_at": 0.60,
-      "swell.glyphs": ".-=#", "swell.kick_open": 0.70,
+      "swell.glyphs": "_-=#", "swell.kick_open": 0.70,
       "swell.snare_frac": 0.14, "swell.snare_time": 0.16,
-      "swell.high_grain": 0.45, "swell.reroll": 6.0}),
+      "swell.high_grain": 0.45, "swell.reroll": 6.0,
+      "grid.cols": 16}),
 ]
 
 
@@ -431,10 +446,12 @@ def backdrop_previews(client, live, root, moments) -> list[str]:
         clamped = P.backdrop_from(params, st.params)
         for line in clamped:
             print(f"    {st.name}: {line}")
-        # The words have to be where the capture is parked, or the preview shows
-        # a field with no lyrics in it -- which is the one thing it must show.
-        if moments:
-            params.cueing.offset = round(float(moments[0]), 3)
+        # Parked where the WORDS are, not where the drums are. This used to
+        # nudge `cueing.offset` to the drum window instead -- which cannot
+        # work: the offset is bounded to +-5s and the busiest drum window is a
+        # minute into the song, so the words never arrived and the capture is
+        # refused as wordless. A backdrop preview must show words with a beat
+        # behind them, and words are the half that cannot be moved.
         P.reconcile(params)
         if params.validate():
             print(f"{st.name}: not valid behind words: {params.validate()}")
@@ -542,7 +559,7 @@ def main(argv: list[str]) -> int:
                 print(f"    {e}")
         else:
             failed.append(st.name)
-    failed += backdrop_previews(client, live, root, beat_moments)
+    failed += backdrop_previews(client, live, root, word_moments)
     failed += builtin_previews(client, live, moments_for)
     if failed:
         print(f"no moving preview for: {', '.join(failed)}")

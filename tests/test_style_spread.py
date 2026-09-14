@@ -154,3 +154,56 @@ def test_a_look_uses_the_glow_it_was_given(st):
 def test_the_beat_renderer_that_had_no_styles_has_some():
     swell = [st for st in BEATSYNC if st.type == "swell"]
     assert swell, "swell still ships no styles, so it has no tile to pick"
+
+
+# ------------------------------------------- the axis nobody was measuring
+
+def test_no_two_grid_beat_styles_share_a_glyph_set():
+    """Five of the seven shared `.:-=+*#` and all seven used cols=24.
+
+    The earlier pass at making these differ measured the TEMPORAL axis and got
+    it genuinely spread -- worst-pair brightness correlation 0.72. Nobody
+    measured the SPATIAL one, on which all seven were identical: same ramp,
+    same pitch, same field. Colour and timing are weak modifiers of one picture;
+    the glyph set and the grid pitch are what the eye actually reads.
+    """
+    from lyricfield import styles as S
+    from lyricfield import types as types_mod
+    from lyricfield.types.lyric_grid.params import can_back_words
+
+    grid = [st for st in S.list_styles()
+            if types_mod.get_type(st.type).family == types_mod.BEATSYNC
+            and can_back_words(st.params)]
+    seen = {}
+    for st in grid:
+        beat = getattr(st.params, "pulse", None) or getattr(st.params, "swell", None)
+        glyphs = getattr(beat, "glyphs", "")
+        assert glyphs not in seen, (
+            f"{st.slug} and {seen[glyphs]} draw with the same glyphs {glyphs!r}")
+        seen[glyphs] = st.slug
+
+
+def test_the_grid_beat_styles_do_not_all_share_one_pitch():
+    """A different ramp at the same pitch is still the same field."""
+    from lyricfield import styles as S
+    from lyricfield import types as types_mod
+    from lyricfield.types.lyric_grid.params import can_back_words
+
+    grid = [st for st in S.list_styles()
+            if types_mod.get_type(st.type).family == types_mod.BEATSYNC
+            and can_back_words(st.params)]
+    cols = {st.params.grid.cols for st in grid}
+    assert len(cols) >= 4, f"{len(grid)} looks share only {len(cols)} pitches: {cols}"
+
+
+def test_every_glyph_a_style_asks_for_can_actually_be_drawn():
+    """The face is Courier New. A glyph outside plain ASCII may simply not be
+    in it, and a renderer asking for one draws a blank cell -- which reads as
+    a hole in the field rather than as a missing character."""
+    from lyricfield import styles as S
+
+    for st in S.list_styles():
+        beat = getattr(st.params, "pulse", None) or getattr(st.params, "swell", None)
+        glyphs = getattr(beat, "glyphs", "") if beat else ""
+        bad = [c for c in glyphs if ord(c) > 126 or ord(c) < 32]
+        assert not bad, f"{st.slug} asks for {bad}, which Courier New may not have"

@@ -5,11 +5,11 @@ name = "Cascade"
 slug = "cascade"
 type = "pulse_grid"
 description = "falling: a narrow crest dropping fast down a busy field"
-created = "2026-09-14T15:23:49+00:00"
+created = "2026-09-14T15:36:35+00:00"
 source_song = ""
 
 [grid]
-cols = 24
+cols = 32
 vrows = 24
 band = 22
 band_top = 1
@@ -21,7 +21,7 @@ height = 1280
 
 [look]
 dim_hue = 0.62
-dim_sat = 0.3
+dim_sat = 0.42
 level_min = 0.05
 level_max = 0.24
 ceil = 0.58
@@ -47,7 +47,7 @@ wave_width = 1.2
 wave_lift = 0.7
 vertical = true
 density = 0.88
-glyphs = ".:-=+*#"
+glyphs = "'|!Ii#"
 lit_at = 0.64
 kick_lift = 0.3
 kick_time = 0.55

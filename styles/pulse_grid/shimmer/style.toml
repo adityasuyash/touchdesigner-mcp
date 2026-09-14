@@ -5,11 +5,11 @@ name = "Shimmer"
 slug = "shimmer"
 type = "pulse_grid"
 description = "a dense wall with no sweep; the hats and the snare carry all of it"
-created = "2026-09-14T15:23:49+00:00"
+created = "2026-09-14T15:36:35+00:00"
 source_song = ""
 
 [grid]
-cols = 24
+cols = 36
 vrows = 24
 band = 22
 band_top = 1
@@ -21,7 +21,7 @@ height = 1280
 
 [look]
 dim_hue = 0.5
-dim_sat = 0.18
+dim_sat = 0.3
 level_min = 0.06
 level_max = 0.26
 ceil = 0.58
@@ -47,7 +47,7 @@ wave_width = 3.5
 wave_lift = 0.04
 vertical = false
 density = 0.95
-glyphs = ".:-=+*#"
+glyphs = "`'^*+x"
 lit_at = 0.58
 kick_lift = 0.15
 kick_time = 0.55

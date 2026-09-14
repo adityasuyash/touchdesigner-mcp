@@ -5,11 +5,11 @@ name = "Constellation"
 slug = "constellation"
 type = "pulse_grid"
 description = "nearly black, crossed very slowly — a few points, held a long time"
-created = "2026-09-14T15:23:49+00:00"
+created = "2026-09-14T15:36:35+00:00"
 source_song = ""
 
 [grid]
-cols = 24
+cols = 28
 vrows = 24
 band = 22
 band_top = 1
@@ -21,7 +21,7 @@ height = 1280
 
 [look]
 dim_hue = 0.68
-dim_sat = 0.35
+dim_sat = 0.55
 level_min = 0.02
 level_max = 0.14
 ceil = 0.58
@@ -47,7 +47,7 @@ wave_width = 8.0
 wave_lift = 0.68
 vertical = false
 density = 0.18
-glyphs = ".:*+"
+glyphs = ".,+x*"
 lit_at = 0.8
 kick_lift = 0.22
 kick_time = 0.9

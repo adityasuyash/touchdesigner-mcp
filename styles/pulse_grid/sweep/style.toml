@@ -5,7 +5,7 @@ name = "Sweep"
 slug = "sweep"
 type = "pulse_grid"
 description = "a hard crest crossing a dark field — the balanced one"
-created = "2026-09-14T15:23:49+00:00"
+created = "2026-09-14T15:36:35+00:00"
 source_song = ""
 
 [grid]
@@ -21,7 +21,7 @@ height = 1280
 
 [look]
 dim_hue = 0.55
-dim_sat = 0.35
+dim_sat = 0.5
 level_min = 0.04
 level_max = 0.22
 ceil = 0.58

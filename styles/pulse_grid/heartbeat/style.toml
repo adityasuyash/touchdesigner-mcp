@@ -5,11 +5,11 @@ name = "Heartbeat"
 slug = "heartbeat"
 type = "pulse_grid"
 description = "no sweep at all — the kick is the entire picture, wide and slow"
-created = "2026-09-14T15:23:49+00:00"
+created = "2026-09-14T15:36:35+00:00"
 source_song = ""
 
 [grid]
-cols = 24
+cols = 18
 vrows = 24
 band = 22
 band_top = 1
@@ -21,7 +21,7 @@ height = 1280
 
 [look]
 dim_hue = 0.02
-dim_sat = 0.5
+dim_sat = 0.72
 level_min = 0.03
 level_max = 0.18
 ceil = 0.56
@@ -47,7 +47,7 @@ wave_width = 6.0
 wave_lift = 0.05
 vertical = false
 density = 0.55
-glyphs = ".:-=+*#"
+glyphs = ".oO0@"
 lit_at = 0.52
 kick_lift = 0.85
 kick_time = 0.9

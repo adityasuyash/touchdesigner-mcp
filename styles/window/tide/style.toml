@@ -5,7 +5,7 @@ name = "Tide"
 slug = "tide"
 type = "window"
 description = "wide slow bands moving behind the letters"
-created = "2026-09-14T15:23:49+00:00"
+created = "2026-09-14T15:36:35+00:00"
 source_song = ""
 
 [frame]
