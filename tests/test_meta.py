@@ -508,3 +508,42 @@ def test_no_registered_type_failed_to_import():
     """
     broken = types_mod.broken_types()
     assert not broken, f"video types that would not import: {broken}"
+
+
+# ----------------------------------------- attributes that are actually there
+
+def test_every_attribute_read_off_a_ctx_is_a_field_of_ctx():
+    """`run.py` reads the run's context by attribute, and Python is happy to
+    let it read one that does not exist right up until the line executes.
+
+    `ctx.type` shipped that way -- `Ctx` has `video_type` -- and killed every
+    run where a look was picked, because the one code path that reads it was
+    the one path no test exercised. This is the second name-that-is-not-there
+    to reach a user in this file's lifetime, so it is closed as a class rather
+    than as a line.
+    """
+    import ast
+    import dataclasses
+    from pathlib import Path
+
+    from lyricfield import run as run_mod
+
+    known = {f.name for f in dataclasses.fields(run_mod.Ctx)}
+    known |= {n for n in dir(run_mod.Ctx) if not n.startswith("__")}
+
+    src = Path(run_mod.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    # Every `<name>.<attr>` where the name is one a Ctx is bound to. `ctx` is
+    # the convention throughout; `self` is not, because Ctx has no methods that
+    # take one beyond those `dir()` already covers.
+    bad = []
+    for node in ast.walk(tree):
+        if (isinstance(node, ast.Attribute)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "ctx"
+                and node.attr not in known):
+            bad.append(f"ctx.{node.attr} (line {node.lineno})")
+    assert not bad, (
+        f"run.py reads attributes a Ctx does not have: {bad}. "
+        f"Ctx has: {sorted(known - set(dir(object)))}")

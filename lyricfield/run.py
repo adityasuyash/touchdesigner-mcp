@@ -220,7 +220,7 @@ def _honour_pick(ctx: Ctx, say) -> dict:
             # to whichever style sorted first, and the line below then takes
             # that style's type as the renderer -- so a name two renderers
             # share could quietly change which one you got.
-            st = get_style(ctx.style, type=ctx.type or None)
+            st = get_style(ctx.style, type=want_type or None)
         except (KeyError, FileNotFoundError, AmbiguousStyle) as e:
             say(f"no style {ctx.style!r}: {e}")
         else:

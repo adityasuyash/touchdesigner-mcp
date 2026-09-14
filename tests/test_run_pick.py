@@ -70,6 +70,42 @@ def test_an_unknown_renderer_is_reported_rather_than_applied(song):
     assert any("no video type" in m for m in said)
 
 
+def test_picking_a_style_applies_it(song):
+    """The case that crashed, and that nothing covered.
+
+    `_honour_pick` was exercised with `video_type=`, `back_type=` and
+    `back_style=` and never with `style=` -- so a line reading `ctx.type`, which
+    `Ctx` does not have, shipped and killed every run where a look was chosen.
+    """
+    from lyricfield import styles as S
+
+    st = next(iter(S.list_styles()), None)
+    if st is None:
+        pytest.skip("no styles ship on this machine")
+    said = []
+    changed = run_mod._honour_pick(
+        _ctx(song, video_type=st.type, style=st.slug), said.append)
+    assert changed.get("style") == st.slug, said
+    assert song.load_config().track.style == st.slug
+
+
+def test_picking_a_style_by_name_alone_still_works(song):
+    """A bare slug, with no renderer beside it. The resolution has to fall back
+    to "whichever renderer owns it" rather than reaching for an attribute that
+    is not there."""
+    from lyricfield import styles as S
+
+    owned = {}
+    for s in S.list_styles():
+        owned.setdefault(s.slug, []).append(s)
+    unique = next((v[0] for v in owned.values() if len(v) == 1), None)
+    if unique is None:
+        pytest.skip("every shipped slug is shared between renderers")
+    changed = run_mod._honour_pick(
+        _ctx(song, style=unique.slug), lambda m: None)
+    assert changed.get("style") == unique.slug
+
+
 def test_no_pick_at_all_leaves_the_song_alone(song):
     assert run_mod._honour_pick(_ctx(song), lambda m: None) == {}
     assert song.load_config().type == types_mod.DEFAULT_TYPE
