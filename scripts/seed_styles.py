@@ -37,37 +37,8 @@ LOOKS: list[tuple[str, str, str, dict]] = [
     # ---------------------------------------------------------- monument
     # One word, filling the frame. The two looks pull the same renderer in
     # opposite directions: struck hard and cut clean, or held and breathing.
-    ("monument", "Headline",
-     "a word struck hard and cut clean, filling the frame",
-     {"stage.fill": 0.93, "stage.cap_px": 340.0,
-      "word.punch": 1.34, "word.settle": 0.12, "word.hold": 0.4,
-      "word.fade": 0.16, "word.ghost": 0.1, "word.drift": 0.01,
-      "look.hue": 0.0, "look.sat": 0.0, "look.glow": 0.16, "look.bloom": 7.0,
-      "beat.kick_lift": 0.05}),
-    ("monument", "Echo",
-     "the word before still hanging behind this one, soft and wide",
-     {"stage.fill": 0.7, "stage.cap_px": 230.0,
-      "word.punch": 1.06, "word.settle": 0.45, "word.hold": 1.1,
-      "word.fade": 0.6, "word.ghost": 0.4, "word.ghost_scale": 2.1,
-      "word.drift": 0.09,
-      "look.hue": 0.58, "look.sat": 0.34, "look.glow": 0.5,
-      "look.bloom": 26.0, "beat.kick_lift": 0.13}),
 
     # ---------------------------------------------------------- window
-    ("window", "Tide",
-     "wide slow bands moving behind the letters",
-     {"line.size": 126.0, "line.wrap": 10,
-      "field_.bands": 2.6, "field_.drift": 0.2, "field_.warp": 0.7,
-      "field_.kick_push": 0.5, "field_.hat_grain": 0.06,
-      "look.hue": 0.55, "look.sat": 0.62, "look.glow": 0.36}),
-    ("window", "Static",
-     "a fine restless grain, read through the type",
-     {"line.size": 92.0, "line.wrap": 15,
-      "field_.bands": 22.0, "field_.drift": 1.1, "field_.warp": 0.12,
-      "field_.kick_push": 0.2, "field_.hat_grain": 0.34,
-      "field_.hat_time": 0.07,
-      "look.hue": 0.12, "look.sat": 0.25, "look.glow": 0.14,
-      "look.bloom": 6.0}),
 
     # ---------------------------------------------------------- orbit
     ("orbit", "Ring",
@@ -83,18 +54,6 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "beat.kick_push": 0.2}),
 
     # ---------------------------------------------------------- swarm
-    ("swarm", "Settle",
-     "words drifting in from far out and easing into place",
-     {"flight.throw": 0.95, "flight.stiff": 12.0, "flight.damp": 4.4,
-      "flight.stagger": 0.14, "burst.push": 0.5,
-      "line.size": 54.0, "look.hue": 0.55, "look.sat": 0.3,
-      "look.glow": 0.36}),
-    ("swarm", "Scatter",
-     "a tight snap into place, knocked apart on every kick",
-     {"flight.throw": 0.3, "flight.stiff": 74.0, "flight.damp": 9.5,
-      "flight.stagger": 0.02, "burst.push": 3.0, "burst.spin": 1.1,
-      "line.size": 66.0, "look.hue": 0.02, "look.sat": 0.45,
-      "look.glow": 0.2}),
 
     # ---------------------------------------------------------- horizon
     ("horizon", "Sunset",
@@ -144,41 +103,12 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "look.bloom": 12.0}),
 
     # ---------------------------------------------------------- scope
-    ("scope", "Trace",
-     "a thin sharp figure with almost no trail",
-     {"curve.freqx": 5.0, "curve.freqy": 3.0, "curve.slip": 0.02,
-      "curve.size": 0.42, "curve.rate": 1.4,
-      "trail.seconds": 0.16, "trail.taper": 5.0, "trail.weight": 1.0,
-      "look.hue": 0.45, "look.sat": 0.85, "look.glow": 0.35,
-      "look.bloom": 10.0, "beat.kick_bend": 0.12}),
-    ("scope", "Smoke",
-     "a long lazy trail that keeps most of where it has been",
-     {"curve.freqx": 2.0, "curve.freqy": 3.0, "curve.slip": 0.13,
-      "curve.size": 0.3, "curve.rate": 0.4,
-      "trail.seconds": 1.3, "trail.taper": 1.1, "trail.weight": 0.4,
-      "look.hue": 0.86, "look.sat": 0.5, "look.glow": 0.8,
-      "look.bloom": 34.0, "beat.kick_bend": 0.9}),
 
     # The lyric look. It has to be *distinct from the defaults*, or the gallery
     # shows two tiles for one look: when the built-in timing was tuned it was
     # tuned to match this file exactly, and the style quietly became a copy of
     # the thing it sits next to. Calm means calmer than the default, not equal
     # to it -- longer dissolve, slower drift, softer beat.
-    ("lyric_grid", "Calm Drift",
-     "longer dissolves, slower drift, wide spacing and a softer beat",
-     {"look.dissolve": 3.6, "look.drift_min": 4.5, "look.drift_max": 9.0,
-      "cueing.hold": 1.25, "cueing.ramp_dn": 0.45, "cueing.letter_spread": 0.11,
-      # Words sat too close together. The gap is blank cells between one word
-      # and the next along the line's path, against a fixed 2-cell pitch inside
-      # a word -- so 3..10 roughly doubles the air between words. Measured
-      # rather than picked: a line that cannot place is dropped SILENTLY, and
-      # at these values every sung line still places (the path wraps, so with
-      # 1800 tries it always finds room). 10 is also the top of the declared
-      # range; past it the decoration starts failing to place and the layout
-      # rebuild jumps from ~8ms to ~19ms per stanza.
-      "cueing.gap_min": 3, "cueing.gap_max": 10,
-      "beat.ripple_lift": 0.12, "beat.spark_peak": 0.45,
-      "beat.spark_frac": 0.05, "beat.twinkle_lift": 0.14}),
 
     # The beatsync looks, rebuilt. The old five measured as about two and a
     # half distinguishable pictures: cascade and shimmer correlated at 0.82,
@@ -209,20 +139,6 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "look.glow_base": 0.44, "look.glow_radius": 12.0,
       "look.bloom_bright": 0.50, "look.bloom_size": 7.0}),
 
-    ("lyric_grid", "Spotlight",
-     "one line at a time out of near-black, blooming as it is sung",
-     {"cueing.layout": "rows", "cueing.gap_min": 1, "cueing.gap_max": 3,
-      "cueing.ambient_target": 0, "cueing.hold": 1.40,
-      "cueing.ramp_up": 0.16, "cueing.ramp_dn": 0.55,
-      "cueing.letter_spread": 0.07,
-      "look.dim_hue": 0.10, "look.dim_sat": 0.30,
-      "look.level_min": 0.05, "look.level_max": 0.22,
-      "look.glow_base": 0.62, "look.glow_radius": 30.0,
-      "look.bloom_bright": 0.55, "look.bloom_size": 16.0,
-      "look.dissolve": 2.2,
-      # Nothing between the words otherwise, so the beat fills the dark.
-      "backdrop.back_level": 0.04, "backdrop.back_lift": 0.16,
-      "backdrop.back_kick": 1.0, "backdrop.back_density": 0.30}),
 
     ("lyric_grid", "Ticker",
      "words running top to bottom, tight and mechanical",
@@ -246,29 +162,7 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "look.bloom_bright": 0.45,
       "beat.spark_frac": 0.12, "beat.spark_peak": 0.55}),
 
-    ("pulse_grid", "Sweep",
-     "a hard crest crossing a dark field — the balanced one",
-     {"look.dim_hue": 0.55, "look.level_min": 0.04, "look.level_max": 0.22,
-      "look.glow_base": 0.52, "look.glow_radius": 16.0, "look.bloom_bright": 0.45,
-      "pulse.wave_beats": 4.0, "pulse.wave_width": 3.0, "pulse.wave_lift": 0.75,
-      "pulse.lit_at": 0.68, "pulse.density": 0.70,
-      "pulse.kick_lift": 0.45, "pulse.snare_peak": 0.55, "pulse.snare_frac": 0.07,
-      "pulse.high_lift": 0.22, "pulse.high_time": 0.18, "pulse.reroll": 14.0,
-      "pulse.glyphs": ".:-=+*#",
-      "grid.cols": 24,
-      "look.dim_sat": 0.5}),
 
-    ("pulse_grid", "Cascade",
-     "falling: a narrow crest dropping fast down a busy field",
-     {"look.dim_hue": 0.62, "look.dim_sat": 0.42,
-      "look.level_min": 0.05, "look.level_max": 0.24,
-      "look.glow_base": 0.40, "look.glow_radius": 10.0, "look.bloom_bright": 0.50,
-      "pulse.vertical": True, "pulse.wave_beats": 1.5, "pulse.wave_width": 1.2,
-      "pulse.wave_lift": 0.70, "pulse.lit_at": 0.64, "pulse.density": 0.88,
-      "pulse.kick_lift": 0.30, "pulse.snare_peak": 0.45, "pulse.snare_frac": 0.06,
-      "pulse.high_lift": 0.18, "pulse.high_time": 0.10, "pulse.reroll": 6.0,
-      "pulse.glyphs": "'|!Ii#",
-      "grid.cols": 32}),
 
     ("pulse_grid", "Heartbeat",
      "no sweep at all — the kick is the entire picture, wide and slow",
@@ -284,18 +178,6 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "pulse.glyphs": ".oO0@",
       "grid.cols": 18}),
 
-    ("pulse_grid", "Shimmer",
-     "a dense wall with no sweep; the hats and the snare carry all of it",
-     {"look.dim_hue": 0.50, "look.dim_sat": 0.3,
-      "look.level_min": 0.06, "look.level_max": 0.26,
-      "look.glow_base": 0.34, "look.glow_radius": 8.0, "look.bloom_bright": 0.30,
-      "pulse.wave_beats": 4.0, "pulse.wave_width": 3.5, "pulse.wave_lift": 0.04,
-      "pulse.lit_at": 0.58, "pulse.density": 0.95,
-      "pulse.kick_lift": 0.15,
-      "pulse.snare_peak": 0.80, "pulse.snare_frac": 0.18, "pulse.snare_time": 0.16,
-      "pulse.high_lift": 0.70, "pulse.high_time": 0.34, "pulse.reroll": 5.0,
-      "pulse.glyphs": "`'^*+x",
-      "grid.cols": 36}),
 
     ("pulse_grid", "Constellation",
      "nearly black, crossed very slowly — a few points, held a long time",
@@ -314,6 +196,19 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "pulse.high_lift": 0.06, "pulse.reroll": 45.0,
       "grid.cols": 28,
       "look.dim_sat": 0.55}),
+
+    ("pulse_grid", "Shimmer",
+     "a dense wall with no sweep; the hats and the snare carry all of it",
+     {"look.dim_hue": 0.50, "look.dim_sat": 0.3,
+      "look.level_min": 0.06, "look.level_max": 0.26,
+      "look.glow_base": 0.34, "look.glow_radius": 8.0, "look.bloom_bright": 0.30,
+      "pulse.wave_beats": 4.0, "pulse.wave_width": 3.5, "pulse.wave_lift": 0.04,
+      "pulse.lit_at": 0.58, "pulse.density": 0.95,
+      "pulse.kick_lift": 0.15,
+      "pulse.snare_peak": 0.80, "pulse.snare_frac": 0.18, "pulse.snare_time": 0.16,
+      "pulse.high_lift": 0.70, "pulse.high_time": 0.34, "pulse.reroll": 5.0,
+      "pulse.glyphs": "`'^*+x",
+      "grid.cols": 36}),
 
     # `swell` shipped with NO styles at all -- a whole renderer with no tile to
     # pick. It expresses the beat as coverage rather than light, so its
@@ -349,23 +244,7 @@ LOOKS: list[tuple[str, str, str, dict]] = [
     # From the Chainsmokers' "Closer": the lyrics travelling through 3D space.
     # The two styles are the two readings of that -- a slow drift out of the
     # dark, and a hard rush past the camera.
-    ("approach", "Corridor",
-     "words drifting out of the dark, far apart and deep",
-     {"travel.far_z": 13.0, "travel.near_z": 0.7, "travel.seconds": 4.2,
-      "travel.spread": 0.22, "travel.size_at_one": 150.0,
-      "depth.layers": 6, "depth.fog": 0.10, "depth.haze": 7.0,
-      "stage.vanish_x": 0.5, "stage.vanish_y": 0.44,
-      "look.hue": 0.57, "look.sat": 0.30, "look.glow": 0.42,
-      "look.bloom": 26.0, "beat.kick_lift": 0.06}),
 
-    ("approach", "Flyby",
-     "words rushing past close and fast, thrown wide of the centre",
-     {"travel.far_z": 4.0, "travel.near_z": 0.4, "travel.seconds": 1.3,
-      "travel.spread": 0.8, "travel.size_at_one": 230.0,
-      "depth.layers": 4, "depth.fog": 0.4, "depth.haze": 2.0,
-      "stage.vanish_x": 0.42, "stage.vanish_y": 0.5,
-      "look.hue": 0.05, "look.sat": 0.22, "look.glow": 0.2,
-      "look.bloom": 9.0, "beat.kick_lift": 0.14}),
 
     # --------------------------------------------------------- glitch
     ("glitch", "Dropout",
@@ -461,7 +340,8 @@ def build_styles() -> list[styles_mod.Style]:
     return out
 
 
-def builtin_previews(client, live, moments_for, force=False) -> list[str]:
+def builtin_previews(client, live, moments_for, force=False,
+                     root=styles_mod.DEFAULT_ROOT) -> list[str]:
     """One capture per RENDERER, of its own defaults.
 
     The gallery synthesises a "Built-in" tile per registered type and hardcoded
@@ -474,8 +354,16 @@ def builtin_previews(client, live, moments_for, force=False) -> list[str]:
     """
     from lyricfield import styles as S
 
+    # Only for a renderer that ships no looks of its own. A look is a preset of
+    # its renderer, so a renderer with looks would appear in the gallery twice
+    # as near-identical pictures -- Approach beside Corridor and Flyby, Orbit
+    # beside Ring. Where there are looks, those ARE the renderer's tiles.
+    owned = {st.type for st in S.list_styles(root)}
+
     failed = []
     for vt in types_mod.list_types():
+        if vt.slug in owned:
+            continue
         draft = S.Style(name=vt.name, slug=vt.slug, type=vt.slug,
                         description=vt.description,
                         params=vt.default_params())
@@ -692,7 +580,8 @@ def main(argv: list[str]) -> int:
         else:
             failed.append(st.name)
     failed += backdrop_previews(client, live, root, word_moments, force=force)
-    failed += builtin_previews(client, live, moments_for, force=force)
+    failed += builtin_previews(client, live, moments_for, force=force,
+                           root=root)
     if failed:
         print(f"no moving preview for: {', '.join(failed)}")
         return 1

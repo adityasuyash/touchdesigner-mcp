@@ -52,13 +52,19 @@ def test_applying_a_style_across_types_is_refused(cfg):
         s.apply_to(Config())
 
 
-def test_the_shipped_style_loads_and_is_valid():
-    """`calm-drift` predates several tunables, so loading it is a live test
-    that old presets survive new parameters."""
-    d = REPO / "styles" / "lyric_grid" / "calm-drift"
-    if not (d / "style.toml").exists():
-        pytest.skip("calm-drift is not present")
-    s = St.Style.load(d / "style.toml")
+@pytest.mark.parametrize(
+    "d", sorted((REPO / "styles" / "lyric_grid").glob("*/style.toml")),
+    ids=lambda p: p.parent.name)
+def test_a_shipped_style_loads_and_is_valid(d):
+    """Every shipped `lyric_grid` preset, not one named one.
+
+    This used to name `calm-drift` -- a preset that predates several tunables,
+    so loading it proved old presets survive new parameters. It was then culled
+    with the rest of the near-duplicate tiles and the test skipped itself into
+    silence. The property was never about that file: it is that anything on
+    disk still applies cleanly.
+    """
+    s = St.Style.load(d)
     c = Config()
     s.apply_to(c)
     assert c.validate() == []

@@ -27,8 +27,8 @@ class Stage:
     # 0..1 across the frame. Off-centre reads as a camera looking down a street
     # rather than as a tunnel, which is the difference between the reference and
     # a screensaver.
-    vanish_x: float = 0.5
-    vanish_y: float = 0.46
+    vanish_x: float = 0.42
+    vanish_y: float = 0.5
 
 
 @dataclass
@@ -37,17 +37,17 @@ class Travel:
 
     # Depth is in arbitrary units where 1.0 is "as wide as the frame". A word is
     # born at `far_z` and is gone once it passes `near_z`.
-    far_z: float = 7.0
-    near_z: float = 0.55
+    far_z: float = 4.0
+    near_z: float = 0.4
     # Seconds to cross that whole distance. Shorter than a word's gap and words
     # arrive alone; longer and several are in flight at once, which is the look.
-    seconds: float = 2.6
+    seconds: float = 1.3
     # How far off the axis a word may be born, as a fraction of the frame. Zero
     # sends every word straight down the middle and they stack into one blur.
-    spread: float = 0.42
+    spread: float = 0.8
     # Font size in pixels at depth 1.0. Everything else follows from this and
     # the depth a word is at.
-    size_at_one: float = 190.0
+    size_at_one: float = 230.0
 
 
 @dataclass
@@ -60,23 +60,23 @@ class Depth:
     nearest its depth. More slabs means smoother travel and more operators.
     """
 
-    layers: int = 5
+    layers: int = 4
     # Brightness of the farthest slab relative to the nearest. This is the fog,
     # and it is what makes the depth read at all.
-    fog: float = 0.22
+    fog: float = 0.4
     # Blur on the farthest slab only, in pixels: distance should cost focus as
     # well as size and brightness.
-    haze: float = 4.0
+    haze: float = 2.0
 
 
 @dataclass
 class Look:
-    hue: float = 0.58
-    sat: float = 0.18
+    hue: float = 0.05
+    sat: float = 0.22
     peak: float = 0.90
     floor: float = 0.02
-    glow: float = 0.30
-    bloom: float = 16.0
+    glow: float = 0.2
+    bloom: float = 9.0
 
 
 @dataclass
@@ -84,7 +84,7 @@ class Beat:
     """What the drums do to a picture whose subject is the words."""
 
     # The room lifts on a kick, not the type: the words belong to the cue table.
-    kick_lift: float = 0.09
+    kick_lift: float = 0.1
     kick_time: float = 0.22
     intro_open: float = 0.32
     arrive: float = 0.85

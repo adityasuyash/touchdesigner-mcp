@@ -27,41 +27,41 @@ class Frame:
 class Curve:
     """A Lissajous figure: two sines at a ratio, one per axis."""
 
-    freqx: float = 3.0
-    freqy: float = 2.0
+    freqx: float = 2.0
+    freqy: float = 3.0
     # Slowly slides the two out of phase, so the figure turns through itself
     # instead of repeating the same closed shape forever.
-    slip: float = 0.05
-    size: float = 0.38       # against the frame's smaller side
-    rate: float = 0.9        # how fast the point travels the figure
+    slip: float = 0.13
+    size: float = 0.3       # against the frame's smaller side
+    rate: float = 0.4        # how fast the point travels the figure
 
 
 @dataclass
 class Trail:
     """How much of the curve's recent past is still glowing."""
 
-    seconds: float = 0.55
+    seconds: float = 1.3
     samples: int = 1400      # points drawn along that past
-    weight: float = 0.9      # brightness of the freshest point
-    taper: float = 2.6       # how quickly the trail dims behind it
+    weight: float = 0.4      # brightness of the freshest point
+    taper: float = 1.1       # how quickly the trail dims behind it
 
 
 @dataclass
 class Look:
-    hue: float = 0.33
-    sat: float = 0.7
+    hue: float = 0.86
+    sat: float = 0.5
     floor: float = 0.012
     # Generous: a bare line needs the bloom to read as phosphor rather than as
     # a hairline scratch.
-    glow: float = 0.55
-    bloom: float = 20.0
+    glow: float = 0.8
+    bloom: float = 34.0
 
 
 @dataclass
 class Beat:
     # A kick nudges the vertical frequency, so the figure changes shape on the
     # beat rather than merely brightening.
-    kick_bend: float = 0.35
+    kick_bend: float = 0.9
     kick_time: float = 0.45
     hat_lift: float = 0.25
     hat_time: float = 0.12

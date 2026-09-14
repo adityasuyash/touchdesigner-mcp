@@ -27,37 +27,37 @@ class Line:
     """The lyrics, as a line at a time rather than a word at a time."""
 
     font: str = "Arial"
-    size: float = 112.0
+    size: float = 126.0
     # A line appears this long before its first word and stays this long after
     # its last, so reading it is never a race.
     lead: float = 0.35
     hold: float = 0.9
     fade: float = 0.45
     line_y: float = 0.5
-    wrap: int = 12          # characters before the line breaks
+    wrap: int = 10          # characters before the line breaks
 
 
 @dataclass
 class Field:
     """What moves behind the letters."""
 
-    bands: float = 4.5       # horizontal bands across the frame
-    drift: float = 0.45      # how fast they travel, frame-heights a second
-    warp: float = 0.35       # how much the bands bend
-    kick_push: float = 0.38  # a kick shoves the whole field
+    bands: float = 2.6       # horizontal bands across the frame
+    drift: float = 0.2      # how fast they travel, frame-heights a second
+    warp: float = 0.7       # how much the bands bend
+    kick_push: float = 0.5  # a kick shoves the whole field
     kick_time: float = 0.35
-    hat_grain: float = 0.18
+    hat_grain: float = 0.06
     hat_time: float = 0.18
 
 
 @dataclass
 class Look:
-    hue: float = 0.52
-    sat: float = 0.5
+    hue: float = 0.55
+    sat: float = 0.62
     # How bright the light behind the letters gets, and the dark it sits in.
     peak: float = 0.92
     floor: float = 0.03
-    glow: float = 0.26
+    glow: float = 0.36
     bloom: float = 16.0
 
 

@@ -22,10 +22,10 @@ class Stage:
     font: str = "Arial"
     # A word is scaled to this share of the frame's width. It is the whole look:
     # at 0.9 the type is a wall, at 0.4 it is a caption.
-    fill: float = 0.86
+    fill: float = 0.93
     # ... but never past this, or a two-letter word ("I", "a") becomes a
     # texture rather than a word.
-    cap_px: float = 300.0
+    cap_px: float = 340.0
     # Where the word sits vertically, 0 at the top and 1 at the bottom.
     line_y: float = 0.5
 
@@ -36,28 +36,28 @@ class Word:
 
     # Scale at the instant it lands, falling to 1.0 over `settle`. This is what
     # makes it read as struck rather than faded in.
-    punch: float = 1.16
-    settle: float = 0.20
+    punch: float = 1.34
+    settle: float = 0.12
     # Seconds a word stays up after its cue, and how long it takes to go. A
     # word with no successor leans on these alone.
-    hold: float = 0.55
-    fade: float = 0.30
+    hold: float = 0.4
+    fade: float = 0.16
     # The word before, still on screen behind this one.
-    ghost: float = 0.26
+    ghost: float = 0.1
     ghost_scale: float = 1.75
     # Vertical travel across a word's life, as a share of frame height.
-    drift: float = 0.035
+    drift: float = 0.01
 
 
 @dataclass
 class Look:
-    hue: float = 0.06
-    sat: float = 0.22
+    hue: float = 0.0
+    sat: float = 0.0
     # Peak brightness of a lit word, and of the ground it sits on.
     peak: float = 0.88
     floor: float = 0.02
-    glow: float = 0.30
-    bloom: float = 14.0
+    glow: float = 0.16
+    bloom: float = 7.0
 
 
 @dataclass
@@ -66,7 +66,7 @@ class Beat:
 
     # The ground lifts on a kick rather than the word moving: the word belongs
     # to the cue table, the room belongs to the beat.
-    kick_lift: float = 0.10
+    kick_lift: float = 0.05
     kick_time: float = 0.20
     # Where in the song this is.
     intro_open: float = 0.35

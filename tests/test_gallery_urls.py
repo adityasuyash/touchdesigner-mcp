@@ -193,3 +193,40 @@ def test_two_beat_styles_sharing_a_name_get_different_backdrop_folders():
     b = styles_mod.Style(name="Tide behind", slug="tide", type="lyric_grid",
                 filed_under="lyric_grid/window")
     assert a.dir("/tmp/x") != b.dir("/tmp/x")
+
+
+# ------------------------------------------------- a tile that says what it is
+
+def test_every_tile_the_gallery_shows_carries_a_description():
+    """The tooltip has nothing to show if the payload does not carry it.
+
+    Twenty-seven tiles that can only be told apart by staring at a four-second
+    loop is the complaint this answers, so an empty description is a tile that
+    cannot explain itself.
+    """
+    import lyricfield.ui.server as srv
+
+    bare = []
+    for st in styles_mod.list_styles(srv.STYLES_ROOT):
+        if not (srv.style_payload(st).get("description") or "").strip():
+            bare.append(f"{st.type}/{st.slug}")
+    for vt in types_mod.list_types():
+        if not (srv.type_payload(vt).get("description") or "").strip():
+            bare.append(vt.slug)
+    assert not bare, f"tiles with nothing to say: {bare}"
+
+
+def test_a_description_is_a_sentence_rather_than_a_label():
+    """"Grid" tells you nothing you could not read off the caption. These are
+    what the tooltip shows, so they have to add something."""
+    short = []
+    for st in styles_mod.list_styles(srv_root()):
+        d = (st.description or "").strip()
+        if len(d.split()) < 4:
+            short.append(f"{st.type}/{st.slug}: {d!r}")
+    assert not short, f"descriptions too thin to be worth a tooltip: {short}"
+
+
+def srv_root():
+    import lyricfield.ui.server as srv
+    return srv.STYLES_ROOT

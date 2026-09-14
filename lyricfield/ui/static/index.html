@@ -482,8 +482,35 @@
                        color: var(--accent); font-weight: 560; }
   .picker.on .n { background: var(--accent); color: var(--on-accent); }
 
-  .gallery { display: grid; gap: var(--s-4);
-             grid-template-columns: repeat(auto-fill, minmax(148px,1fr)); }
+  /* A scrolling strip, not a wrapping grid. Twenty-seven tiles at 148px wrap
+     into eleven rows and push everything below them off the screen; one row per
+     family that scrolls sideways keeps the whole picker in view. */
+  .gallery { display: flex; gap: var(--s-4); overflow-x: auto; overflow-y: hidden;
+             scroll-snap-type: x proximity; scroll-padding: 0 var(--s-1);
+             /* Room for the card's hover lift and focus ring, which would
+                otherwise be clipped by the scroll container. */
+             padding: 6px var(--s-1) var(--s-3);
+             margin: -6px calc(var(--s-1) * -1) 0;
+             scrollbar-width: thin;
+             scrollbar-color: var(--line-2) transparent; }
+  .gallery::-webkit-scrollbar { height: 8px; }
+  .gallery::-webkit-scrollbar-track { background: transparent; }
+  .gallery::-webkit-scrollbar-thumb { background: var(--line-1);
+                                      border-radius: 99px; }
+  .gallery:hover::-webkit-scrollbar-thumb { background: var(--line-2); }
+  .gallery > * { flex: 0 0 148px; scroll-snap-align: start; }
+
+  /* What a tile is, on hover and on keyboard focus. */
+  .tip { position: fixed; z-index: 60; max-width: 260px; pointer-events: none;
+         display: grid; gap: 2px; padding: var(--s-2) var(--s-3);
+         border-radius: var(--r-s); background: var(--bg-3);
+         box-shadow: 0 0 0 1px var(--line-1), var(--lift-2);
+         font-size: var(--t-sm); line-height: 1.35;
+         opacity: 0; transform: translateY(3px);
+         transition: opacity .14s var(--ease-out), transform .14s var(--ease-out); }
+  .tip.on { opacity: 1; transform: none; }
+  .tip b { font-weight: 600; }
+  .tip span { color: var(--faint); }
   .scard { appearance: none; border: 0; padding: 0; background: none;
            cursor: pointer; text-align: left; font: inherit; color: var(--text);
            display: block; }
@@ -784,7 +811,9 @@
     .page { padding: var(--s-5) var(--s-4) var(--s-7); }
   }
   @media (max-width: 700px) {
-    .gallery { grid-template-columns: repeat(2, 1fr); }
+    /* Narrower tiles so two and a bit are visible, which is what tells you the
+       row scrolls. A full-width tile reads as the only one there is. */
+    .gallery > * { flex-basis: 132px; }
     #top { padding: 0 var(--s-3); }
   }
 
@@ -1699,7 +1728,13 @@ function renderGallery() {
   // Each renderer's own defaults, captured like any other look. These three
   // tiles introduce the three renderers and were the only ones in the gallery
   // with nothing to look at.
-  const builtins = (TYPES || []).map(t => ({
+  // A renderer gets a tile of its own ONLY when it ships no looks. Where it has
+  // looks, those ARE its tiles: a look is a preset of its renderer, so showing
+  // both put every renderer on screen two to six times as near-identical
+  // pictures. Approach beside Corridor and Flyby, Orbit beside Ring, Window
+  // beside Tide -- fifteen renderers made fifty-three tiles that way.
+  const owned = new Set((STYLES || []).map(s => s.type));
+  const builtins = (TYPES || []).filter(t => !owned.has(t.slug)).map(t => ({
     slug: '', type: t.slug, name: t.name, family: t.family || 'lyric',
     preview: `/styles/_builtin/${t.slug}/${t.slug}/preview.mp4`,
     // Answered by the server, which looks on disk. Hardcoding this true was
@@ -1795,6 +1830,45 @@ function noneCard(fam) {
   return b;
 }
 
+// One tooltip element, moved around, rather than one per tile: there are
+// twenty-seven of them and they are rebuilt on every pick.
+let TIP = null, TIP_T = null;
+
+function showTip(anchor, name, text) {
+  clearTimeout(TIP_T);
+  // A short delay, so sweeping a finger along a row does not flash a tooltip
+  // for every tile it crosses.
+  TIP_T = setTimeout(() => {
+    if (!TIP) {
+      TIP = document.createElement('div');
+      TIP.className = 'tip';
+      document.body.append(TIP);
+    }
+    TIP.innerHTML = '';
+    const h = document.createElement('b'); h.textContent = name;
+    const p = document.createElement('span'); p.textContent = text;
+    TIP.append(h, p);
+    TIP.style.visibility = 'hidden';
+    TIP.classList.add('on');
+    // Placed after it is measured, and kept inside the viewport -- the rows
+    // scroll sideways, so the first and last tiles sit against the edges.
+    const r = anchor.getBoundingClientRect();
+    const w = TIP.offsetWidth, h2 = TIP.offsetHeight;
+    let x = r.left + r.width / 2 - w / 2;
+    x = Math.max(8, Math.min(x, window.innerWidth - w - 8));
+    let y = r.top - h2 - 10;
+    if (y < 8) y = r.bottom + 10;          // flip under when there is no room
+    TIP.style.left = `${Math.round(x)}px`;
+    TIP.style.top = `${Math.round(y)}px`;
+    TIP.style.visibility = '';
+  }, 260);
+}
+
+function hideTip() {
+  clearTimeout(TIP_T);
+  if (TIP) TIP.classList.remove('on');
+}
+
 function styleCard(st, fam) {
   fam = fam || st.family || 'lyric';
   const [pickedType, pickedStyle] = pickedIn(fam);
@@ -1853,16 +1927,26 @@ function styleCard(st, fam) {
   c.textContent = (sameName.length > 1 && !st.builtin)
     ? `${st.name} · ${nameOfType(st.type)}` : st.name;
   b.append(t, c);
-  if (vid) {
-    b.onpointerenter = b.onfocus = () => {
+  // Every look already carries a line saying what it is, and the gallery threw
+  // it away -- so two tiles could only be told apart by staring at them. It is
+  // set as `title` for screen readers whatever happens, and shown as a tooltip
+  // on hover and on keyboard focus.
+  const blurb = (st.description || '').trim();
+  if (blurb) b.title = `${st.name} — ${blurb}`;
+  b.onpointerenter = b.onfocus = () => {
+    if (vid) {
       if (HOVER_V && HOVER_V !== vid) stopThumb(HOVER_V);
       HOVER_V = vid; playThumb(vid);
-    };
-    b.onpointerleave = b.onblur = () => {
+    }
+    if (blurb) showTip(b, st.name, blurb);
+  };
+  b.onpointerleave = b.onblur = () => {
+    if (vid) {
       if (HOVER_V === vid) HOVER_V = null;
       if (b.getAttribute('aria-checked') !== 'true') stopThumb(vid);
-    };
-  }
+    }
+    hideTip();
+  };
   // A click only ever writes its own row's pair, which is the whole point.
   b.onclick = () => setPick(fam, st.type || '', st.slug || '');
   return b;

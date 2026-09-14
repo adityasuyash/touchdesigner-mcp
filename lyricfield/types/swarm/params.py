@@ -26,28 +26,28 @@ class Flight:
     """How a word arrives and comes to rest."""
 
     # How far from its resting place a word starts, as a share of the frame.
-    throw: float = 0.55
+    throw: float = 0.3
     # The spring that pulls it home, and the drag that stops it overshooting
     # forever. Together these are the whole feel of the thing.
-    stiff: float = 26.0
-    damp: float = 5.2
+    stiff: float = 74.0
+    damp: float = 9.5
     # Words do not all arrive at once; each is delayed by this much more than
     # the one before.
-    stagger: float = 0.06
+    stagger: float = 0.02
 
 
 @dataclass
 class Burst:
     """What a kick does to a settled line."""
 
-    push: float = 1.35       # impulse away from the centre
-    spin: float = 0.5        # ... and a little sideways, so it is not radial
+    push: float = 3.0       # impulse away from the centre
+    spin: float = 1.1        # ... and a little sideways, so it is not radial
 
 
 @dataclass
 class Line:
     font: str = "Arial"
-    size: float = 60.0
+    size: float = 66.0
     lead: float = 0.35
     hold: float = 1.0
     fade: float = 0.45
@@ -57,11 +57,11 @@ class Line:
 
 @dataclass
 class Look:
-    hue: float = 0.12
-    sat: float = 0.3
+    hue: float = 0.02
+    sat: float = 0.45
     peak: float = 0.95
     floor: float = 0.02
-    glow: float = 0.28
+    glow: float = 0.2
     bloom: float = 13.0
 
 

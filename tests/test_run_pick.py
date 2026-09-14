@@ -185,7 +185,7 @@ def test_a_beatsync_style_brings_its_own_colour():
 
 def test_no_backdrop_clears_it(tmp_path):
     ws = Workspace.create("No backdrop", root=tmp_path, copy_source=False)
-    run_mod._honour_pick(_ctx(ws, back_type="pulse_grid", back_style="sweep"),
+    run_mod._honour_pick(_ctx(ws, back_type="pulse_grid", back_style="shimmer"),
                          lambda m: None)
     assert ws.load_config().backdrop.back_level > 0
     run_mod._honour_pick(_ctx(ws, back_type="", back_style=""), lambda m: None)

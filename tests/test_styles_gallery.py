@@ -464,3 +464,47 @@ def test_no_two_previews_in_the_gallery_are_the_same_video():
             same.append(f"{a.relative_to(ROOT)} and {b.relative_to(ROOT)} "
                         f"(difference {d:.3f} of their own brightness)")
     assert not same, "previews that are the same picture:\n  " + "\n  ".join(same)
+
+
+# ------------------------------------------- a renderer is not its own style
+
+def test_a_renderer_ships_a_tile_of_its_own_only_when_it_ships_no_looks():
+    """A look is a preset of its renderer, so the two can only resemble each
+    other. Showing both put every renderer on screen two to six times as
+    near-identical pictures -- Approach beside Corridor and Flyby, Orbit beside
+    Ring, Window beside Tide -- and fifteen renderers became fifty-three tiles.
+
+    So: where a renderer has looks, those ARE its tiles; where it has none, it
+    gets one of its own. This is the rule the gallery follows, checked here
+    because the next batch of looks would otherwise bring the duplicates back.
+    """
+    owned = {st.type for st in SHIPPED}
+    builtin = {d.parent.name for d in (ROOT / "_builtin").glob("*/*")
+               if d.is_dir()}
+    both = sorted(owned & builtin)
+    assert not both, (
+        f"these renderers ship a built-in tile AND looks, so the gallery shows "
+        f"the same picture twice: {both}")
+
+
+def test_every_renderer_reaches_the_gallery_exactly_once_over():
+    """The other half: no renderer may vanish. Dropping a built-in tile is only
+    safe because its looks stand in for it."""
+    owned = {st.type for st in SHIPPED}
+    builtin = {d.parent.name for d in (ROOT / "_builtin").glob("*/*")
+               if d.is_dir()}
+    missing = [vt.slug for vt in types_mod.list_types()
+               if vt.slug not in owned and vt.slug not in builtin]
+    assert not missing, f"renderers with no tile at all: {missing}"
+
+
+def test_no_two_tiles_in_a_row_share_a_display_name():
+    """Two tiles reading "Static" or "Tide" in one row is the duplicate the
+    caption disambiguation exists to soften. With one tile per look there is
+    nothing left to disambiguate, and it should stay that way."""
+    import collections
+    for fam in (types_mod.LYRIC, types_mod.BEATSYNC):
+        names = [st.name for st in SHIPPED
+                 if types_mod.get_type(st.type).family == fam]
+        dupes = [n for n, c in collections.Counter(names).items() if c > 1]
+        assert not dupes, f"{fam} row has two tiles called {dupes}"

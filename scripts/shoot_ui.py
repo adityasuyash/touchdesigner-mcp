@@ -53,7 +53,8 @@ PICK = """
 
 def shoot(url: str, out: Path, pick: str = "", scroll: int = 0,
           width: int = 1280, height: int = 1280, full: bool = False,
-          settle: float = 2.0, theme: str = "dark") -> Path:
+          settle: float = 2.0, theme: str = "dark",
+          hover: int = -1) -> Path:
     from playwright.sync_api import sync_playwright
 
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -84,6 +85,14 @@ def shoot(url: str, out: Path, pick: str = "", scroll: int = 0,
                     " if (m) m.scrollTop = y; else window.scrollTo(0, y); }",
                     scroll)
             page.wait_for_timeout(int(settle * 1000))
+            if hover >= 0:
+                # After the scroll and the settle, never before: the page slides
+                # out from under the pointer, `pointerleave` fires, and the
+                # tooltip this was taken to see closes again.
+                cards = page.query_selector_all(".scard")
+                if hover < len(cards):
+                    cards[hover].hover()
+                    page.wait_for_timeout(900)
             page.screenshot(path=str(out), full_page=full)
         finally:
             browser.close()
@@ -105,11 +114,13 @@ def main(argv: list[str] | None = None) -> int:
                     help="seconds to let the previews play before shooting")
     ap.add_argument("--theme", default="dark", choices=("dark", "light"),
                     help="which colour scheme to report to the page")
+    ap.add_argument("--hover", type=int, default=-1, metavar="N",
+                    help="hover the Nth tile, to catch its tooltip")
     a = ap.parse_args(argv)
     try:
         path = shoot(a.url, a.out, pick=a.pick, scroll=a.scroll,
                      width=a.width, height=a.height, full=a.full,
-                     settle=a.settle, theme=a.theme)
+                     settle=a.settle, theme=a.theme, hover=a.hover)
     except ImportError:
         print("playwright is not installed: pip install -r requirements-dev.txt"
               " && python -m playwright install chromium", file=sys.stderr)
