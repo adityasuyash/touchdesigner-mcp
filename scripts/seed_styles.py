@@ -41,6 +41,24 @@ LOOKS: list[tuple[str, str, str, dict]] = [
     # ---------------------------------------------------------- window
 
     # ---------------------------------------------------------- orbit
+    # The first look this project ever had, and the one to leave alone.
+    # It was culled once with a batch of near-duplicates; it is not one.
+    ("lyric_grid", "Calm Drift",
+     "longer dissolves, slower drift, wide spacing and a softer beat",
+     {"look.dissolve": 3.6, "look.drift_min": 4.5, "look.drift_max": 9.0,
+      "cueing.hold": 1.25, "cueing.ramp_dn": 0.45, "cueing.letter_spread": 0.11,
+      # Words sat too close together. The gap is blank cells between one word
+      # and the next along the line's path, against a fixed 2-cell pitch inside
+      # a word -- so 3..10 roughly doubles the air between words. Measured
+      # rather than picked: a line that cannot place is dropped SILENTLY, and
+      # at these values every sung line still places (the path wraps, so with
+      # 1800 tries it always finds room). 10 is also the top of the declared
+      # range; past it the decoration starts failing to place and the layout
+      # rebuild jumps from ~8ms to ~19ms per stanza.
+      "cueing.gap_min": 3, "cueing.gap_max": 10,
+      "beat.ripple_lift": 0.12, "beat.spark_peak": 0.45,
+      "beat.spark_frac": 0.05, "beat.twinkle_lift": 0.14}),
+
     ("orbit", "Ring",
      "the line carried round a slowly turning circle",
      {"path.shape": "circle", "path.radius": 0.4, "path.spin": 0.045,

@@ -26,10 +26,10 @@ SHIPPED = S.list_styles(ROOT)
 # ------------------------------------------------------------ what ships
 
 def test_there_are_styles_for_more_than_one_renderer():
-    """Until there were, the gallery's beatsync row was unreachable dead code:
-    it grouped the styles on disk, and every style on disk was a lyric one."""
-    families = {types_mod.get_type(st.type).family for st in SHIPPED}
-    assert len(families) > 1, f"every shipped style is {families}"
+    """The gallery groups looks by renderer, so one renderer's looks would make
+    every tile a variation of one picture."""
+    renderers = {st.type for st in SHIPPED}
+    assert len(renderers) > 1, f"every shipped look is {renderers}"
 
 
 @pytest.mark.parametrize("st", SHIPPED, ids=[s.slug for s in SHIPPED])
@@ -179,47 +179,8 @@ def test_something_that_is_not_a_container_is_rejected(tmp_path):
     assert R._finished(junk) is False
 
 
-def test_every_beatsync_look_has_a_preview_of_it_behind_words():
-    """Its own preview was captured as the whole picture, at a brightness and
-    density it is not allowed behind lyrics -- so the tile would promise
-    something the render cannot deliver."""
-    from lyricfield.types.lyric_grid.params import can_back_words
-    # Only the looks that share the grid's field; see test_run_pick for why a
-    # renderer with its own network cannot be another one's ambient layer.
-    beat = [st for st in SHIPPED
-            if types_mod.get_type(st.type).family == types_mod.BEATSYNC
-            and can_back_words(st.params)]
-    if not BACKDROP_ROOT.exists():
-        pytest.skip("no backdrop previews on this machine")
-    # Keyed by BOTH renderers: the layer is a property of the pair. Keyed on
-    # the beat style's slug alone, `_backdrops/lyric_grid/tide` stood for "the
-    # backdrop for some style called tide", one same-named style away from two
-    # tiles sharing one video.
-    missing = [f"{st.type}/{st.slug}" for st in beat
-               if not (BACKDROP_ROOT / types_mod.DEFAULT_TYPE / st.type
-                       / st.slug / "preview.mp4").exists()]
-    assert not missing, f"no behind-the-words preview for: {missing}"
-
-
-def test_the_backdrop_previews_differ_from_the_standalone_ones():
-    """If they were the same file the whole point would be lost."""
-    import hashlib
-    from lyricfield.types.lyric_grid.params import can_back_words
-    # Only the looks that share the grid's field; see test_run_pick for why a
-    # renderer with its own network cannot be another one's ambient layer.
-    beat = [st for st in SHIPPED
-            if types_mod.get_type(st.type).family == types_mod.BEATSYNC
-            and can_back_words(st.params)]
-    if not BACKDROP_ROOT.exists():
-        pytest.skip("no backdrop previews on this machine")
-    for st in beat:
-        behind = (BACKDROP_ROOT / types_mod.DEFAULT_TYPE / st.type
-                  / st.slug / "preview.mp4")
-        alone = st.preview_video(ROOT)
-        if not (behind.exists() and alone.exists()):
-            continue
-        assert hashlib.md5(behind.read_bytes()).digest() != \
-            hashlib.md5(alone.read_bytes()).digest(), st.slug
+# Two tests about backdrop previews lived here. A beat look is not a picture
+# behind the words any more, so there is no such capture to compare.
 
 
 # ------------------------------------------------- a preview with words in it
@@ -503,8 +464,6 @@ def test_no_two_tiles_in_a_row_share_a_display_name():
     caption disambiguation exists to soften. With one tile per look there is
     nothing left to disambiguate, and it should stay that way."""
     import collections
-    for fam in (types_mod.LYRIC, types_mod.BEATSYNC):
-        names = [st.name for st in SHIPPED
-                 if types_mod.get_type(st.type).family == fam]
-        dupes = [n for n, c in collections.Counter(names).items() if c > 1]
-        assert not dupes, f"{fam} row has two tiles called {dupes}"
+    names = [st.name for st in SHIPPED]
+    dupes = [n for n, c in collections.Counter(names).items() if c > 1]
+    assert not dupes, f"the row has two tiles called {dupes}"

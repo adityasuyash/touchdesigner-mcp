@@ -31,7 +31,6 @@ from pathlib import Path
 
 from . import sync
 from .cues import CueTable
-from .types import BANDS
 
 
 @dataclass
@@ -67,7 +66,6 @@ def run(client, cfg, workspace=None, covers: float = 0.0,
         ("the pushed field script, and whether it runs", _field_script),
         ("the pushed cue table", _cues),
         ("the pushed drum table", _drums),
-        ("the pushed band table, for a type that reads one", _bands),
         ("a recorder left behind", _no_stranded_recorder),
     ):
         res.checked.append(name)
@@ -224,42 +222,6 @@ def _drums(client, cfg, ws, covers, repair, res, say):
     say(f"pushing {len(wanted)} drum hits")
     sync.push_drums(client, wanted)
     res.repaired.append("pushed the song's drum table")
-
-
-def _bands(client, cfg, ws, covers, repair, res, say):
-    """The spectrum, for the one renderer whose picture IS the spectrum.
-
-    Only checked when the type asks for it. A song ingested before the band
-    table existed has none, and that is not a problem for the ten renderers
-    that never look at it -- but for `spectrum` a missing table is a frame of
-    bars that never move, which passes every other check there is.
-    """
-    if ws is None or BANDS not in getattr(cfg.video_type, "needs", frozenset()):
-        return
-    from .bands import BandTable
-
-    if not ws.bands_path.exists():
-        res.problems.append(
-            "this song has no measured spectrum, and this renderer draws one; "
-            "re-run the analysis to write bands.tsv")
-        return
-    wanted = BandTable.load(ws.bands_path)
-    for msg in wanted.problems(cfg.track.duration):
-        res.problems.append(msg)
-    if res.problems:
-        return
-    try:
-        got = sync.pull_bands(client)
-    except Exception:
-        got = None
-    if got is not None and len(got) == len(wanted):
-        return
-    if not repair:
-        res.problems.append("the band table in TouchDesigner is not this song's")
-        return
-    say(f"pushing {len(wanted)} band slices")
-    sync.push_bands(client, wanted)
-    res.repaired.append("pushed the song's band table")
 
 
 def _cues(client, cfg, ws, covers, repair, res, say):

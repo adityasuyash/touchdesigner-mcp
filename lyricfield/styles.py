@@ -482,16 +482,6 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
                 if ws.drums_path.exists():
                     client.write(f"{box}/drums",
                                  DrumTable.load(ws.drums_path).to_dat_text())
-                # ... and the spectrum, for the one renderer whose picture IS
-                # the spectrum. Without it `spectrum` previews as a flat row of
-                # nothing, which looks like a broken renderer rather than like
-                # missing data.
-                from . import types as types_mod
-                if types_mod.BANDS in shown.video_type.needs:
-                    from .bands import BandTable
-                    if ws.bands_path.exists():
-                        client.write(f"{box}/bands",
-                                     BandTable.load(ws.bands_path).to_dat_text())
             except Exception:
                 pass                    # a preview without drums is still a preview
 

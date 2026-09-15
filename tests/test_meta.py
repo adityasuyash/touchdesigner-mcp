@@ -195,7 +195,7 @@ def test_every_registered_type_answers_the_contract():
     for vt in listed:
         p = vt.default_params()
         assert vt.slug and vt.name
-        assert vt.family in (types_mod.LYRIC, types_mod.BEATSYNC)
+        assert vt.family == types_mod.LYRIC
         assert isinstance(vt.ranges(), dict)
         assert isinstance(vt.section_names(), tuple)
         assert p.validate() == [], f"{vt.slug} ships an invalid default config"

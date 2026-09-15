@@ -505,60 +505,6 @@ def fit_beat_grid(onsets: Sequence[float], period: float,
     return round(best_p, 5), round(best_a, 4)
 
 
-def detect_bands(x: np.ndarray, bands: int = 24, fps: float = 30.0,
-                 lo: float = 40.0, hi: float = 12000.0,
-                 sr: int = SR) -> np.ndarray:
-    """How loud each frequency band is, frame by frame, normalised to 0..1.
-
-    One spectrogram, bucketed -- not `_band_rms` called once per band. That is
-    not only faster: `_band_rms` refuses a band with no FFT bin in it, and at
-    any sensible frame rate the low bands are narrower than the bin spacing, so
-    a per-band loop would simply fail at the bottom of the range.
-
-    The edges are spaced logarithmically because pitch is. Linear edges put
-    eighteen of twenty-four bands above 4kHz, where almost no musical energy
-    lives, and the picture is then twenty dead bars and four busy ones.
-
-    Returned as (frames, bands), normalised against a high percentile of the
-    whole song rather than per frame: per-frame normalisation makes silence look
-    exactly like a chorus, which is the same class of mistake as a level gate
-    standing in for an onset.
-    """
-    hop = max(1, int(sr / fps))
-    n = len(x) // hop
-    if n == 0:
-        return np.zeros((0, bands), np.float32)
-    frames = x[: n * hop].reshape(n, hop)
-    win = np.hanning(hop).astype(np.float32)
-    spec = np.abs(np.fft.rfft(frames * win, axis=1))
-    freqs = np.fft.rfftfreq(hop, 1.0 / sr)
-
-    hi = min(float(hi), sr / 2.0)
-    lo = max(1.0, min(float(lo), hi / 2.0))
-    edges = np.geomspace(lo, hi, bands + 1)
-    out = np.zeros((n, bands), np.float32)
-    for b in range(bands):
-        sel = (freqs >= edges[b]) & (freqs < edges[b + 1])
-        if not sel.any():
-            # Narrower than the bin spacing: take the single nearest bin rather
-            # than returning silence, which would read as a permanently dead
-            # bar and look like a broken renderer.
-            sel = np.zeros(freqs.shape, bool)
-            sel[int(np.argmin(np.abs(freqs - 0.5 * (edges[b] + edges[b + 1]))))] = True
-        out[:, b] = np.sqrt((spec[:, sel] ** 2).sum(axis=1) / sel.sum())
-
-    # Perceptual rather than linear: amplitude spans four orders of magnitude
-    # across a song and a linear bar chart of it is a flat line with occasional
-    # spikes.
-    out = np.log10(out + 1e-6)
-    floor = float(np.percentile(out, 5.0))
-    ceiling = float(np.percentile(out, 99.5))
-    if ceiling - floor < 1e-6:
-        return np.zeros((n, bands), np.float32)
-    out = (out - floor) / (ceiling - floor)
-    return np.clip(out, 0.0, 1.0).astype(np.float32)
-
-
 def detect_drums(x: np.ndarray, sr: int = SR) -> dict[str, list[float]]:
     """Every drum strike in the track, by kind, in seconds.
 

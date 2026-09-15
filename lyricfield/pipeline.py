@@ -27,7 +27,6 @@ from . import separate as separate_mod
 from . import transcribe as transcribe_mod
 from .config import Config
 from .cues import CueTable
-from .bands import BandTable
 from .drums import DrumTable
 
 # How far a first cue may trail the first singing before it counts as a lost
@@ -46,7 +45,6 @@ class Prepared:
     lines: int = 0
     drums: int = 0
     drums_stem: str = ""
-    bands: int = 0
     vocal_in: float = 0.0
     skipped: list[str] = field(default_factory=list)
     # Two kinds of bad news, deliberately separated. `problems` means the
@@ -78,7 +76,6 @@ def prepare(track: str | Path,
             config_path: str | Path,
             cues_path: str | Path,
             drums_path: str | Path | None = None,
-            bands_path: str | Path | None = None,
             stem_root: str | Path = separate_mod.DEFAULT_ROOT,
             model: str = separate_mod.DEFAULT_MODEL,
             device: str | None = None,
@@ -204,35 +201,6 @@ def prepare(track: str | Path,
         # drums, so a table with none is a video that never moves -- and it was
         # announced as "0 kicks, 0 snares, 0 hats" and counted as a success.
         for msg in drums.problems(res.duration):
-            out.warnings.append(msg)
-            say(msg)
-
-    # ---- 2b. the spectrum ----
-    # Beside the drum table and written the same way. The drums say *when*
-    # something is struck; this says where the energy is, which is the only
-    # thing a bar renderer can be a picture of.
-    if bands_path is not None:
-        bands_path = Path(bands_path)
-        # Named apart from `table`, which section 3 below uses for the cues.
-        spectrum = BandTable.load(bands_path)
-        if len(spectrum) and not force_analyse:
-            say(f"keeping existing band table ({len(spectrum)} slices)")
-        else:
-            rhythm = cfg.track.instrumental or cfg.track.source
-            try:
-                levels = analysis_mod.detect_bands(
-                    analysis_mod.decode_mono(rhythm))
-                spectrum = BandTable.from_levels(levels)
-                spectrum.save(bands_path)
-                say(f"measured {len(spectrum)} band slices across "
-                    f"{spectrum.bands} bands")
-            except Exception as e:
-                # A missing spectrum costs one renderer its picture; it must not
-                # cost the whole ingest.
-                out.warnings.append(f"could not measure the spectrum: {e}")
-                say(f"could not measure the spectrum: {e}")
-        out.bands = len(spectrum)
-        for msg in spectrum.problems(res.duration):
             out.warnings.append(msg)
             say(msg)
 

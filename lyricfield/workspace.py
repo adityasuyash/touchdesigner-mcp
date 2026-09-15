@@ -120,13 +120,6 @@ class Workspace:
         return self.dir / "drums.tsv"
 
     @property
-    def bands_path(self) -> Path:
-        """How loud each frequency band is, over time. Beside `drums.tsv` and
-        for the same reason: thousands of rows on a long song, and none of them
-        belong in a TOML the UI rewrites on every edit."""
-        return self.dir / "bands.tsv"
-
-    @property
     def source_dir(self) -> Path:
         return self.dir / "source"
 
@@ -416,16 +409,11 @@ class Workspace:
         if self.drums_path.exists():
             from .drums import DrumTable
             drums = DrumTable.load(self.drums_path)
-        bands = None
-        if cfg.back_type or types_mod_needs_bands(cfg):
-            from .bands import BandTable
-            if self.bands_path.exists():
-                bands = BandTable.load(self.bands_path)
         say("pushing params, field script"
             + (", cues" if wants_words else "")
             + (", drums" if drums is not None else "")
             + (", and the layer behind" if cfg.back_type else ""))
-        out["pushed"] = sync.push_composed(client, cfg, cues, drums, bands)
+        out["pushed"] = sync.push_composed(client, cfg, cues, drums)
 
         # ---- 4. persist ----
         # A built network that is only in TouchDesigner's memory is one crash
@@ -501,18 +489,3 @@ def list_workspaces(root: str | Path = DEFAULT_ROOT) -> list[Workspace]:
         if (d / "config.toml").exists():
             out.append(Workspace(root=root, slug=d.name, name=d.name))
     return out
-
-
-def types_mod_needs_bands(cfg) -> bool:
-    """Does either half of this config draw a spectrum?
-
-    Only `spectrum` reads the band table, and pushing one into a network with no
-    `bands` DAT is a write to an operator that is not there -- which
-    `TDClient.write` reports as an error rather than ignoring.
-    """
-    from . import types as types_mod
-
-    if types_mod.BANDS in cfg.video_type.needs:
-        return True
-    return bool(cfg.back_type
-                and types_mod.BANDS in cfg.back_video_type.needs)

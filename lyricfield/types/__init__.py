@@ -41,15 +41,10 @@ MIX, INSTRUMENTAL, VOCALS, CUES = "mix", "instrumental", "vocals", "cues"
 # mix and 0.378 from the drums stem. It costs nothing extra: demucs computes all
 # four sources whatever is asked of it.
 DRUMS = "drums"
-# The measured spectrum: how loud each frequency band is, over time. Only
-# `spectrum` reads it, and only because bars ARE the spectrum -- everything else
-# here answers onsets, which the drum table already carries. Measured offline
-# for the same reason the drums are: a spectrum taken live depends on how fast
-# TouchDesigner happens to be cooking, so a preview and a render of the same
-# second would not agree.
-BANDS = "bands"
-
-LYRIC, BEATSYNC = "lyric", "beatsync"
+# Every renderer draws words. `family` survives as a single value rather
+# than a split: the beat is an effect on the word layer now, not a second
+# kind of renderer, so there is nothing to divide.
+LYRIC = "lyric"
 
 
 @dataclass(frozen=True)

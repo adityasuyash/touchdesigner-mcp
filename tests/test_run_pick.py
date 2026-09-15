@@ -16,14 +16,13 @@ import pytest
 from lyricfield import run as run_mod
 from lyricfield import styles as S
 from lyricfield import types as types_mod
-from lyricfield.types.lyric_grid import params as P
 from lyricfield.workspace import Workspace
 
 REPO = Path(__file__).resolve().parents[1]
 INDEX = REPO / "lyricfield" / "ui" / "static" / "index.html"
 
-BEATSYNC = [vt.slug for vt in types_mod.list_types()
-            if vt.family == types_mod.BEATSYNC]
+OTHER = [vt.slug for vt in types_mod.list_types()
+         if vt.slug != types_mod.DEFAULT_TYPE]
 
 
 @pytest.fixture
@@ -40,13 +39,12 @@ def _ctx(ws, **kw):
 
 # ------------------------------------------------------------------ the run
 
-@pytest.mark.skipif(not BEATSYNC, reason="no beatsync type registered")
 def test_an_existing_song_switches_to_the_picked_renderer(song):
     assert song.load_config().type == types_mod.DEFAULT_TYPE
     said = []
-    changed = run_mod._honour_pick(_ctx(song, video_type=BEATSYNC[0]), said.append)
-    assert changed["type"] == BEATSYNC[0]
-    assert song.load_config().type == BEATSYNC[0]
+    changed = run_mod._honour_pick(_ctx(song, video_type=OTHER[0]), said.append)
+    assert changed["type"] == OTHER[0]
+    assert song.load_config().type == OTHER[0]
     assert any("switched" in m for m in said)
 
 
@@ -111,126 +109,9 @@ def test_no_pick_at_all_leaves_the_song_alone(song):
     assert song.load_config().type == types_mod.DEFAULT_TYPE
 
 
-# ------------------------------------------------------- the layer behind
-
-BEATSYNC_STYLES = [st for st in S.list_styles()
-                   if types_mod.get_type(st.type).family == types_mod.BEATSYNC]
-BEAT_TYPES = [t.slug for t in types_mod.list_types()
-              if t.family == types_mod.BEATSYNC]
-
-
-@pytest.mark.parametrize("st", BEATSYNC_STYLES, ids=[s.slug for s in BEATSYNC_STYLES])
-def test_any_beat_look_can_go_behind_the_words(st, tmp_path):
-    """The thing that was asked for: a lyric look AND a beat look, together.
-
-    EVERY beat look, which is the change. A layer used to be a section of
-    `lyric_grid`'s own tunables filled in from a beat renderer's, so only the
-    two that share its character field could ever be one -- `rings`, `strata`,
-    `scope`, `halftone` and `spectrum` draw pictures that are not made of cells
-    and could not be translated into one.
-    """
-    ws = Workspace.create(f"Behind {st.slug}", root=tmp_path, copy_source=False)
-    said = []
-    changed = run_mod._honour_pick(
-        _ctx(ws, video_type=types_mod.DEFAULT_TYPE,
-             back_type=st.type, back_style=st.slug), said.append)
-    assert "backdrop" in changed, said
-    cfg = ws.load_config()
-    assert cfg.type == types_mod.DEFAULT_TYPE      # still the lyric renderer
-    assert cfg.video_type.needs_lyrics             # still draws the words
-    assert cfg.back_type == st.type                # and a renderer behind it
-    assert cfg.track.back_style == st.slug
-    assert cfg.validate() == []
-
-
-@pytest.mark.parametrize("slug", BEAT_TYPES)
-def test_every_beat_renderer_can_be_a_layer_without_a_style(slug, tmp_path):
-    ws = Workspace.create(f"Bare {slug}", root=tmp_path, copy_source=False)
-    run_mod._honour_pick(
-        _ctx(ws, video_type=types_mod.DEFAULT_TYPE, back_type=slug),
-        lambda m: None)
-    cfg = ws.load_config()
-    assert cfg.back_type == slug
-    assert cfg.back_params is not None
-
-
-def test_the_layer_keeps_its_own_look_rather_than_being_translated():
-    """The old mechanism rescaled a beat look into the grid's vocabulary, and
-    five looks collapsed into about three doing it. Now the layer simply IS the
-    renderer, so nothing is lost in between."""
-    import copy
-
-    from lyricfield.config import Config
-
-    seen = {}
-    for st in BEATSYNC_STYLES:
-        c = Config(type=types_mod.DEFAULT_TYPE).with_back(st.type)
-        c.back_params = copy.deepcopy(st.params)
-        seen[f"{st.type}/{st.slug}"] = c.back_as_params()
-    # `repr`, because a params dict holds lists (hold_windows) and a tuple of
-    # those is not hashable.
-    flat = {k: repr(sorted(v.items(), key=str)) for k, v in seen.items()}
-    assert len(set(flat.values())) == len(flat), "looks collapsed into each other"
-
-
-def test_the_layer_brings_its_own_colour():
-    """Per the decision: the tile you clicked is what lands."""
-    import copy
-
-    from lyricfield.config import Config
-
-    st = S.get_style("heartbeat", type="pulse_grid")
-    c = Config(type=types_mod.DEFAULT_TYPE).with_back("pulse_grid")
-    c.back_params = copy.deepcopy(st.params)
-    assert c.back_as_params()["dim_hue"] == st.params.look.dim_hue
-
-
-def test_no_backdrop_clears_it(tmp_path):
-    ws = Workspace.create("No backdrop", root=tmp_path, copy_source=False)
-    run_mod._honour_pick(_ctx(ws, back_type="pulse_grid", back_style="shimmer"),
-                         lambda m: None)
-    assert ws.load_config().back_type == "pulse_grid"
-    run_mod._honour_pick(_ctx(ws, back_type="", back_style=""), lambda m: None)
-    cfg = ws.load_config()
-    assert cfg.back_type == ""
-    assert cfg.back_params is None
-
-
-def test_an_unknown_backdrop_is_reported_rather_than_applied(tmp_path):
-    ws = Workspace.create("Unknown backdrop", root=tmp_path, copy_source=False)
-    said = []
-    changed = run_mod._honour_pick(
-        _ctx(ws, back_type="nonsense", back_style=""), said.append)
-    assert "backdrop" not in changed
-    assert any("no video type" in m for m in said), said
-
-
-def test_the_backdrop_gives_way_when_brightness_does(tmp_path):
-    """The backdrop is bounded by the band the ambient decoration occupies, and
-    the Brightness control moves that band. Whatever it is pulled to, the words
-    must still be the brightest thing and the config must stay valid."""
-    from lyricfield.types.lyric_grid import params as P
-
-    p = P.Params()
-    P.backdrop_from(p, S.get_style("shimmer", type="pulse_grid").params)
-    assert p.backdrop.back_level + p.backdrop.back_lift <= p.look.level_max + 1e-9
-
-    P.apply_control(p, "brightness", 0.0)          # the dimmest setting there is
-    assert p.validate() == [], p.validate()
-    assert p.backdrop.back_level + p.backdrop.back_lift <= p.look.level_max + 1e-9
-
-
-def test_clamping_is_reported_rather_than_silent():
-    """`reconcile` runs before `validate`, so a backdrop can never fail -- it is
-    quietly clipped instead. A look rendered at half strength with nothing said
-    is the defect class this project keeps closing."""
-    from lyricfield.types.lyric_grid import params as P
-
-    p = P.Params()
-    p.look.level_min = p.look.level_max = 0.02     # almost no room at all
-    clamped = P.backdrop_from(p, S.get_style("shimmer", type="pulse_grid").params)
-    assert clamped, "nothing reported although the budget could not hold it"
-    assert any("words stay readable" in c for c in clamped)
+# The "layer behind" section lived here: a beat renderer composited under
+# the words. It is gone with the beatsync family -- the beat is an effect on
+# the word layer now, and `tests/test_beat.py` owns that.
 
 
 # ------------------------------------------------------------------- the UI

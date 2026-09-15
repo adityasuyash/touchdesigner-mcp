@@ -26,7 +26,7 @@ ROOT = REPO / "styles"
 SHIPPED = styles_mod.list_styles(ROOT)
 LYRIC_TYPES = [t for t in types_mod.list_types() if t.family == types_mod.LYRIC]
 BEAT_STYLES = [st for st in SHIPPED
-               if types_mod.get_type(st.type).family == types_mod.BEATSYNC]
+               if types_mod.get_type(st.type).family == types_mod.LYRIC]
 
 
 def _served(url: str) -> Path:
@@ -181,15 +181,15 @@ def test_a_backdrop_draft_is_the_lyric_renderer_but_filed_under_both():
 def test_a_style_with_nothing_to_file_it_under_lives_under_its_type():
     """Every real style. `filed_under` is empty for all of them, so nothing
     about where a style is stored changed."""
-    st = styles_mod.Style(name="Tide", slug="tide", type="swell")
-    assert st.dir("/tmp/x") == Path("/tmp/x/swell/tide")
+    st = styles_mod.Style(name="Ring", slug="ring", type="orbit")
+    assert st.dir("/tmp/x") == Path("/tmp/x/orbit/ring")
 
 
 def test_two_beat_styles_sharing_a_name_get_different_backdrop_folders():
     """The reason the path is keyed by both. On the beat slug alone the second
     style never records at all, because the first already made the file."""
     a = styles_mod.Style(name="Tide behind", slug="tide", type="lyric_grid",
-                filed_under="lyric_grid/swell")
+                filed_under="lyric_grid/orbit")
     b = styles_mod.Style(name="Tide behind", slug="tide", type="lyric_grid",
                 filed_under="lyric_grid/window")
     assert a.dir("/tmp/x") != b.dir("/tmp/x")

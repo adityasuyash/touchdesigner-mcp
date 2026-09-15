@@ -63,11 +63,6 @@ def drums_path() -> Path:
     return CURRENT.drums_path if CURRENT else DATA / "drums.tsv"
 
 
-def bands_path() -> Path:
-    """Where the measured spectrum lives. Beside drums.tsv, same reasons."""
-    return CURRENT.bands_path if CURRENT else DATA / "bands.tsv"
-
-
 def stills_dir() -> Path:
     return CURRENT.stills_dir if CURRENT else DATA / "stills"
 
@@ -641,7 +636,7 @@ def do_prepare(payload: PrepareIn):
         cfg = load_config()
         res = pipeline.prepare(
             payload.track, config_path(), cues_path(),
-            drums_path=drums_path(), bands_path=bands_path(),
+            drums_path=drums_path(),
             stem_root=_stem_root(payload.stem_root), model=payload.model,
             device=payload.device, groq_key=_remember_key(payload.api_key),
             groq_model=payload.groq_model, language=payload.language,
