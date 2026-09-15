@@ -456,7 +456,35 @@ class Workspace:
             "type": cfg.type,
             "style": getattr(cfg.track, "style", ""),
             "exports": exports,
+            # When this song was last worked on, so the sidebar can lead with
+            # what you were doing rather than with the alphabet.
+            "touched": self._touched(),
+            # What is missing, named. A half-ingested song showed a blank
+            # where its word count goes and was otherwise indistinguishable
+            # from a finished one -- you found out by picking it.
+            "stage": self._stage(cfg, cues, exports),
         }
+
+    def _touched(self) -> float:
+        newest = 0.0
+        for p in (self.config_path, self.cues_path, self.exports_dir):
+            try:
+                newest = max(newest, p.stat().st_mtime)
+            except OSError:
+                pass
+        return round(newest, 3)
+
+    def _stage(self, cfg, cues, exports) -> str:
+        """How far this song got, as one word the sidebar can show."""
+        if not (cfg.track.source or self.source_dir.exists()):
+            return "empty"
+        if not cfg.track.duration:
+            return "not analysed"
+        if cfg.video_type.needs_lyrics and not cues.cues:
+            return "no words"
+        if exports:
+            return "rendered"
+        return "ready"
 
 
 def list_workspaces(root: str | Path = DEFAULT_ROOT) -> list[Workspace]:

@@ -724,6 +724,39 @@
                   white-space: nowrap; max-width: 100%; }
   .songitem .meta { display: block; font-size: var(--t-xs); color: var(--faint); }
   .songitem.newsong .nm { color: var(--accent); }
+  /* The delete affordance: present but not underfoot. It appears on hover and
+     on keyboard focus, so it is reachable without a pointer. */
+  .songitem { position: relative; }
+  .songitem .del { position: absolute; right: 6px; top: 6px;
+                   width: 20px; height: 20px; border-radius: 6px;
+                   display: grid; place-items: center; font-size: 15px;
+                   line-height: 1; color: var(--faint); opacity: 0;
+                   transition: opacity .12s var(--ease-out),
+                               background .12s var(--ease-out); }
+  .songitem:hover .del, .songitem:focus-within .del { opacity: 1; }
+  .songitem .del:hover { background: var(--bad-bg, rgba(255,90,70,.16));
+                         color: var(--bad, #ff7a66); }
+  /* A preset has no picture of its own -- what it looks like depends on the
+     word look it is applied to -- so the tile is its name. */
+  .fxtile { position: absolute; inset: 0; display: grid; place-items: center;
+            padding: var(--s-3); text-align: center; font-size: var(--t-base);
+            font-weight: 600; letter-spacing: .01em; color: var(--text);
+            background: linear-gradient(150deg,
+                        var(--bg-3) 0%, var(--bg-2) 60%); }
+  .songfilter { width: 100%; margin: 0 0 var(--s-2); padding: 6px 10px;
+                border-radius: var(--r-s); border: 0; font: inherit;
+                font-size: var(--t-sm); color: var(--text);
+                background: var(--bg-2);
+                box-shadow: inset 0 0 0 1px var(--line-1); }
+  .songfilter:focus { outline: none; box-shadow: var(--ring); }
+  .navnote { padding: 6px 14px; font-size: var(--t-sm); color: var(--faint); }
+  /* Offered only when TouchDesigner is not answering, because that is the only
+     time it is the right thing to do. */
+  #tdRestart { margin-left: 6px; padding: 2px 8px; font-size: var(--t-xs);
+               border: 0; border-radius: 999px; cursor: pointer;
+               background: var(--bg-3); color: var(--text);
+               box-shadow: 0 0 0 1px var(--line-1); }
+  #tdRestart:hover { background: var(--bg-4, var(--bg-3)); }
 
   .pill { display: inline-flex; align-items: center; gap: 7px; min-height: 26px;
           padding: 2px 10px; border-radius: var(--r-full); font-size: var(--t-sm);
@@ -874,7 +907,7 @@
     </div>
   </div>
   <div class="side-foot">
-    <span class="pill"><span class="dot" id="tddot"></span><span id="tdtext">checking…</span></span>
+    <span class="pill"><span class="dot" id="tddot"></span><span id="tdtext">checking…</span><button id="tdRestart" hidden type="button">Restart</button></span>
   </div>
 </nav>
 
@@ -1168,8 +1201,26 @@ let SONGS = [];            // for the sidebar; the <select> stays the source of 
 let VIEW = 'make';
 let STYLE_SLUG = '', CURRENT_SLUG = '', LAST = {id:null, state:null};
 
-async function api(path, opts) {
-  const r = await fetch(path, Object.assign({headers:{'Content-Type':'application/json'}}, opts||{}));
+// A request that never returns is worse than one that fails: the click looks
+// like it did nothing. `select` used to block on TouchDesigner for 120s, and
+// with nothing bounding it here the UI simply sat there.
+const API_TIMEOUT = 20000;
+
+async function api(path, opts, ms) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms || API_TIMEOUT);
+  let r;
+  try {
+    r = await fetch(path, Object.assign(
+      {headers:{'Content-Type':'application/json'}, signal: ctl.signal},
+      opts||{}));
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError')
+      throw new Error(`${path} did not answer in ${(ms||API_TIMEOUT)/1000}s`);
+    throw e;
+  }
+  clearTimeout(timer);
   if (!r.ok) {
     let d = r.statusText;
     try { const j = await r.json(); d = j.detail ? JSON.stringify(j.detail) : d; } catch (e) {}
@@ -1334,6 +1385,10 @@ async function poll() {
     if (typeof s.now === 'number') NOW_SKEW = s.now - Date.now() / 1000;
     $('#tddot').classList.toggle('on', s.td_connected);
     $('#tdtext').textContent = s.td_connected ? 'TouchDesigner ready' : 'TouchDesigner offline';
+    // It wedges -- twice in two sessions, both after heavy preview recording --
+    // and then answers nothing at all rather than erroring. A restart is the
+    // only recovery, so offer it exactly when it is the answer.
+    const rb = $('#tdRestart'); if (rb) rb.hidden = !!s.td_connected;
     // The control server cannot notice its own modules are old, but it can see
     // that the files are newer than itself. A run from stale code would push a
     // mixture of cached behaviour and current data -- which once produced a
@@ -1558,23 +1613,53 @@ try {
 const navToggle = $('#navToggle');
 if (navToggle) navToggle.onclick = () =>
   bodyClass('nav-open', !document.body.classList.contains('nav-open'));
+const tdRestartEl = $('#tdRestart');
+if (tdRestartEl) tdRestartEl.onclick = async () => {
+  if (!confirm('Restart TouchDesigner and reopen this song?')) return;
+  tdRestartEl.disabled = true;
+  try {
+    await api('/api/td/restart', {method: 'POST'});
+    note('restarting TouchDesigner…', 'ok');
+  } catch (e) { showErr(e); }
+  finally { tdRestartEl.disabled = false; }
+};
 const runChipEl = $('#runChip');
 if (runChipEl) runChipEl.onclick = () => go('make');
 
 // The sidebar is the song picker. It drives the <select>, rather than replacing
 // it, so `songName()` and the existing change handler keep working untouched.
+let BEAT_PRESETS = [];
+let SONG_FILTER = '';
+
 function renderSongList() {
   const host = $('#songList'); if (!host) return;
   host.innerHTML = '';
   const pick = slug => {
+    // The highlight moves FIRST. It used to be set from CURRENT_SLUG, which is
+    // only assigned after the select call returns -- so a slow call left the
+    // click looking like it had done nothing at all.
+    CURRENT_SLUG = slug;
+    renderSongList();
     const sel = $('#song'); if (!sel) return;
     sel.value = slug;
     if (sel.dispatchEvent) sel.dispatchEvent(new Event('change'));
     else if (sel.onchange) sel.onchange({target: sel});
-    renderSongList();
     go('make');
   };
-  const mk = (slug, name, meta, isNew) => {
+
+  const box = document.createElement('input');
+  box.className = 'songfilter'; box.type = 'search';
+  box.placeholder = 'Search songs'; box.value = SONG_FILTER;
+  box.oninput = () => {
+    SONG_FILTER = box.value;
+    renderSongList();
+    // Re-rendering replaces the box, so put the caret back where it was.
+    const b = host.querySelector('.songfilter');
+    if (b) { b.focus(); b.setSelectionRange(b.value.length, b.value.length); }
+  };
+  if (SONGS.length > 6 || SONG_FILTER) host.append(box);
+
+  const mk = (slug, name, meta, isNew, so) => {
     const b = document.createElement('button');
     b.className = 'navitem songitem' + (isNew ? ' newsong' : '');
     b.setAttribute('aria-current', slug === CURRENT_SLUG ? 'page' : 'false');
@@ -1583,15 +1668,68 @@ function renderSongList() {
     if (meta) { const m = document.createElement('span');
                 m.className = 'meta'; m.textContent = meta; b.append(m); }
     b.onclick = () => pick(slug);
+    if (so) {
+      // Deleting is destructive and irreversible-looking, so it is a hover
+      // affordance with a confirm that says what would go, not a button
+      // sitting under the pointer.
+      const x = document.createElement('span');
+      x.className = 'del'; x.textContent = '\u00d7';
+      x.title = `Delete ${so.name}`;
+      x.onclick = e => { e.stopPropagation(); confirmDelete(so); };
+      b.append(x);
+    }
     host.append(b);
   };
-  for (const so of SONGS) {
+
+  const q = SONG_FILTER.trim().toLowerCase();
+  const shown = (SONGS || []).filter(
+    so => !q || (so.name || so.slug).toLowerCase().includes(q));
+  // Most recently worked on first: what you were doing is what you want.
+  shown.sort((a, b) => (b.touched || 0) - (a.touched || 0));
+  for (const so of shown) {
     const bits = [];
-    if (so.cues) bits.push(so.cues + ' words');
+    // A half-made song looked identical to a finished one -- blank where the
+    // word count goes -- and you found out by picking it.
+    if (so.stage && so.stage !== 'rendered' && so.stage !== 'ready')
+      bits.push(so.stage);
+    else if (so.cues) bits.push(so.cues + ' words');
     if (so.exports && so.exports.length) bits.push(so.exports.length + ' takes');
-    mk(so.slug, so.name, bits.join(' · '), false);
+    mk(so.slug, so.name, bits.join(' \u00b7 '), false, so);
   }
-  mk('', '+  New song', '', true);
+  if (!shown.length && q) {
+    const e = document.createElement('div');
+    e.className = 'navnote'; e.textContent = 'no song matches';
+    host.append(e);
+  }
+  mk('', '+  New song', '', true, null);
+}
+
+async function confirmDelete(so) {
+  let w = null;
+  try { w = await api(`/api/songs/${so.slug}/weight`); } catch (e) {}
+  const mb = w ? Math.round(w.bytes / 1048576) : 0;
+  const stems = w && w.stem_bytes > 4 * 1048576
+    ? `, including ${Math.round(w.stem_bytes / 1048576)} MB of separated stems`
+    : '';
+  const bits = [];
+  if (w && w.cues) bits.push(`${w.cues} words`);
+  if (w && w.takes) bits.push(`${w.takes} take${w.takes === 1 ? '' : 's'}`);
+  if (mb) bits.push(`${mb} MB${stems}`);
+  const what = bits.length ? `\n\nIt holds ${bits.join(', ')}.` : '';
+  if (!confirm(`Move "${so.name}" to the Trash?${what}`
+               + `\n\nRecoverable from Finder.`)) return;
+  try {
+    await api(`/api/songs/${so.slug}`, {method: 'DELETE'});
+    note(`moved ${so.name} to the Trash`, 'ok');
+    if (CURRENT_SLUG === so.slug) CURRENT_SLUG = '';
+    await loadSongs();
+  } catch (e) { showErr(e); }
+}
+
+
+async function loadBeat() {
+  try { BEAT_PRESETS = (await api('/api/beat')).presets || []; }
+  catch (e) { BEAT_PRESETS = []; }
 }
 
 async function loadSongs() {
@@ -1676,7 +1814,13 @@ $('#browser').onclick = e => { if (e.target.id === 'browser') $('#browser').hidd
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#browser').hidden = true; });
 
 // ------------------------------------------------------------------ styles
-async function loadStyles() { STYLES = (await api('/api/styles')).styles; renderGallery(); }
+async function loadStyles() {
+  // The presets come with the looks: both rows are drawn in one pass, so
+  // fetching them apart would paint the second row empty and then fill it.
+  if (!BEAT_PRESETS.length) await loadBeat();
+  STYLES = (await api('/api/styles')).styles;
+  renderGallery();
+}
 // The gallery is where a renderer gets chosen, so it has to show every
 // renderer. It used to group only the *styles* that exist, and with one lyric
 // style on disk that meant one row -- the beatsync heading below was
@@ -1713,7 +1857,13 @@ function nameOfType(slug) {
 
 
 function renderGallery() {
-  const host = $('#styleGallery'); host.innerHTML = '';
+  const host = $('#styleGallery');
+  // Picking a look rebuilds both rows, which puts every strip back at its
+  // start -- so choosing the tenth tile scrolled the row away from your hand.
+  // Keep where each row was and put it back after the rebuild.
+  const was = {};
+  host.querySelectorAll('.gallery').forEach((g, i) => { was[i] = g.scrollLeft; });
+  host.innerHTML = '';
 
   // Two rows, two selections. They used to be one: a single TYPE_SLUG meant
   // clicking a beatsync tile un-lit the lyric tile, so a lyric look and a beat
@@ -1738,10 +1888,18 @@ function renderGallery() {
     has_preview: !!t.has_preview, builtin: true,
     description: t.description || ''}));
 
-  const fams = {};
-  for (const st of [...builtins, ...STYLES]) (fams[st.family || 'lyric'] ||= []).push(st);
-  for (const fam of ['lyric', 'beatsync']) {
-    const list = fams[fam];
+  // Two rows, two questions. The first is which renderer draws the words. The
+  // second used to be a second gallery of renderers -- a picture behind the
+  // type -- and is now what the beat DOES to the words, which is an effect on
+  // the same layer rather than a thing beside it.
+  const rows = [
+    ['lyric', [...builtins, ...STYLES]],
+    ['beatsync', (BEAT_PRESETS || []).filter(p => p.slug !== 'none')
+                   .map(p => ({slug: p.slug, type: '', name: p.name,
+                               family: 'beatsync', description: p.description,
+                               preset: true, has_preview: false}))],
+  ];
+  for (const [fam, list] of rows) {
     if (!list || !list.length) continue;
     const [pType, pStyle] = pickedIn(fam);
     const chosen = list.find(x => x.builtin ? (!pStyle && pType === x.type)
@@ -1760,10 +1918,10 @@ function renderGallery() {
     // two halves are composited now, so any beat look goes under any lyric
     // look, or stands alone.
     const h = document.createElement('h3');
-    h.textContent = fam !== 'beatsync' ? 'The words' : 'Behind the words';
+    h.textContent = fam !== 'beatsync' ? 'The words' : 'How the beat moves them';
     const sub = document.createElement('span'); sub.className = 'sub';
     sub.textContent = fam !== 'beatsync' ? 'how the lyrics are drawn'
-                                         : 'or the whole picture on its own';
+                                         : 'an effect on the words, on every hit';
     const pick = document.createElement('span'); pick.className = 'pick';
     pick.textContent = chosen ? chosen.name : 'None';
     head.append(num, h, sub, pick);
@@ -1776,6 +1934,9 @@ function renderGallery() {
     if (fam === 'lyric') grid.append(customCard());
     wrap.append(head, grid); host.append(wrap);
   }
+  host.querySelectorAll('.gallery').forEach((g, i) => {
+    if (was[i]) g.scrollLeft = was[i];
+  });
   showStyleNote();
 }
 
@@ -1805,10 +1966,10 @@ function noneCard(fam) {
   b.type = 'button'; b.className = 'scard';
   b.setAttribute('role', 'radio'); b.setAttribute('aria-checked', String(on));
   b.className = 'scard none';
-  b.title = fam === 'beatsync' ? 'nothing behind the words'
-                               : 'no words — the beat look on its own';
+  b.title = fam === 'beatsync' ? 'the beat does not move the words'
+                               : 'no words';
   const t = document.createElement('div'); t.className = 'thumb';
-  t.innerHTML = fam === 'beatsync' ? '<span class="noprev">nothing<br>behind</span>'
+  t.innerHTML = fam === 'beatsync' ? '<span class="noprev">no<br>effect</span>'
                                    : '<span class="noprev">no<br>words</span>';
   if (on) { const tick = document.createElement('span');
             tick.className = 'tick'; tick.textContent = '✓'; t.append(tick); }
@@ -1862,8 +2023,9 @@ function styleCard(st, fam) {
   const [pickedType, pickedStyle] = pickedIn(fam);
   // A built-in tile is identified by its type, since every one of them has an
   // empty style slug.
-  const on = st.builtin ? (!pickedStyle && pickedType === st.type)
-                        : (st.slug === pickedStyle && st.type === pickedType);
+  const on = st.preset ? (st.slug === pickedStyle)
+            : st.builtin ? (!pickedStyle && pickedType === st.type)
+                         : (st.slug === pickedStyle && st.type === pickedType);
   const b = document.createElement('button');
   b.type = 'button'; b.className = 'scard';
   b.setAttribute('role','radio'); b.setAttribute('aria-checked', String(on));
@@ -1899,6 +2061,10 @@ function styleCard(st, fam) {
     vid.preload = 'none'; vid.dataset.src = src;
     t.append(vid);
     if (on) playThumb(vid);
+  } else if (st.preset) {
+    // A preset has no picture of its own: what it looks like depends on the
+    // word look it is applied to. The name and the line under it are the tile.
+    t.innerHTML = `<span class="fxtile">${st.name}</span>`;
   } else {
     t.innerHTML = '<span class="noprev">no preview yet</span>';
   }
@@ -2021,12 +2187,14 @@ function showStyleNote() {
     const t = (TYPES || []).find(x => x.slug === type);
     return t ? t.name : '';
   };
-  const words = say(TYPE_SLUG, STYLE_SLUG), behind = say(BACK_TYPE, BACK_STYLE);
+  const words = say(TYPE_SLUG, STYLE_SLUG);
+  // The beat is an effect on the words rather than a thing beside them, so it
+  // only means anything once a word look is chosen.
+  const fx = (BEAT_PRESETS || []).find(p => p.slug === BACK_STYLE);
   let note;
-  if (words && behind) note = `${words}, over ${behind}.`;
-  else if (words) note = `${words}, with nothing behind the words.`;
-  else if (behind) note = `${behind} on its own — no words.`;
-  else note = 'Pick something from at least one row.';
+  if (words && fx && fx.slug !== 'none') note = `${words}, ${fx.description}.`;
+  else if (words) note = `${words}, with the beat left out of it.`;
+  else note = 'Pick how the words are drawn.';
   $('#styleNote').textContent = note;
 }
 

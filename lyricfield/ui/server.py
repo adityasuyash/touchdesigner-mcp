@@ -860,11 +860,160 @@ def create_song(payload: SongIn):
 
 @app.post("/api/songs/{slug}/select")
 def select_song(slug: str):
+    """Point the UI at a song. Local bookkeeping, and nothing else.
+
+    This used to answer `project_open_in_td` as well, which is a blocking call
+    into TouchDesigner with a 120s timeout. With TouchDesigner wedged -- which
+    it does -- clicking a song in the sidebar hung for two minutes and the
+    click looked like it had simply done nothing.
+
+    Which song you are looking at cannot depend on whether TouchDesigner is
+    answering. `_td_connected` already solved this class for `/api/status` with
+    a cache and a two-second ping; this is the same lesson, unapplied. Anything
+    that genuinely needs TouchDesigner asks at the moment it needs it.
+    """
     try:
         _select(slug)
     except FileNotFoundError as e:
         raise HTTPException(404, str(e)) from e
-    return {"current": slug, "project_open_in_td": CURRENT.is_open_in(client)}
+    return {"current": slug}
+
+
+def _folder_size(d: Path) -> int:
+    try:
+        return sum(f.stat().st_size for f in d.rglob("*") if f.is_file())
+    except OSError:
+        return 0
+
+
+@app.get("/api/songs/{slug}/weight")
+def song_weight(slug: str):
+    """What deleting this song would actually throw away.
+
+    A confirm that says only "are you sure" is one nobody reads. The stems are
+    the part worth naming: they are hundreds of megabytes and minutes of Demucs
+    to make again.
+    """
+    try:
+        ws = workspace.Workspace.open(slug)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+    d = ws.to_dict()
+    return {"slug": slug, "name": d["name"], "cues": d["cues"],
+            "takes": len(d["exports"]),
+            "bytes": _folder_size(ws.dir),
+            "stem_bytes": _folder_size(ws.stems_dir)}
+
+
+@app.delete("/api/songs/{slug}")
+def delete_song(slug: str):
+    """Move a song's whole folder to the Trash.
+
+    Never `rmtree`. The folder holds the separated stems, every render made
+    from it and the hand-corrected cue table; a misclick that cannot be undone
+    is the wrong shape for that. Trash is recoverable from Finder.
+    """
+    import subprocess
+
+    try:
+        ws = workspace.Workspace.open(slug)
+    except FileNotFoundError as e:
+        raise HTTPException(404, str(e)) from e
+
+    d = ws.dir
+    if not d.exists():
+        raise HTTPException(404, f"no folder for {slug!r}")
+
+    ok, how = False, ""
+    trash = Path("/usr/bin/trash")
+    if trash.exists():
+        r = subprocess.run([str(trash), str(d)], capture_output=True, text=True)
+        ok, how = r.returncode == 0, "trash"
+        if not ok:
+            how = r.stderr.strip() or "trash failed"
+    if not ok:
+        # Finder, which is what "Move to Trash" is in the UI. Slower and needs
+        # automation permission, so it is the fallback rather than the path.
+        script = ('tell application "Finder" to delete POSIX file '
+                  f'"{d}"')
+        r = subprocess.run(["osascript", "-e", script],
+                           capture_output=True, text=True)
+        ok = r.returncode == 0
+        how = "finder" if ok else (r.stderr.strip() or how or "could not delete")
+    if not ok:
+        raise HTTPException(500, f"could not move {slug!r} to the Trash: {how}")
+
+    global CURRENT
+    if CURRENT is not None and CURRENT.slug == slug:
+        _select(None)
+    return {"deleted": slug, "via": how}
+
+
+@app.post("/api/td/restart")
+def restart_td():
+    """Relaunch TouchDesigner and reopen the current song.
+
+    It wedges: twice in two sessions, both times after heavy preview
+    recording, and it then answers nothing at all on :9988 -- not an error, no
+    response. The only recovery is a restart, and making that a button rather
+    than a manual chore is the difference between a stall and a hiccup.
+    """
+    import subprocess
+
+    def job(say):
+        # Ask politely, briefly, and do not depend on an answer. This button
+        # exists BECAUSE TouchDesigner has stopped responding, and a wedged app
+        # does not answer an AppleScript quit either -- the first version of
+        # this waited 30s for one, raised TimeoutExpired, and abandoned the
+        # restart before it had relaunched anything. A recovery path must not
+        # depend on the thing it is recovering.
+        say("asking TouchDesigner to quit")
+        try:
+            subprocess.run(["osascript", "-e",
+                            'tell application "TouchDesigner" to quit'],
+                           capture_output=True, text=True, timeout=6)
+        except subprocess.TimeoutExpired:
+            say("it did not answer; stopping it the hard way")
+        except Exception:
+            pass
+        subprocess.run(["pkill", "-f", "TouchDesigner.app/Contents/MacOS"],
+                       capture_output=True)
+        # Wait for the process to actually go, rather than guessing at a sleep.
+        for _ in range(20):
+            time.sleep(0.5)
+            gone = subprocess.run(
+                ["pgrep", "-f", "TouchDesigner.app/Contents/MacOS"],
+                capture_output=True).returncode != 0
+            if gone:
+                break
+        else:
+            subprocess.run(["pkill", "-9", "-f",
+                            "TouchDesigner.app/Contents/MacOS"],
+                           capture_output=True)
+            time.sleep(2.0)
+
+        target = CURRENT.project if (CURRENT and CURRENT.project.exists()) \
+            else td_setup.TEMPLATE
+        say(f"opening {Path(target).name}")
+        r = subprocess.run(["open", "-a", "TouchDesigner", str(target)],
+                           capture_output=True, text=True, timeout=60)
+        if r.returncode != 0:
+            return {"ready": False,
+                    "why": f"could not launch TouchDesigner: "
+                           f"{r.stderr.strip() or r.returncode}"}
+
+        say("waiting for the MCP server")
+        for _ in range(60):
+            time.sleep(2.0)
+            if client.ping(timeout=2.0):
+                _ping_cache["at"] = 0.0      # so /api/status re-asks at once
+                return {"ready": True, "project": str(target)}
+        return {"ready": False,
+                "why": "TouchDesigner did not answer on :9988 within two "
+                       "minutes; it may be showing a dialog"}
+
+    _run_job("restart-td", job)
+    return {"started": True}
 
 
 @app.post("/api/songs/{slug}/fork-project")
@@ -938,6 +1087,19 @@ def list_styles(type: str | None = None):
     for the renderer it was made for."""
     return {"styles": [style_payload(st)
                        for st in styles_mod.list_styles(STYLES_ROOT, type=type)]}
+
+
+@app.get("/api/beat")
+def list_beat():
+    """The beat presets: what the drums do to the words.
+
+    Not styles. A style is a preset of one renderer's tunables; these are a
+    preset of the effect chain that sits after every renderer, which is what
+    lets one of them work with all eight.
+    """
+    from .. import beat as beat_mod
+
+    return {"presets": beat_mod.preset_payload()}
 
 
 @app.post("/api/styles/custom")
