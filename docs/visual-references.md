@@ -11,8 +11,21 @@ So this is the list. It exists so the next round of style work starts from
 something real rather than from a blank page, and so that "we already do that"
 is a question with an answer.
 
-Four of the looks below were gaps when this was written, and are not any more:
-`approach`, `glitch`, `spectrum` and `halftone` were built from it.
+Four of the looks below were gaps when this was written. Two became renderers
+(`longhand`, `glitch`); two were built and then deleted, which is the more
+useful lesson.
+
+**A beat look is not a picture.** `rings`, `strata`, `scope`, `halftone`,
+`spectrum`, `pulse_grid` and `swell` were seven renderers answering the question
+"what picture goes next to the words", and the answer was that none does. What
+was wanted was the beat visible *in the type* — it punches, it glows, it jolts.
+So 7300 lines came out and `beat.py` went in: one chain after the word renderer,
+presets as numbers.
+
+The references below are still worth having. But a look being *identifiable* is
+not the same as it being the right thing to build, and the question to ask of
+the next one is not "can this be drawn" but "is this what the words should be
+doing".
 
 ## What the system can and cannot draw
 

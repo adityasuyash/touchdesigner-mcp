@@ -75,7 +75,9 @@ lyricfield/
   config.py      a song: track facts + video type + that type's params
   sections.py    the sectioned-dataclass/TOML machinery those share
   cues.py        per-word cue table, TSV, hand-editable
-  bands.py       per-band energy over time, TSV -- only `spectrum` reads it
+  beat.py        what a drum does to the WORDS: the effect presets
+  compose.py     the word container, and the beat-response chain after it
+  fx_drive.py    that chain's driver, pushed into TD like a field script
   separate.py    Demucs stem separation (shells out to the CLI)
   transcribe.py  Groq Whisper -> word-level cues
   analysis.py    silences, kick entry, tempo, beat phase
@@ -91,21 +93,14 @@ lyricfield/
     _build.py    the builder engine: OpSpec and the create/wire/verify helpers
     _controls.py the named-control machinery every type binds to its own knobs
     _prelude.py  prepended to every field script (drum onsets, edge detection)
-    lyric_grid/  the song's words in a character field   (lyric)
-    monument/    one word, filling the frame             (lyric)
-    window/      the words cut out of moving light       (lyric)
-    orbit/       the line riding a parametric curve      (lyric)
-    swarm/       words that fly in and are knocked apart (lyric)
-    horizon/     a neon grid to a banded sun             (lyric)
-    approach/    words travelling out of the distance    (lyric)
-    glitch/      the words torn, split and scanlined     (lyric)
-    pulse_grid/  the beat as light in the same field     (beatsync)
-    swell/       the beat as coverage on a glyph ramp    (beatsync)
-    rings/       rings leaving the centre                (beatsync)
-    strata/      hard bands, struck one at a time        (beatsync)
-    scope/       one glowing curve with a phosphor trail (beatsync)
-    halftone/    the beat as a printed dot screen        (beatsync)
-    spectrum/    the song's own frequency bars           (beatsync)
+    lyric_grid/  the song's words in a character field
+    monument/    one word, filling the frame
+    window/      the words cut out of moving light
+    orbit/       the line riding a parametric curve
+    swarm/       words that fly in and are knocked apart
+    horizon/     a neon grid to a banded sun
+    longhand/    a camera drifting along a handwritten line
+    glitch/      the words torn, split and scanlined
 docs/
   visual-references.md   the looks these were built from, and what is out of reach
 tests/           pytest; `python -m pytest` with TouchDesigner shut
@@ -213,6 +208,36 @@ cost real time to discover. None is findable from the Python side.
   field is a per-row displacement, so a full-resolution map would be a million
   floats a frame for no difference at all.
 
+### The beat is an effect, not a picture
+
+Seven renderers were once built on the premise that a beat look is a *picture*
+-- rings, bars, a dot screen -- to put behind the words, first by folding it
+into `lyric_grid`'s own grid and then by compositing two networks. That premise
+was wrong and all of it is gone. The beat is visible **in the text**: the type
+punches on the kick, its glow swells, it jolts, its channels pull apart.
+
+So there is one chain after the word renderer, and a preset is a set of numbers
+(`beat.py`) rather than a renderer. Nothing in the chain knows which renderer
+drew the frame it is moving, which is what makes every effect work with every
+word look for free.
+
+**Floaty, moving, organic is the envelope, not the structure.** A linear
+`1 - age/decay` reads as a meter. `beat.impulse` is a damped spring: a 40ms
+eased attack, then a release that falls, *crosses* its rest point, swings about
+13% under and settles. That crossing is the difference between type that reads
+as struck and type that reads as faded. `beat.drift` keeps the layer moving
+between hits from three incommensurable sines -- at 5.6/8.8/17s, because a first
+draft at 20-70s was a one-way ramp over a four-second preview, and slow enough
+to be invisible is the same as not being there.
+
+`fx_drive.py` cannot import `beat.py` -- it is pushed as one DAT -- so the
+envelope exists twice, and a test walks both and asserts they agree to 1e-9.
+
+**`Config.response`, not `Config.beat`.** Every renderer already has a `[beat]`
+section of its own -- what the drums do *inside* its picture -- and `Config`
+flattens sections into one namespace. Two things named `beat` keep whichever
+came last.
+
 ### Concepts
 
 - **Workspace** — one folder per song under `~/lyricfield-projects/<slug>/`:
@@ -309,6 +334,20 @@ re-introduce them by calling the raw tools.
   53.3px. The two never met for a style whose words sit low in the frame:
   Spotlight's bold layer measured exactly zero at every frame of a capture while
   both its inputs peaked at 1.0. Both halves are now addressed by container.
+- **A TOP inside a base COMP cannot be wired to one outside it**, and a COMP is
+  not a valid TOP input either. Worse, the `wire` tool reports SUCCESS for the
+  first and leaves the input unconnected -- measured, a live layer at 0.31
+  arriving through a Level TOP as 0.0 with nothing reporting a fault. A Select
+  TOP pulls a TOP by path across the boundary and is the idiomatic answer.
+- **`over` does nothing over an opaque frame.** Every renderer here draws its
+  own black ground, so its output is fully opaque and an `over` composite hides
+  whatever is under it completely. `add` stacks, which is the brightness defect
+  this project has fixed three times. `maximum` is usually what is wanted.
+- **A recovery path must not depend on the thing it is recovering.** The
+  Restart-TouchDesigner button first asked `osascript ... to quit` with a 30s
+  timeout -- which is exactly what a wedged TouchDesigner cannot answer. It
+  raised, abandoned the restart before relaunching, and left no TouchDesigner at
+  all. Ask briefly, then `pkill`, then poll for the process to actually be gone.
 - **A stopped run strands the recorder.** Halting playback leaves
   `_mcp_movieout` in the network and every later render refuses to start, so the
   stop path tears it down (`render.stop_recording`).
