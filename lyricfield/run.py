@@ -102,7 +102,6 @@ class Ctx:
     name: str = ""
     source: str = ""
     video_type: str | None = None
-    back_type: str | None = None
     back_style: str | None = None
     style: str | None = None
     workspace: object = None
@@ -245,63 +244,32 @@ def _honour_pick(ctx: Ctx, say) -> dict:
     # What sits behind the words, applied last so it overrides whatever the
     # style brought with it -- the style is the word look, this is the choice
     # made on top of it.
-    if ctx.back_type is not None or ctx.back_style is not None:
-        if _apply_backdrop(cfg, ctx.back_type or "", ctx.back_style or "", say):
+    if ctx.back_style is not None:
+        if _apply_beat(cfg, ctx.back_style or "none", say):
             ws.save_config(cfg)
-            changed["backdrop"] = f"{ctx.back_type or 'none'}/{ctx.back_style or ''}"
+            changed["beat"] = cfg.beat_preset
     return changed
 
 
-def _apply_backdrop(cfg, back_type: str, back_style: str, say) -> bool:
-    """Put a beat look behind the words.
+def _apply_beat(cfg, name: str, say) -> bool:
+    """Wear a beat preset: what the drums do to the words.
 
-    It is simply a second renderer now, with its own tunables, composited under
-    the first. It used to be translated into a `backdrop` section of
-    `lyric_grid`'s own parameters -- which could only work when the beat
-    renderer WAS that character grid, so five of seven could never be a layer
-    and the gallery had to change the meaning of its second row to say so.
-
-    The choice is a (renderer, style) pair because that is what is on screen.
+    It used to be a (renderer, style) pair translated into a backdrop, because
+    a beat look was a picture composited underneath. Seven renderers were built
+    on that premise. It is one name now, and the effect is on the word layer.
     """
-    from .styles import AmbiguousStyle, get_style
-    from .types import get_type
+    from .beat import PRESETS
 
-    cfg.track.back_type = back_type
-    cfg.track.back_style = back_style
-    if not back_type:
-        cfg.with_back(None)
-        say("nothing behind the words")
-        return True
-
-    try:
-        vt = get_type(back_type)
-    except KeyError:
-        say(f"no video type {back_type!r}; leaving the layer alone")
+    known = {p[0] for p in PRESETS}
+    name = (name or "none").strip()
+    if name not in known:
+        say(f"no beat preset {name!r}; leaving it alone "
+            f"(known: {', '.join(sorted(known))})")
         return False
-
-    cfg.with_back(vt.slug)
-    if back_style:
-        try:
-            st = get_style(back_style, type=back_type)
-        except (KeyError, FileNotFoundError, AmbiguousStyle) as e:
-            say(f"no {back_type} style {back_style!r}: {e}")
-            return False
-        import copy
-        cfg.back_params = copy.deepcopy(st.params)
-
-    problems = cfg.back_params.validate()
-    if problems:
-        # Reconciled rather than refused: the layer's own tunables are valid for
-        # it as the whole picture, and it is the mix that dims it.
-        mod = vt._params_module()
-        reconcile = getattr(mod, "reconcile", None)
-        if reconcile is not None:
-            reconcile(cfg.back_params)
-        problems = cfg.back_params.validate()
-    if problems:
-        say(f"that look is not valid: {'; '.join(problems)}")
-        return False
-    say(f"put {back_style or vt.name} behind the words")
+    cfg.with_beat(name)
+    cfg.track.back_style = name
+    on = cfg.response.active()
+    say(f"the beat {'moves the words: ' + ', '.join(on) if on else 'is left off'}")
     return True
 
 

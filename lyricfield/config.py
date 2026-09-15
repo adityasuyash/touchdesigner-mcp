@@ -64,57 +64,33 @@ class Config:
     type: str = types_mod.DEFAULT_TYPE
     track: Track = field(default_factory=Track)
     params: Any = None
-    # What sits BEHIND the words, as a renderer in its own right.
-    #
-    # It used to be a section of `lyric_grid`'s own tunables, filled in from a
-    # beat renderer's params -- which could only work when the beat renderer WAS
-    # that character grid, so five of seven could never be a layer. Here it is
-    # simply a second renderer with its own params, composited under the first,
-    # and any of them can be either a layer or the whole picture.
-    back_type: str = ""
-    back_params: Any = None
-    # How present that layer is, 0..1. It belongs to the mix rather than to
-    # either renderer, and it is bounded so the words stay the brightest thing
-    # on screen -- brightness stacking is the defect this project has fixed
-    # three times.
-    back_strength: float = 0.6
+    # What the beat does to the words: an effect on this layer, not a second
+    # renderer behind it. Seven renderers were built on the other premise
+    # before it turned out to be the wrong one; see `beat.py`.
+    # Called `response` rather than `beat` because every renderer already has a
+    # `[beat]` section of its own -- what the drums do INSIDE its picture -- and
+    # `Config` flattens sections into one namespace. Two things named `beat`
+    # would silently keep whichever came last, which is the trap the meta-tests
+    # exist for.
+    response: Any = None
+    beat_preset: str = "none"
 
     def __post_init__(self) -> None:
         if self.params is None:
             self.params = self.video_type.default_params()
-        if self.back_type and self.back_params is None:
-            self.back_params = self.back_video_type.default_params()
-        if not self.back_type:
-            self.back_params = None
+        if self.response is None:
+            from .beat import preset
+            self.response = preset(self.beat_preset or "none")
 
-    # ---------- the layer behind ----------
+    # ---------- the beat ----------
 
-    @property
-    def back_video_type(self):
-        return types_mod.get_type(self.back_type)
-
-    def with_back(self, slug: str | None) -> "Config":
-        """Choose what sits behind, or clear it with None or ""."""
-        if not slug:
-            self.back_type, self.back_params = "", None
-            return self
-        t = types_mod.get_type(slug)
-        if slug != self.back_type:
-            self.back_type, self.back_params = slug, t.default_params()
+    def with_beat(self, slug: str | None) -> "Config":
+        """Wear a named beat preset, or none."""
+        from .beat import preset
+        slug = slug or "none"
+        self.response = preset(slug)
+        self.beat_preset = slug
         return self
-
-    def back_as_params(self) -> dict:
-        """The flat dict for the layer's own container.
-
-        The measured facts go in too: a beat renderer with no beat grid under it
-        is answering nothing.
-        """
-        if not self.back_type:
-            return {}
-        p = flatten(self.back_params)
-        p.update(asdict(self.track))
-        p["hold_windows"] = [tuple(w) for w in self.track.hold_windows]
-        return p
 
     # ---------- type ----------
 
@@ -165,23 +141,24 @@ class Config:
             slug = vt.slug
         track = build_sections(_TrackHolder, {"track": data.get("track", {})}).track
 
-        # The layer behind, if there is one. Its sections live under [back.*] so
-        # they cannot collide with the front renderer's -- both flatten into one
-        # namespace when they are pushed, but into *different containers*.
-        back = data.get("back") or {}
-        back_slug = back.get("type") or ""
-        back_params, strength = None, float(back.get("strength", 0.6))
-        if back_slug:
-            try:
-                bt = types_mod.get_type(back_slug)
-            except KeyError:
-                back_slug = ""
-            else:
-                back_params = bt.params_from(
-                    {k: v for k, v in back.items() if isinstance(v, dict)})
+        # What the beat does to the words. `[beat]` names the preset and the
+        # sections under it carry any hand-edit, so a tweaked preset survives a
+        # reload rather than snapping back to the shipped numbers.
+        from .beat import Response, preset, reconcile
+        from .sections import build_sections as _bs
+
+        blk = data.get("response") or {}
+        name = blk.get("preset") or "none"
+        try:
+            resp = preset(name)
+        except KeyError:
+            name, resp = "none", preset("none")
+        edits = {k: v for k, v in blk.items() if isinstance(v, dict)}
+        if edits:
+            resp = _bs(Response, edits)
+            reconcile(resp)
         return cls(type=slug, track=track, params=vt.params_from(data),
-                   back_type=back_slug, back_params=back_params,
-                   back_strength=strength)
+                   response=resp, beat_preset=name)
 
     def save(self, path: str | Path) -> None:
         path = Path(path)
@@ -204,22 +181,19 @@ class Config:
             out.append(f"{k} = {toml_value(v)}")
         out.append("")
         out.append(sections_toml(self.params))
-        if self.back_type:
-            out += [
-                "",
-                "# What sits behind the words: a second renderer, composited",
-                "# under the first. Its sections are namespaced so they cannot",
-                "# collide with the front renderer's.",
-                "[back]",
-                f"type = {toml_value(self.back_type)}",
-                f"strength = {toml_value(round(self.back_strength, 4))}",
-                "",
-            ]
-            body = sections_toml(self.back_params)
-            # `[grid]` -> `[back.grid]`, so a section name means one thing.
-            out.append("\n".join(
-                f"[back.{ln[1:]}" if ln.startswith("[") else ln
-                for ln in body.splitlines()))
+        out += [
+            "",
+            "# What the beat does to the words. The preset names it; the",
+            "# sections below are the numbers, so a hand-edit survives a reload.",
+            "[response]",
+            f"preset = {toml_value(self.beat_preset)}",
+            "",
+        ]
+        body = sections_toml(self.response)
+        # `[zoom]` -> `[response.zoom]`, so a section name means one thing.
+        out.append("\n".join(
+            f"[response.{ln[1:]}" if ln.startswith("[") else ln
+            for ln in body.splitlines()))
         return "\n".join(out)
 
     def as_params(self) -> dict:
@@ -232,7 +206,8 @@ class Config:
     # ---------- constraints ----------
 
     def validate(self) -> list[str]:
-        return self.track_problems() + list(self.params.validate())
+        return (self.track_problems() + list(self.params.validate())
+                + list(self.response.validate()))
 
     def track_problems(self) -> list[str]:
         """What is wrong with the measured facts, as opposed to the tunables.

@@ -2042,7 +2042,6 @@ function runBody(extra) {
     // did, and still the right reading of "None, Heartbeat".
     type: TYPE_SLUG || BACK_TYPE || null,
     style: TYPE_SLUG ? (STYLE_SLUG || null) : (BACK_STYLE || null),
-    back_type: TYPE_SLUG ? (BACK_TYPE || '') : null,
     back_style: TYPE_SLUG ? (BACK_STYLE || '') : null,
     language: $('#lang').value.trim() || null,
     prompt: $('#prompt').value.trim() || null,
@@ -2392,7 +2391,7 @@ async function refreshAll() {
   if (!PICKED) {
     TYPE_SLUG = c.type || TYPE_SLUG;
     STYLE_SLUG = CFG.track.style || '';
-    BACK_TYPE = CFG.track.back_type || '';
+    BACK_TYPE = '';
     BACK_STYLE = CFG.track.back_style || '';
   }
   const vt = TYPES.find(t => t.slug === c.type);

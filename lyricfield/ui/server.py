@@ -97,7 +97,6 @@ class RunIn(BaseModel):
     source: str | None = None
     type: str | None = None
     style: str | None = None
-    back_type: str | None = None    # the renderer behind the words
     back_style: str | None = None   # ... and which of its styles
     api_key: str | None = None
     language: str | None = None
@@ -178,7 +177,7 @@ def start_run(payload: RunIn):
         ctx = RUN_CTX = run_mod.Ctx(
             client=client, name=payload.name, source=payload.source or "",
             video_type=payload.type, style=payload.style,
-            back_type=payload.back_type, back_style=payload.back_style,
+            back_style=payload.back_style,
             # `is not None`, not truthiness. "Was this provided" and "is this
             # non-zero" are different questions, and conflating them meant a
             # deliberate `start_seconds = 0` was dropped in transit -- so the
@@ -836,7 +835,6 @@ class SongIn(BaseModel):
     source: str | None = None
     type: str | None = None
     style: str | None = None
-    back_type: str | None = None    # the renderer behind the words
     back_style: str | None = None   # ... and which of its styles
 
 

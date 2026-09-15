@@ -1,157 +1,163 @@
-"""Two renderers, one picture.
+"""The word layer, and what the beat does to it.
 
-A beat look used to be able to sit behind words only if it *was* the character
-grid the words are drawn in: `lyric_grid` carried a `backdrop` section, and a
-beat renderer's parameters were mapped into it. That works for `pulse_grid` and
-`swell`, which are the same grid, and cannot work for `rings`, `strata`,
-`scope`, `halftone` or `spectrum`, whose pictures are not made of cells at all.
-So the gallery had to change the meaning of its second row depending on the
-first, and five of seven beat looks could never be a layer.
+The renderer builds into `/project1/words` and everything after it is the beat
+response: a fixed chain of operators whose parameters are driven each frame by
+`fx_drive`, reading the drum table. `/project1/out` is the end of it, which is
+what `render` records and what every check measures.
 
-Compositing removes the question. Each renderer is built into its own container
-and the two are mixed at the end:
+    words/out -> fx_in (select) -> fx_shake -> fx_zoom
+              -> fx_r / fx_g / fx_b -> fx_split      (the fringe)
+              -> fx_level -> fx_bloom -> fx_add -> fx_clamp -> out
+                                    ^
+                              fx_drive (16px script)
 
-    /project1/beat/out  -> mix_dim (Level, strength) --\\
-                                                        mix -> out
-    /project1/words/out -----------------------------/
+Why a chain rather than code inside each renderer: there are eight word
+renderers and the beat means the same thing to all of them. A preset is then a
+set of numbers, and a new one costs a dict rather than eight edits that have to
+stay in step.
 
-Two facts already true of the codebase make this cheap. Every renderer's
-`build()` takes a `container` and its network ends in an `out` null TOP; and
-every field script addresses its operators by BARE NAME -- `op('lyrics')`,
-`op('spec0')` -- so it runs correctly wherever it is built. `styles`' preview
-capture has been relying on both for a while.
+This used to composite a second *renderer* under the words -- seven of them
+existed for it. That premise is gone; see `beat.py`.
 
-Either side may be absent. A beat look with no words is the whole picture, words
-with nothing behind them are the whole picture, and `out` is wired to match.
+A Select TOP reaches into the container rather than a wire, because a TOP
+inside a base COMP cannot be wired to one outside it and a COMP is not a valid
+TOP input either. The `wire` tool reports success for the first and leaves the
+input unconnected: measured, a live layer at 0.31 arriving as 0.0 with nothing
+reporting a fault.
 """
 
 from __future__ import annotations
 
-from .types._build import OpSpec, ROOT, create_ops, wire_ops
+from .types._build import (OpSpec, ROOT, apply_exprs, check_types, create_ops,
+                           drop_autocreated, wire_ops)
 
 WORDS = "words"
-BEAT = "beat"
-
-# The layer behind may never be brighter than this share of the words. A beat
-# look tuned to BE the picture is tuned far too bright to sit under one -- that
-# is the whole reason the old mechanism rescaled rather than copied -- and
-# brightness stacks at the output, which this project has been bitten by three
-# times.
-CEILING = 0.55
 
 
-def path(container: str, name: str = "") -> str:
-    """`/project1/beat/out`, from ("/project1/beat", "out")."""
-    return f"{container}/{name}" if name else container
-
-
-def container_for(cfg, which: str) -> str:
+def container_for(cfg=None, which: str = WORDS) -> str:
     return f"{ROOT}/{which}"
 
 
-def layer_brightness(strength: float) -> float:
-    """What the Level TOP on the beat layer is set to.
-
-    Bounded rather than trusted: a style is free to ask for anything, and the
-    words have to stay the brightest thing on screen.
-    """
-    return round(max(0.0, min(1.0, float(strength))) * CEILING, 4)
+def _frame(cfg) -> dict:
+    """The output resolution, from whichever section this renderer keeps it in."""
+    for name in ("stage", "grid", "frame"):
+        sec = getattr(cfg.params, name, None)
+        if sec is not None and hasattr(sec, "width"):
+            return {"outputresolution": "custom",
+                    "resolutionw": int(sec.width),
+                    "resolutionh": int(sec.height),
+                    "resmult": False}
+    return {"outputresolution": "custom", "resolutionw": 720,
+            "resolutionh": 1280, "resmult": False}
 
 
 def network(cfg) -> list[OpSpec]:
-    """The mix, and nothing else -- each renderer builds its own container."""
-    lyric = bool(cfg.type)
-    beat = bool(cfg.back_type)
-    w = getattr(cfg.params, "stage", None) or getattr(cfg.params, "grid", None) \
-        or getattr(cfg.params, "frame", None)
-    width = int(getattr(w, "width", 720))
-    height = int(getattr(w, "height", 1280))
-    frame = {"outputresolution": "custom", "resolutionw": width,
-             "resolutionh": height, "resmult": False}
+    """The response chain. Always the same shape.
 
-    # A TOP inside a base COMP cannot be wired to one outside it, and a COMP is
-    # not a valid TOP input either -- both were tried, and the `wire` tool
-    # reported success for the first while leaving the input unconnected, which
-    # is the failure mode this project keeps meeting. A Select TOP pulls a TOP
-    # by path from anywhere and is the idiomatic answer; `lyric_grid` already
-    # uses one.
-    specs: list[OpSpec] = []
-    if lyric:
-        specs.append(OpSpec("mix_words", "selectTOP", (-600, -400),
-                            params={**frame, "top": f"{WORDS}/out"}))
-    if beat:
-        specs.append(OpSpec("mix_beat", "selectTOP", (-600, -200),
-                            params={**frame, "top": f"{BEAT}/out"}))
-        specs.append(OpSpec("mix_dim", "levelTOP", (-400, -200),
-                            params={**frame,
-                                    "brightness1": layer_brightness(
-                                        cfg.back_strength)},
-                            inputs=["mix_beat"]))
-    if lyric and beat:
-        # `maximum`, and neither of the two obvious alternatives.
-        #
-        # `over` does nothing at all: a lyric renderer draws its own black
-        # ground, so its frame is fully opaque and covers the layer completely
-        # -- measured, a live layer at 0.102 came out of the mix at exactly the
-        # words' own 0.0196. `add` would work but stacks, which is the defect
-        # this project has fixed three times: the words would be lifted by
-        # whatever happened to be behind them at that instant.
-        #
-        # `maximum` takes the brighter of the two per pixel. The words keep
-        # their own brightness exactly, because they are brighter than a layer
-        # capped at CEILING; the layer fills the black between them. Nothing
-        # stacks, so nothing needs clamping afterwards.
-        specs.append(OpSpec("mix", "compositeTOP", (-200, -400),
-                            params={**frame, "operand": "maximum"},
-                            inputs=["mix_words", "mix_dim"]))
-        src = "mix"
-    elif lyric:
-        src = "mix_words"
-    elif beat:
-        src = "mix_dim"
-    else:                                   # nothing picked at all
-        specs.append(OpSpec("mix_black", "constantTOP", (-200, -400),
-                            params=frame))
-        src = "mix_black"
-    specs.append(OpSpec("out", "nullTOP", (0, -400),
-                        params={"resmult": False}, inputs=[src]))
+    Every operator is created whether or not its effect is switched on, and
+    `fx_drive` sets the idle ones to their neutral values. A chain whose shape
+    depends on the preset would have to be rebuilt every time one is picked,
+    and rebuilding is what `verify` then has to reason about.
+    """
+    frame = _frame(cfg)
+    split = bool(getattr(cfg.response.split, "on", False))
+
+    specs = [
+        OpSpec("drums", "tableDAT", (-1800, -900), preserve=True),
+        OpSpec("fx_params", "textDAT", (-1800, -1020), preserve=True),
+        OpSpec("fx_drive_callbacks", "textDAT", (-1800, -1140), preserve=True),
+        # Not the picture: sixteen pixels nothing looks at, whose job is to set
+        # the parameters of everything below. The `monument` pattern.
+        OpSpec("fx_drive", "scriptTOP", (-1600, -1020),
+               params={"callbacks": "fx_drive_callbacks", "resolutionw": 16,
+                       "resolutionh": 16, "resmult": False,
+                       "format": "rgba32float"}),
+
+        OpSpec("fx_in", "selectTOP", (-1400, -400),
+               params={**frame, "top": f"{WORDS}/out"}),
+        # `zero` rather than `hold`: a shaken frame that smears its edge pixels
+        # outward reads as a drag, not as a knock.
+        OpSpec("fx_shake", "transformTOP", (-1200, -400),
+               params={**frame, "tunit": "pixels", "extend": "zero",
+                       "tx": 0.0, "ty": 0.0}, inputs=["fx_in"]),
+        OpSpec("fx_zoom", "transformTOP", (-1000, -400),
+               params={**frame, "extend": "zero", "sx": 1.0, "sy": 1.0},
+               inputs=["fx_shake"]),
+    ]
+
+    if split:
+        # Three copies, two of them displaced, recombined one channel each. A
+        # Reorder TOP takes four inputs, so the whole fringe is one operator
+        # plus two transforms.
+        specs += [
+            OpSpec("fx_r", "transformTOP", (-800, -600),
+                   params={**frame, "tunit": "pixels", "extend": "zero",
+                           "tx": 0.0}, inputs=["fx_zoom"]),
+            OpSpec("fx_b", "transformTOP", (-800, -200),
+                   params={**frame, "tunit": "pixels", "extend": "zero",
+                           "tx": 0.0}, inputs=["fx_zoom"]),
+            OpSpec("fx_split", "reorderTOP", (-600, -400), params={
+                **frame,
+                "outputred": "input1", "outputredchan": "red",
+                "outputgreen": "input2", "outputgreenchan": "green",
+                "outputblue": "input3", "outputbluechan": "blue",
+                # Alpha from the undisplaced copy, or the type's silhouette
+                # lurches with the fringe.
+                "outputalpha": "input2", "outputalphachan": "alpha"},
+                inputs=["fx_r", "fx_zoom", "fx_b"]),
+        ]
+        lit = "fx_split"
+    else:
+        lit = "fx_zoom"
+
+    specs += [
+        OpSpec("fx_level", "levelTOP", (-400, -400),
+               params={**frame, "brightness1": 1.0}, inputs=[lit]),
+        OpSpec("fx_bloom", "blurTOP", (-400, -150),
+               params={**frame, "size": 0.0}, inputs=["fx_level"]),
+        # `add`, then clamped: the glow lifts the type rather than replacing it,
+        # and a Level TOP remaps rather than clamps, so white is held by a
+        # minimum against a constant.
+        OpSpec("fx_add", "compositeTOP", (-200, -400),
+               params={**frame, "operand": "add"},
+               inputs=["fx_level", "fx_bloom"]),
+        OpSpec("fx_white", "constantTOP", (-200, -650), params=frame),
+        OpSpec("fx_clamp", "compositeTOP", (0, -400),
+               params={**frame, "operand": "minimum"},
+               inputs=["fx_add", "fx_white"]),
+        OpSpec("out", "nullTOP", (200, -400), params={"resmult": False},
+               inputs=["fx_clamp"]),
+    ]
     return specs
 
 
 def build(client, cfg, progress=None) -> dict:
-    """Build both renderers into their own containers, then the mix.
-
-    Returns what was built, so a caller can say which halves are live.
-    """
+    """Build the renderer into its container, then the response chain."""
     say = progress or (lambda m: None)
-    out: dict = {"words": "", "beat": "", "problems": []}
+    out: dict = {"words": "", "problems": []}
 
-    if cfg.type:
-        box = container_for(cfg, WORDS)
-        say(f"building {cfg.video_type.name} into {box}")
-        _make(client, box)
-        r = cfg.video_type.build(client, cfg, progress=say, container=box,
-                                 push=False)
-        out["words"] = box
-        out["problems"] += list(r.get("problems") or [])
+    box = container_for(cfg)
+    say(f"building {cfg.video_type.name} into {box}")
+    _make(client, box)
+    r = cfg.video_type.build(client, cfg, progress=say, container=box,
+                             push=False)
+    out["words"] = box
+    out["problems"] += list(r.get("problems") or [])
 
-    if cfg.back_type:
-        box = container_for(cfg, BEAT)
-        say(f"building {cfg.back_video_type.name} into {box} as the layer")
-        _make(client, box)
-        # The layer is built from ITS OWN params, which is the whole point: it
-        # is a renderer, not a section of somebody else's.
-        shim = _BackView(cfg)
-        r = cfg.back_video_type.build(client, shim, progress=say, container=box,
-                                      push=False)
-        out["beat"] = box
-        out["problems"] += list(r.get("problems") or [])
-
-    say("wiring the mix")
+    say("wiring the beat response")
     specs = network(cfg)
+    unknown = check_types(client, specs)
+    if unknown:
+        raise RuntimeError(f"unknown TD type constants: {unknown}")
     out["problems"] += create_ops(client, specs, progress=say, container=ROOT)
     out["problems"] += wire_ops(client, specs, progress=say, container=ROOT)
+    out["problems"] += apply_exprs(client, specs, progress=say, container=ROOT)
+    drop_autocreated(client, specs, progress=say, container=ROOT)
     return out
+
+
+def verify(client, cfg) -> list[str]:
+    return check_types(client, network(cfg))
 
 
 def _make(client, box: str) -> None:
@@ -167,30 +173,31 @@ def _make(client, box: str) -> None:
         "go()")
 
 
-class _BackView:
-    """The config as the layer's renderer sees it: its own params, same song.
+def drive_source() -> str:
+    """The `fx_drive` script, with the shared prelude in front of it.
 
-    A `build()` reads `cfg.<section>` and `cfg.track`, so handing it the real
-    Config would build the layer from the FRONT renderer's tunables. This is
-    four lines rather than a second Config because everything else -- saving,
-    validating, the UI -- must keep seeing one config with a layer in it.
+    Same shape as `VideoType.field_source`, and for the same reason: it is
+    pushed as one DAT and cannot import a sibling, so `_read_drums` and
+    `_read_params` have to travel with it.
     """
+    from pathlib import Path
 
-    def __init__(self, cfg):
-        self._cfg = cfg
-        self.type = cfg.back_type
-        self.track = cfg.track
-        self.params = cfg.back_params
+    here = Path(__file__).parent
+    prelude = (here / "types" / "_prelude.py").read_text(encoding="utf-8")
+    body = (here / "fx_drive.py").read_text(encoding="utf-8")
+    return prelude + "\n\n" + body
 
-    @property
-    def video_type(self):
-        return self._cfg.back_video_type
 
-    def as_params(self) -> dict:
-        return self._cfg.back_as_params()
-
-    def __getattr__(self, name):
-        params = self.__dict__.get("params")
-        if params is not None and hasattr(params, name):
-            return getattr(params, name)
-        raise AttributeError(name)
+def drive_params(cfg) -> dict:
+    """The flat dict `fx_drive` reads, named the way its DEFAULTS are."""
+    out = {}
+    for section in ("zoom", "bloom", "shake", "split"):
+        sec = getattr(cfg.response, section)
+        for k, v in vars(sec).items():
+            out[f"{section}_{k}"] = v
+    frame = _frame(cfg)
+    out["width"] = frame["resolutionw"]
+    out["height"] = frame["resolutionh"]
+    out["offset"] = float(getattr(cfg.params, "cueing", None)
+                          and getattr(cfg.params.cueing, "offset", 0.0) or 0.0)
+    return out

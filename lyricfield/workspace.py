@@ -351,35 +351,14 @@ class Workspace:
         # `/project1/beat`, and `/project1/out` the mix of the two. One layout
         # whether or not there is a layer, because two layouts means two code
         # paths and the one that is rarely taken is the one that rots.
-        if cfg.back_type:
+        if vt.can_build:
             from . import compose
-            say(f"composing {vt.name} over {cfg.back_video_type.name}")
+            say(f"building {vt.name} with the beat response")
             res = compose.build(client, cfg, progress=say)
-            out["built"] = 2
+            out["built"] = 1
             out["problems"] = res.get("problems")
-            out["composed"] = {"words": res.get("words"),
-                               "beat": res.get("beat")}
+            out["words"] = res.get("words")
             out["discrepancies"] = []
-        elif vt.can_build:
-            found = vt.verify(client, cfg) if not rebuild else ["forced"]
-            # "note:" entries are observations, not faults -- unrelated operators
-            # left in the project are none of the builder's business.
-            faults = [d for d in found if not str(d).startswith("note:")]
-            out["notes"] = [d for d in found if str(d).startswith("note:")]
-            discrepancies = faults
-            out["discrepancies_before"] = len(faults)
-            if discrepancies:
-                say(f"building the {vt.name} network "
-                    f"({len(discrepancies)} discrepanc"
-                    f"{'y' if len(discrepancies) == 1 else 'ies'})")
-                res = vt.build(client, cfg, progress=say)
-                out["built"] = res.get("built")
-                out["problems"] = res.get("problems")
-                out["discrepancies"] = res.get("discrepancies")
-            else:
-                say("network already matches the spec")
-                out["built"] = 0
-                out["discrepancies"] = []
         else:
             say(f"{vt.name} has no builder; leaving the network as found")
             out["built"] = None

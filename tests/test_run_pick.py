@@ -71,9 +71,9 @@ def test_an_unknown_renderer_is_reported_rather_than_applied(song):
 def test_picking_a_style_applies_it(song):
     """The case that crashed, and that nothing covered.
 
-    `_honour_pick` was exercised with `video_type=`, `back_type=` and
-    `back_style=` and never with `style=` -- so a line reading `ctx.type`, which
-    `Ctx` does not have, shipped and killed every run where a look was chosen.
+    `_honour_pick` was exercised with `video_type=` and `back_style=` and never
+    with `style=` -- so a line reading `ctx.type`, which `Ctx` does not have,
+    shipped and killed every run where a look was chosen.
     """
     from lyricfield import styles as S
 
@@ -120,7 +120,7 @@ def test_the_ui_sends_the_selected_type_with_the_run():
     body = re.search(r"function runBody\(extra\) \{(.+?)\n\}", INDEX.read_text(), re.S)
     assert body, "runBody() is gone or was renamed"
     assert "type:" in body.group(1), "runBody() does not send the renderer"
-    assert "back_type:" in body.group(1), "runBody() does not send the backdrop"
+    assert "back_style:" in body.group(1), "runBody() does not send the beat pick"
 
 
 def test_the_two_rows_hold_independent_picks():
