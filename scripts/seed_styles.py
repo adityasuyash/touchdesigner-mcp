@@ -26,8 +26,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from lyricfield import styles as styles_mod           # noqa: E402
 from lyricfield import types as types_mod             # noqa: E402
 
-# Backdrop previews are not styles; see `backdrop_previews`.
-BACKDROP_ROOT = styles_mod.DEFAULT_ROOT / "_backdrops"
 # Each renderer's own defaults, so the "Built-in" tiles are not the only ones in
 # the gallery showing "no preview yet".
 BUILTIN_ROOT = styles_mod.DEFAULT_ROOT / "_builtin"
@@ -90,35 +88,8 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "beat.kick_lift": 0.55}),
 
     # ---------------------------------------------------------- rings
-    ("rings", "Sonar",
-     "slow wide rings on a dark field, a long way apart",
-     {"ring.speed": 0.3, "ring.thick": 0.014, "ring.birth": 0.95,
-      "ring.decay": 2.0, "spoke.peak": 0.2, "grain.lift": 0.05,
-      "look.hue": 0.48, "look.sat": 0.6, "look.core": 0.1,
-      "look.glow": 0.5, "look.bloom": 26.0}),
-    ("rings", "Bloom",
-     "thick fast rings over a bright core, crowding each other",
-     {"ring.speed": 1.15, "ring.thick": 0.075, "ring.birth": 0.6,
-      "ring.decay": 0.7, "spoke.peak": 0.6, "spoke.count": 22,
-      "grain.lift": 0.24, "grain.freq": 70.0,
-      "look.hue": 0.08, "look.sat": 0.5, "look.core": 0.3,
-      "look.glow": 0.25, "look.bloom": 10.0}),
 
     # ---------------------------------------------------------- strata
-    ("strata", "Ledger",
-     "many thin bands, struck quietly and often",
-     {"band.count": 20, "band.gap": 0.42, "band.rest": 0.05,
-      "band.lit": 0.6, "band.decay": 0.2, "band.walk": 1,
-      "shear.amount": 0.05, "flicker.lift": 0.06,
-      "look.hue": 0.52, "look.sat": 0.3, "look.glow": 0.08}),
-    ("strata", "Slab",
-     "few heavy bands, struck hard and sheared wide",
-     {"band.count": 5, "band.gap": 0.1, "band.rest": 0.14,
-      "band.lit": 0.97, "band.decay": 0.75, "band.walk": 2,
-      "shear.amount": 0.34, "shear.snap": 0.5,
-      "flicker.lift": 0.2, "flicker.rows": 17.0,
-      "look.hue": 0.03, "look.sat": 0.7, "look.glow": 0.2,
-      "look.bloom": 12.0}),
 
     # ---------------------------------------------------------- scope
 
@@ -181,82 +152,13 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "beat.spark_frac": 0.12, "beat.spark_peak": 0.55}),
 
 
-
-    ("pulse_grid", "Heartbeat",
-     "no sweep at all — the kick is the entire picture, wide and slow",
-     {"look.dim_hue": 0.02, "look.dim_sat": 0.72,
-      "look.level_min": 0.03, "look.level_max": 0.18, "look.ceil": 0.56,
-      "look.glow_base": 0.60, "look.glow_radius": 26.0, "look.bloom_bright": 0.55,
-      "look.bloom_size": 14.0,
-      "pulse.wave_beats": 8.0, "pulse.wave_width": 6.0, "pulse.wave_lift": 0.05,
-      "pulse.lit_at": 0.52, "pulse.density": 0.55,
-      "pulse.kick_lift": 0.85, "pulse.kick_time": 0.90, "pulse.kick_sigma": 5.0,
-      "pulse.snare_peak": 0.30, "pulse.snare_frac": 0.03,
-      "pulse.high_lift": 0.04, "pulse.reroll": 12.0,
-      "pulse.glyphs": ".oO0@",
-      "grid.cols": 18}),
-
-
-    ("pulse_grid", "Constellation",
-     "nearly black, crossed very slowly — a few points, held a long time",
-     # Deliberately NOT kick-led. Measured against Heartbeat it correlated at
-     # 0.93 when both led with the kick: same behaviour, different density and
-     # hue, which is the trap the whole rebuild is meant to escape. Its identity
-     # is a slow wide crest through an almost empty field, so the crest leads
-     # and the kick is a punctuation.
-     {"look.dim_hue": 0.68, "look.level_min": 0.02, "look.level_max": 0.14,
-      "look.glow_base": 0.62, "look.glow_radius": 32.0, "look.bloom_bright": 0.55,
-      "look.bloom_size": 18.0,
-      "pulse.wave_beats": 16.0, "pulse.wave_width": 8.0, "pulse.wave_lift": 0.68,
-      "pulse.lit_at": 0.80, "pulse.density": 0.18, "pulse.glyphs": ".,+x*",
-      "pulse.kick_lift": 0.22, "pulse.kick_time": 0.90, "pulse.kick_sigma": 3.0,
-      "pulse.snare_peak": 0.35, "pulse.snare_frac": 0.03,
-      "pulse.high_lift": 0.06, "pulse.reroll": 45.0,
-      "grid.cols": 28,
-      "look.dim_sat": 0.55}),
-
-    ("pulse_grid", "Shimmer",
-     "a dense wall with no sweep; the hats and the snare carry all of it",
-     {"look.dim_hue": 0.50, "look.dim_sat": 0.3,
-      "look.level_min": 0.06, "look.level_max": 0.26,
-      "look.glow_base": 0.34, "look.glow_radius": 8.0, "look.bloom_bright": 0.30,
-      "pulse.wave_beats": 4.0, "pulse.wave_width": 3.5, "pulse.wave_lift": 0.04,
-      "pulse.lit_at": 0.58, "pulse.density": 0.95,
-      "pulse.kick_lift": 0.15,
-      "pulse.snare_peak": 0.80, "pulse.snare_frac": 0.18, "pulse.snare_time": 0.16,
-      "pulse.high_lift": 0.70, "pulse.high_time": 0.34, "pulse.reroll": 5.0,
-      "pulse.glyphs": "`'^*+x",
-      "grid.cols": 36}),
-
     # `swell` shipped with NO styles at all -- a whole renderer with no tile to
     # pick. It expresses the beat as coverage rather than light, so its
     # brightness cannot exceed level_max and it has no stacking problem; what
     # makes a swell look pronounced is the coverage swing and the glyph ramp.
     # It is also the only type that reads kick_in / high_in / duration, so it
     # is the only one with a beginning, an arrival and an ending.
-    ("swell", "Tide",
-     "the field breathes — wide and slow, thickening on the downbeat",
-     {"look.dim_hue": 0.56, "look.level_min": 0.06, "look.level_max": 0.42,
-      "look.glow_base": 0.55, "look.glow_radius": 24.0, "look.bloom_bright": 0.45,
-      "swell.bar_beats": 8.0, "swell.attack": 0.22,
-      "swell.open_min": 0.06, "swell.open_max": 0.96, "swell.lit_at": 0.72,
-      "swell.kick_open": 0.55, "swell.snare_frac": 0.10,
-      "swell.high_grain": 0.30, "swell.outro": 18.0,
-      "swell.glyphs": "~-=+#",
-      "grid.cols": 22,
-      "look.dim_sat": 0.6}),
 
-    ("swell", "Stutter",
-     "short, hard breaths — a fast bar with a near-instant attack",
-     {"look.dim_hue": 0.12, "look.dim_sat": 0.5,
-      "look.level_min": 0.04, "look.level_max": 0.38,
-      "look.glow_base": 0.36, "look.glow_radius": 9.0, "look.bloom_bright": 0.52,
-      "swell.bar_beats": 1.0, "swell.attack": 0.05,
-      "swell.open_min": 0.02, "swell.open_max": 0.88, "swell.lit_at": 0.60,
-      "swell.glyphs": "_-=#", "swell.kick_open": 0.70,
-      "swell.snare_frac": 0.14, "swell.snare_time": 0.16,
-      "swell.high_grain": 0.45, "swell.reroll": 6.0,
-      "grid.cols": 16}),
 
     # ------------------------------------------------------- approach
     # From the Chainsmokers' "Closer": the lyrics travelling through 3D space.
@@ -293,43 +195,10 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "look.glow": 0.22, "look.bloom": 7.0}),
 
     # ------------------------------------------------------- halftone
-    ("halftone", "Newsprint",
-     "a fine grey screen, the way a photograph prints in a paper",
-     {"screen.pitch": 90.0, "screen.angle": 45.0, "screen.dot": 0.66,
-      "screen.soft": 0.09,
-      "ink.separate": False, "ink.hue": 0.1, "ink.sat": 0.05,
-      "tone.base": 0.06, "tone.kick_lift": 0.7, "tone.snare_lift": 0.35,
-      "tone.hat_lift": 0.06, "tone.wave": 0.1, "tone.vignette": 0.7,
-      "look.glow": 0.12, "look.bloom": 5.0}),
 
-    ("halftone", "Rosette",
-     "three coarse screens at printer's angles, beating into a rosette",
-     {"screen.pitch": 26.0, "screen.angle": 15.0, "screen.dot": 0.7,
-      "screen.soft": 0.16,
-      "ink.separate": True, "ink.spread": 30.0, "ink.hue": 0.02,
-      "ink.sat": 0.5,
-      "tone.base": 0.14, "tone.kick_lift": 0.6, "tone.snare_lift": 0.4,
-      "tone.hat_lift": 0.1, "tone.wave": 0.1, "tone.vignette": 0.35,
-      "look.glow": 0.4, "look.bloom": 18.0}),
 
     # ------------------------------------------------------- spectrum
-    ("spectrum", "Analyser",
-     "the classic: tall thin bars off the floor, with peak caps",
-     {"bars.count": 40, "bars.fill": 0.55, "bars.reach": 0.72,
-      "bars.floor_at": 0.94, "bars.mirror": False, "bars.settle": 0.28,
-      "caps.on": True, "caps.thick": 0.005, "caps.fall": 0.4,
-      "caps.hang": 0.3,
-      "look.hue": 0.45, "look.hue_span": 0.4, "look.sat": 0.7,
-      "look.glow": 0.3, "look.bloom": 11.0}),
 
-    ("spectrum", "Equaliser",
-     "few wide bars mirrored about the middle, fast and heavy",
-     {"bars.count": 12, "bars.fill": 0.82, "bars.reach": 0.42,
-      "bars.floor_at": 0.5, "bars.mirror": True, "bars.settle": 0.08,
-      "caps.on": False, "caps.thick": 0.008, "caps.fall": 1.2,
-      "caps.hang": 0.1,
-      "look.hue": 0.92, "look.hue_span": 0.12, "look.sat": 0.45,
-      "look.floor": 0.03, "look.glow": 0.5, "look.bloom": 22.0}),
 ]
 
 
@@ -406,102 +275,6 @@ def builtin_previews(client, live, moments_for, force=False,
                 break
         else:
             failed.append(f"{vt.name} (built-in)")
-    return failed
-
-
-def backdrop_previews(client, live, root, moments, force=False) -> list[str]:
-    """One capture per beatsync look, as it appears BEHIND WORDS.
-
-    Its own preview will not do. `styles/pulse_grid/heartbeat/preview.mp4` was
-    captured with that style as the whole picture, at a peak and a density it
-    is not allowed behind lyrics -- so the tile would promise something the
-    render cannot deliver, which is the same class of lie as a still preview of
-    a moving style.
-
-    These are not styles: they set a handful of one type's tunables and have no
-    `style.toml`. They live under `styles/_backdrops/<lyric>/<beat>/<slug>/`,
-    existing /styles mount serves, the `!styles/**/preview.mp4` negation tracks,
-    and `_style_dirs` skips because it yields only folders holding a style file.
-    """
-    import importlib
-
-    from lyricfield import styles as S
-
-    lyric = types_mod.get_type(types_mod.DEFAULT_TYPE)
-    P = importlib.import_module(f"lyricfield.types.{lyric.slug}.params")
-    if not hasattr(P, "backdrop_from"):
-        return []
-
-    failed = []
-    for st in S.list_styles():
-        vt = types_mod.get_type(st.type)
-        if vt.family != types_mod.BEATSYNC:
-            continue
-        # Only the looks that share the grid's own field can become the layer
-        # behind words. A renderer with its own network cannot be somebody
-        # else's ambient layer, and a preview of that would be a promise the
-        # run could not keep.
-        if not P.can_back_words(st.params):
-            print(f"{st.name}: its own renderer, not a layer behind words")
-            continue
-        params = lyric.default_params()
-        clamped = P.backdrop_from(params, st.params)
-        for line in clamped:
-            print(f"    {st.name}: {line}")
-        # Parked where the WORDS are, not where the drums are. This used to
-        # nudge `cueing.offset` to the drum window instead -- which cannot
-        # work: the offset is bounded to +-5s and the busiest drum window is a
-        # minute into the song, so the words never arrived and the capture is
-        # refused as wordless. A backdrop preview must show words with a beat
-        # behind them, and words are the half that cannot be moved.
-        P.reconcile(params)
-        if params.validate():
-            print(f"{st.name}: not valid behind words: {params.validate()}")
-            failed.append(st.name)
-            continue
-
-        # The draft's "type" is the PATH it is filed under, and the path is
-        # keyed by both renderers: which lyric renderer carries it, and which
-        # beat renderer it is a look from. On the beat slug alone, two styles
-        # sharing a name collapse into one video and the second is never even
-        # recorded, because the first already made the file.
-        # `type` is the renderer this draft IS -- lyric_grid, whose params
-        # these are and whose field script builds it. `filed_under` is where
-        # it is STORED, keyed by both renderers: on the beat slug alone, two
-        # styles sharing a name collapse into one video and the second is never
-        # recorded, because the first already made the file. Folding the path
-        # into `type` instead made every capture raise `no video type
-        # 'lyric_grid/pulse_grid'`, which is why these seven previews are the
-        # ones the gallery was still showing from before the change.
-        draft = S.Style(name=f"{st.name} behind", slug=st.slug,
-                        type=lyric.slug,
-                        filed_under=f"{lyric.slug}/{st.type}",
-                        description=f"{st.description} — behind the words",
-                        params=params)
-        # Current, not merely present -- the same rule the styles use. Asking
-        # only whether the file exists is how seven backdrop previews recorded
-        # before the capture could read its params stayed in the gallery.
-        if not force and draft.preview_is_current(BACKDROP_ROOT):
-            print(f"{st.name} behind: preview already matches this look")
-            continue
-        for at in moments:
-            print(f"{st.name} behind: recording from {at:.1f}s")
-            try:
-                S.capture_preview(client, draft, at=at, seconds=4.0,
-                                  root=BACKDROP_ROOT, live=live,
-                                  progress=lambda m: print("   ", m))
-                break
-            except S.StillPreview as e:
-                print(f"    {e}")
-            except S.FallbackPreview as e:
-                # Not worth another moment: the picture would be the same
-                # defaults at every one of them. Recorded as a failure here
-                # rather than left to the for-else, which this break skips.
-                print(f"    {e}")
-                failed.append(st.name)
-                break
-        else:
-            failed.append(st.name)
     return failed
 
 
@@ -597,7 +370,6 @@ def main(argv: list[str]) -> int:
                 break
         else:
             failed.append(st.name)
-    failed += backdrop_previews(client, live, root, word_moments, force=force)
     failed += builtin_previews(client, live, moments_for, force=force,
                            root=root)
     if failed:

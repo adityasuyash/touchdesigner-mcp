@@ -5,7 +5,7 @@ name = "Bleed"
 slug = "bleed"
 type = "glitch"
 description = "permanently damaged — heavy scanlines and channels far apart"
-created = "2026-09-14T19:33:38+00:00"
+created = "2026-09-15T19:34:26+00:00"
 source_song = ""
 
 [stage]
