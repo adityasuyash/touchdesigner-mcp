@@ -1,14 +1,15 @@
-"""Longhand: a camera travelling a written line.
+"""Longhand: handwritten lyrics in a volume, and a camera drifting through it.
 
-From the Chainsmokers' "Closer" lyric video, read correctly the second time.
-The first attempt -- `approach` -- flew words at the camera through depth
-slabs; the video pans along one long handwritten string of the lyrics, word to
-word. Two different renderers from the same reference, and the difference
-between them is the whole reason this file exists.
+From the Chainsmokers' "Closer" lyric video, which the sources describe as
+"live action footage compiled with lyrics that fly through 3d space". The
+reference has been read wrong twice: `approach` flew words at the camera down a
+tunnel, and the first `longhand` panned along a flat written line. Neither had
+both halves. The words hold still, scattered through a space, and the eye moves
+among them.
 
-The properties worth pinning are the ones that separate a camera pan from a
-slideshow, because the failure mode is not an error: it is a renderer that
-works and feels wrong.
+The properties worth pinning are the ones that separate that from a slideshow
+and from a flat layer that has been scaled, because the failure mode is not an
+error: it is a renderer that works and feels wrong.
 """
 
 from __future__ import annotations
@@ -63,42 +64,53 @@ def test_it_does_not_borrow_another_renderer():
             assert f"from ..{other}" not in src, f"longhand/{name} imports {other}"
 
 
-# --------------------------------------------------------------- the line
+# ------------------------------------------------------------- the volume
 
-def test_the_line_is_laid_out_once_and_does_not_move(lh):
-    """The camera moves; the writing does not. Re-laying it each frame would
-    make the words swim against each other."""
+def test_the_volume_is_laid_out_once_and_does_not_move(lh):
+    """The camera moves; the writing does not. Re-placing the words each frame
+    would make them swim against each other."""
     a = lh._layout(CUES)
     b = lh._layout(CUES)
     assert a is b, "the layout was rebuilt"
 
 
-def test_words_run_along_the_line_in_order(lh):
+def test_the_lyrics_run_away_from_the_camera_rather_than_round_it(lh):
+    """`march`: each word is further off than the one before, so the song has a
+    direction. Without it the words sit in one room and the camera orbits."""
     laid = lh._layout(CUES)
-    alongs = [a for a, _ in laid]
-    assert alongs == sorted(alongs)
-    assert len(set(alongs)) == len(alongs), "two words share a position"
+    zs = [z for _x, _y, z in laid]
+    assert zs == sorted(zs)
+    assert len(set(zs)) == len(zs), "two words share a depth"
 
 
-def test_a_long_word_takes_more_of_the_line_than_a_short_one(lh):
-    laid = lh._layout([(0.0, "a"), (1.0, "extraordinary"), (2.0, "b")])
-    assert (laid[2][0] - laid[1][0]) > (laid[1][0] - laid[0][0])
-
-
-def test_the_line_wanders_rather_than_running_ruled(lh):
+def test_the_words_are_scattered_off_the_camera_axis(lh):
+    """Otherwise every word is dead centre and the volume is a corridor."""
+    lh.S.pop("laid", None)
     laid = lh._layout(CUES * 4)
-    drops = [d for _, d in laid]
-    assert max(drops) - min(drops) > 1.0, "the line is level; it should wander"
+    xs = [x for x, _y, _z in laid]
+    ys = [y for _x, y, _z in laid]
+    assert max(xs) - min(xs) > 0.5, "the words sit on the axis in x"
+    assert max(ys) - min(ys) > 0.3, "the words sit on the axis in y"
 
 
-def test_the_wander_does_not_repeat_word_to_word(lh):
-    """Two long incommensurable periods. One would make a regular wave, which
-    reads as a ribbon rather than as handwriting."""
+def test_the_scatter_does_not_repeat_word_to_word(lh):
+    """Two incommensurable periods per axis. One would make a regular wave, and
+    the camera would visibly retrace the same path every few words."""
     lh.S.pop("laid", None)
     laid = lh._layout([(i * 0.4, "word") for i in range(40)])
-    drops = np.array([d for _, d in laid])
-    first, second = drops[:20], drops[20:]
-    assert float(np.abs(first - second).mean()) > 0.5
+    xs = np.array([x for x, _y, _z in laid])
+    first, second = xs[:20], xs[20:]
+    assert float(np.abs(first - second).mean()) > 0.2
+
+
+def test_a_word_is_placed_from_its_index_alone(lh):
+    """No RNG anywhere, so a re-render is identical and two machines agree --
+    the rule CLAUDE.md sets for anything with a choice."""
+    lh.S.pop("laid", None)
+    once = lh._layout(CUES)
+    lh.S.pop("laid", None)
+    twice = lh._layout([(t, w.upper()) for t, w in CUES])
+    assert once == twice, "the layout depends on something other than the index"
 
 
 # ------------------------------------------------------------- the camera
@@ -106,9 +118,39 @@ def test_the_wander_does_not_repeat_word_to_word(lh):
 def test_the_camera_follows_the_word_being_sung(lh):
     lh.S.pop("laid", None)
     laid = lh._layout(CUES)
-    early, _ = lh._camera(CUES, laid, 1.1)
-    late, _ = lh._camera(CUES, laid, 5.2)
-    assert late > early
+    early = lh._camera(CUES, laid, 1.1)
+    late = lh._camera(CUES, laid, 5.2)
+    assert late[2] > early[2], "the camera did not travel into the volume"
+
+
+def test_the_camera_keeps_the_sung_word_in_front_of_it(lh):
+    """`standoff`. At zero the eye arrives inside the word it is looking at and
+    the one frame the renderer exists to draw is clipped by the near wall."""
+    lh.S.pop("laid", None)
+    lh.FLOAT_ = 0.0
+    laid = lh._layout(CUES)
+    for i, (t, _w) in enumerate(CUES):
+        cam = lh._camera(CUES, laid, t + 1e-4)
+        ahead = laid[i][2] - cam[2]
+        assert ahead >= lh.NEAR_Z, (
+            f"word {i} is {ahead:.2f} ahead of the camera, inside near_z "
+            f"{lh.NEAR_Z}")
+
+
+def test_something_has_already_gone_past_the_camera(lh):
+    """The difference between travelling through a space and queueing at one.
+
+    With `standoff` shorter than `march` past the near wall, every frame holds
+    only words yet to come: measured at 0.85 against a march of 0.62, not one
+    word was ever behind the eye.
+    """
+    lh.S.pop("laid", None)
+    lh.FLOAT_ = 0.0
+    laid = lh._layout(CUES)
+    i = 4
+    cam = lh._camera(CUES, laid, CUES[i][0] + 1e-4)
+    behind = [j for j in range(len(CUES)) if laid[j][2] - cam[2] < lh.NEAR_Z]
+    assert behind, "nothing has passed the camera; the words are a queue"
 
 
 def test_the_camera_is_still_moving_when_the_next_word_lands(lh):
@@ -119,10 +161,9 @@ def test_the_camera_is_still_moving_when_the_next_word_lands(lh):
     lh.FLOAT_ = 0.0                      # isolate the chase from the drift
     laid = lh._layout(CUES)
     # Where it is exactly as the second word is sung, against where that word is.
-    at_cue, _ = lh._camera(CUES, laid, CUES[1][0] - 1e-4)
-    target = laid[1][0]
-    start = laid[0][0]
-    travelled = (at_cue - start) / (target - start)
+    at_cue = lh._camera(CUES, laid, CUES[1][0] - 1e-4)
+    start, target = laid[0][2], laid[1][2]
+    travelled = (at_cue[2] + lh.STANDOFF - start) / (target - start)
     assert 0.5 < travelled < 0.995, (
         f"the camera was {travelled:.0%} of the way when the next word landed; "
         f"at 100% it stops between words")
@@ -158,39 +199,80 @@ def test_the_camera_is_a_pure_function_of_its_timestamp(lh):
 def test_the_words_around_the_sung_one_are_drawn(lh):
     lh.S.pop("laid", None)
     laid = lh._layout(CUES)
-    along, drop = lh._camera(CUES, laid, 3.5)
-    body, drawn = lh._spec(CUES, laid, 3.5, along, drop, 1.0)
-    assert drawn > 1, "only one word reached the screen; the line should trail"
-    assert body.split("\n")[0] == "x\ty\ttext"
+    cam = lh._camera(CUES, laid, 3.5)
+    bodies, drawn = lh._spec(CUES, laid, 3.5, cam, 1.0)
+    assert drawn > 1, "only one word reached the screen; the volume should fill"
+    assert len(bodies) == len(lh.SLABS), "one Spec DAT per slab"
+    for b in bodies:
+        assert b.split("\n")[0] == "x\ty\ttext"
 
 
-def test_the_line_is_written_from_the_lower_left(lh):
+def test_the_words_are_spread_across_more_than_one_slab(lh):
+    """If everything lands on one slab the frame is a flat layer and the depth
+    is decorative."""
+    lh.S.pop("laid", None)
+    laid = lh._layout(CUES)
+    cam = lh._camera(CUES, laid, 3.5)
+    bodies, _ = lh._spec(CUES, laid, 3.5, cam, 1.0)
+    used = [i for i, b in enumerate(bodies) if len(b.split("\n")) > 1]
+    assert len(used) > 1, f"every visible word is on slab {used}"
+
+
+def test_a_nearer_word_is_drawn_larger(lh):
+    """The perspective itself, asked of the two halves together: the slab a
+    word is assigned to must be the one whose font size matches its distance.
+
+    `field._slab_of` picks the slab and `build` fixes the sizes, from the same
+    list. If they drifted apart a word would be drawn at a size that did not
+    match how far away it was, and nothing on screen would say why.
+    """
+    from lyricfield.types.longhand.params import Params, slab_depths
+
+    depths = slab_depths(Params())
+    assert [lh._slab_of(z) for z in depths] == list(range(len(depths)))
+    # and between slabs it rounds to one of the two neighbours, not to an end
+    mid = (depths[1] * depths[2]) ** 0.5
+    assert lh._slab_of(mid) in (1, 2)
+
+
+def test_the_volume_is_written_from_the_lower_left(lh):
     """The Specification DAT's origin, and the thing that has cost time twice
-    here. Written top-down the whole line renders upside down, which reads as a
-    broken renderer rather than as an axis slip."""
+    here. Written top-down the whole frame renders upside down, which reads as
+    a broken renderer rather than as an axis slip."""
     lh.S.pop("laid", None)
     lh.FOCUS_Y = 0.0                     # the focus at the TOP of the frame
-    lh.MEANDER = 0.0
+    lh.SPREAD_Y = 0.0
     lh.FLOAT_ = 0.0
     laid = lh._layout(CUES)
-    along, drop = lh._camera(CUES, laid, 3.5)
-    body, _ = lh._spec(CUES, laid, 3.5, along, drop, 1.0)
-    ys = [int(r.split("\t")[1]) for r in body.split("\n")[1:]]
+    cam = lh._camera(CUES, laid, 3.5)
+    bodies, _ = lh._spec(CUES, laid, 3.5, cam, 1.0)
+    ys = [int(r.split("\t")[1]) for b in bodies for r in b.split("\n")[1:]]
     assert ys and min(ys) > lh.HEIGHT * 0.5, (
         "a word at the top of the frame should have a HIGH y in lower-left "
         "pixel coordinates")
 
 
-def test_far_words_are_dropped_rather_than_drawn_invisibly(lh):
-    """Every row costs the Text TOP work, and a word dimmed past the floor is
-    not on screen in any sense that matters."""
+def test_words_outside_the_walls_are_dropped_rather_than_drawn(lh):
+    """Every row costs the Text TOP work, and a word behind the camera or past
+    the far wall is not on screen in any sense that matters."""
     lh.S.pop("laid", None)
     lh.REACH = 40
-    lh.FALLOFF = 0.9
+    laid = lh._layout(CUES * 6)
+    cam = lh._camera(CUES * 6, laid, 3.5)
+    _bodies, drawn = lh._spec(CUES * 6, laid, 3.5, cam, 1.0)
+    assert drawn < len(CUES) * 6, "nothing was dropped despite a bounded volume"
+
+
+def test_the_smear_follows_the_camera_and_stops_when_it_does(lh):
+    """The motion blur is the third thing every breakdown of that video names,
+    and it has to be a function of the camera rather than a constant -- a fixed
+    smear reads as a soft render, not as movement."""
+    lh.S.pop("laid", None)
     laid = lh._layout(CUES)
-    along, drop = lh._camera(CUES, laid, 3.5)
-    _body, drawn = lh._spec(CUES, laid, 3.5, along, drop, 1.0)
-    assert drawn < len(CUES), "nothing was dropped despite a hard falloff"
+    moving = lh._smear(CUES, laid, CUES[2][0] + 0.02)
+    assert max(abs(v) for v in moving) > 0.0, "the smear is dead"
+    # and it is a pure function of t, like everything else here
+    assert lh._smear(CUES, laid, 3.17) == lh._smear(CUES, laid, 3.17)
 
 
 def test_nothing_is_written_through_a_measured_silence(lh):
@@ -202,9 +284,10 @@ def test_nothing_is_written_through_a_measured_silence(lh):
 def test_a_song_with_no_cues_does_not_raise(lh):
     lh.S.pop("laid", None)
     laid = lh._layout([])
-    assert lh._camera([], laid, 3.0) == (0.0, 0.0)
-    body, drawn = lh._spec([], laid, 3.0, 0.0, 0.0, 1.0)
-    assert drawn == 0 and body == "x\ty\ttext"
+    cam = lh._camera([], laid, 3.0)
+    assert cam == (0.0, 0.0, -lh.STANDOFF)
+    bodies, drawn = lh._spec([], laid, 3.0, cam, 1.0)
+    assert drawn == 0 and set(bodies) == {"x\ty\ttext"}
 
 
 # -------------------------------------------------- where in the song this is
@@ -218,28 +301,97 @@ def test_it_opens_arrives_and_ends(lh):
 
 # ---------------------------------------------------------------- the network
 
-def test_one_text_top_rather_than_depth_slabs():
-    """The correction this renderer exists for. `approach` needed one Text TOP
-    per depth because a Text TOP has a single font size; here every word is the
-    same size, because the camera travels ALONG the line rather than toward
-    it."""
+def test_one_text_top_per_depth_slab():
+    """A Text TOP has ONE font size for its whole Specification DAT, so
+    continuous perspective is not available and the space has to be quantised.
+    This is the machinery `approach` was written for and the first `longhand`
+    threw away when it flattened the reference into a pan."""
     specs = network(Config(type="longhand"))
     texts = [s for s in specs if s.type == "textTOP"]
-    assert len(texts) == 1, [s.name for s in texts]
-    assert texts[0].params["specdat"] == "spec"
+    layers = P.Params().depth.layers
+    assert len(texts) == layers, [s.name for s in texts]
+    assert {t.params["specdat"] for t in texts} == {
+        f"spec{i}" for i in range(layers)}
+
+
+def test_a_nearer_slab_is_set_to_a_larger_font():
+    """The perspective, in the half `build.py` owns. Sizes come from
+    `slab_depths`, the same list the field script assigns words from."""
+    specs = {s.name: s for s in network(Config(type="longhand"))}
+    sizes = [specs[f"lh_text{i}"].params["fontsizex"]
+             for i in range(P.Params().depth.layers)]
+    assert sizes == sorted(sizes, reverse=True), sizes
+    depths = P.slab_depths(P.Params())
+    at_one = P.Params().stage.size_at_one
+    for px, z in zip(sizes, depths):
+        assert px == pytest.approx(at_one / z, rel=1e-3), (
+            "a slab's font size does not match the depth it stands at")
+
+
+def test_the_slabs_are_stacked_farthest_first():
+    """So a near word covers a far one rather than the other way round. This is
+    the only thing in the build that has to be right for the depth to read at
+    all, and getting it backwards looks like a sorting bug in the layout."""
+    specs = {s.name: s for s in network(Config(type="longhand"))}
+    n = P.Params().depth.layers
+    # Each composite takes the nearer slab first and everything farther second.
+    for i in range(n - 2, -1, -1):
+        over = specs[f"lh_over{i}"]
+        assert over.params["operand"] == "over"
+        assert over.inputs[0] == f"lh_lvl{i}", over.inputs
+    # and the farthest slab is where the stack begins
+    assert f"lh_over{n - 1}" not in specs
+
+
+def test_distance_costs_light_as_well_as_size():
+    """Fog. Size alone reads as a flat layer that has been scaled."""
+    specs = {s.name: s for s in network(Config(type="longhand"))}
+    lvls = [specs[f"lh_lvl{i}"].params["brightness1"]
+            for i in range(P.Params().depth.layers)]
+    assert lvls == sorted(lvls, reverse=True), lvls
+    assert lvls[-1] < lvls[0] * 0.5, "the far slab is barely dimmer"
+
+
+def test_the_farthest_slab_is_the_one_out_of_focus():
+    """Haze. Blurring every slab equally is a soft render; blurring the near
+    one is a broken one."""
+    specs = {s.name: s for s in network(Config(type="longhand"))}
+    n = P.Params().depth.layers
+    assert specs["lh_haze"].inputs == [f"lh_text{n - 1}"]
+    assert specs[f"lh_lvl{n - 1}"].inputs == ["lh_haze"]
+
+
+def test_the_smear_averages_its_taps_rather_than_stacking_them():
+    """Three taps added and then scaled back by a third, so a still frame is
+    exactly as bright as it was before the branch existed. Brightness stacking
+    is a defect this project has fixed three times."""
+    specs = {s.name: s for s in network(Config(type="longhand"))}
+    assert specs["lh_smear"].params["brightness1"] == pytest.approx(1 / 3, abs=1e-3)
+    assert specs["lh_mix2"].inputs == ["lh_mix1", "lh_tap_b"]
+    assert specs["lh_sum1"].inputs[0] == "lh_smear"
+
+
+def test_the_smear_branch_is_absent_when_it_is_switched_off():
+    cfg = Config(type="longhand")
+    cfg.blur.amount = 0.0
+    names = {s.name for s in network(cfg)}
+    assert not {n for n in names if n.startswith("lh_tap")}
+    assert "lh_smear" not in names
 
 
 def test_the_inline_text_is_cleared():
     """A Text TOP draws its own inline `text` and ignores its DAT while that is
     non-empty. It ships holding the word "derivative"."""
     specs = {s.name: s for s in network(Config(type="longhand"))}
-    assert specs["lh_text"].params["text"] == ""
+    for i in range(P.Params().depth.layers):
+        assert specs[f"lh_text{i}"].params["text"] == ""
 
 
 def test_the_font_size_is_in_pixels_rather_than_points():
     specs = {s.name: s for s in network(Config(type="longhand"))}
-    p = specs["lh_text"].params
-    assert p["fontsizexunit"] == "pixels" and p["fontsizeyunit"] == "pixels"
+    for i in range(P.Params().depth.layers):
+        p = specs[f"lh_text{i}"].params
+        assert p["fontsizexunit"] == "pixels" and p["fontsizeyunit"] == "pixels"
 
 
 def test_nothing_may_exceed_white():

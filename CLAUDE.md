@@ -99,7 +99,7 @@ lyricfield/
     orbit/       the line riding a parametric curve
     swarm/       words that fly in and are knocked apart
     horizon/     a neon grid to a banded sun
-    longhand/    a camera drifting along a handwritten line
+    longhand/    handwritten words in a volume, a camera drifting through
     glitch/      the words torn, split and scanlined
 docs/
   visual-references.md   the looks these were built from, and what is out of reach
@@ -195,8 +195,13 @@ cost real time to discover. None is findable from the Python side.
 - **Whole-array or nothing.** 720x1280 is a million pixels a frame; a per-pixel
   Python loop is not an option. Precompute the coordinate grids once.
 - **A Text TOP has ONE font size for its whole Specification DAT.** Per-word
-  scale is therefore not available, which is why `approach` cuts its space into
-  depth slabs -- one Text TOP per slab, fixed at the size that depth calls for.
+  scale is therefore not available, which is why `longhand` cuts its space into
+  depth slabs -- one Text TOP per slab, fixed at the size that depth calls for,
+  composited farthest first so a near word covers a far one. The slab depths
+  come from `params.slab_depths` and both halves read that one list: if the
+  size `build.py` bakes in ever drifted from the depth `field.py` assigns a
+  word to, the perspective would simply be wrong with nothing on screen to say
+  why.
 - **A Remap TOP moves the pixels that are there**; input1 is the picture,
   input2 the map, and `horzsource`/`vertsource` say which channel carries which
   coordinate. It is how `glitch` tears. Drawing displaced rectangles instead

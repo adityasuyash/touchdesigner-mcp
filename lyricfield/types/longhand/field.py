@@ -1,24 +1,33 @@
-"""Longhand, inside TouchDesigner: a camera travelling a written line.
+"""Longhand, inside TouchDesigner: a volume of handwriting, and a camera in it.
 
-From the Chainsmokers' "Closer" lyric video. The first attempt at that
-reference flew words at the camera through depth slabs, which is not what the
-video does: it pans along one long handwritten string of the lyrics, word to
-word, and the words before and after the one being sung trail off either side.
+From the Chainsmokers' "Closer" lyric video, which the sources describe as
+"live action footage compiled with lyrics that fly through 3d space", over what
+began as a practical effect -- words written on paper and filmed. Two earlier
+readings of that reference were wrong in opposite directions: one flew words at
+the camera down a tunnel, the other panned along a flat written line. The words
+do not move at all. They are scattered through a space, and the eye moves.
 
-So every word is laid out ONCE, in a space the camera moves through. Each frame
-this script works out where the camera is, writes the words near it into a
-Specification DAT at their screen positions, and dims them by how far they are
-from the focus.
+So every word is placed ONCE, at a position that is a pure function of its
+index. Each frame this script works out where the camera is, projects the words
+near it, sorts them into depth slabs by how far away they are, and writes one
+Specification DAT per slab.
 
-Three things make it read as floating rather than as a slideshow, and all three
-are deliberate:
+The slabs are why there is more than one Text TOP: a Text TOP has ONE font size
+for its whole Specification DAT, so continuous perspective is not available.
+Each slab is fixed at the size its depth calls for, and a word is drawn by
+whichever slab is nearest. `params.slab_depths` is the single list both halves
+read, so the size a word is drawn at cannot drift from the depth it was placed
+at -- which would make the perspective wrong with nothing on screen to say so.
+
+Three things make it read as floating rather than as a slideshow:
 
   * The camera is always between words. `chase` is greater than one, so it is
     still travelling toward the current word when the next one lands. A camera
     that arrives and waits is a slideshow with a pan.
-  * It drifts on its own, slowly, independent of the words.
-  * The line itself wanders, from two long incommensurable periods, so the
-    travel direction keeps changing and the path never looks ruled.
+  * It wanders on its own, from three incommensurable periods, so it never
+    repeats and is never quite still.
+  * Distance costs size, light and focus together. Any one of them alone reads
+    as a flat layer that has been scaled.
 
 Every one of those is a pure function of the cue table and the timestamp. There
 is no per-frame integration anywhere, so a dropped frame or a seek cannot
@@ -26,17 +35,23 @@ change what is drawn and the song renders the same way twice.
 """
 
 CUE_DAT = 'lyrics'
-SPEC_DAT = 'spec'
 PARAMS_DAT = 'params'
+# One Specification DAT per slab, nearest first: spec0, spec1, ...
+SPEC_STEM = 'spec'
 
 DEFAULTS = {
-    'width': 720, 'height': 1280, 'size': 86.0,
-    'focus_x': 0.44, 'focus_y': 0.5,
-    'gap': 1.6, 'meander': 0.16, 'wander_words': 7.0, 'drift_words': 23.0,
-    'tilt': 3.5,
-    'chase': 1.35, 'float_': 0.035, 'float_secs': 7.0, 'breathe': 0.05,
-    'hue': 0.09, 'sat': 0.10, 'peak': 0.93, 'falloff': 0.42, 'floor': 0.03,
-    'reach': 7,
+    # `fog`, `haze` and `peak` are not here: they are baked into the Level and
+    # Blur TOPs by `build.py`, per slab, and a key in DEFAULTS is a promise the
+    # script reads it. `size_at_one` IS here, because the field needs it to
+    # work out how wide a word will be before deciding to write the row.
+    'width': 720, 'height': 1280, 'size_at_one': 260.0,
+    'focus_x': 0.46, 'focus_y': 0.52,
+    'spread_x': 1.00, 'spread_y': 0.62, 'near_z': 0.35, 'far_z': 5.00,
+    'march': 0.62, 'reach': 9,
+    'chase': 1.35, 'standoff': 1.55, 'float_': 0.22, 'float_secs': 11.0,
+    'layers': 5,
+    'amount': 14.0, 'ceiling': 40.0,
+    'hue': 0.09, 'sat': 0.10, 'floor': 0.03,
     'kick_lift': 0.06, 'kick_time': 0.25,
     'intro_open': 0.35, 'arrive': 0.88, 'outro': 10.0,
     # measured facts, pushed with the params
@@ -53,10 +68,16 @@ INTRO_RAMP = 2.0
 # What a Specification DAT needs, and what an empty one holds.
 SPEC_HEAD = 'x\ty\ttext'
 
-# Roughly how wide a character is, in ems, for a script face. Only used to
-# space words along the line, so it does not need to be exact -- it needs to be
-# consistent, which a measured advance would not be across fonts.
+# Roughly how wide a character is, in ems, for a script face. Only used to keep
+# a word from being written half out of its own slab, so it does not need to be
+# exact -- it needs to be consistent, which a measured advance would not be
+# across fonts.
 EM = 0.52
+
+# The frame interval the motion blur is measured over. A real frame time would
+# make the smear depend on how fast TouchDesigner happens to be cooking, which
+# is the whole class of defect this renderer avoids elsewhere.
+BLUR_DT = 1.0 / 24.0
 
 
 def _load_params():
@@ -73,6 +94,10 @@ def _apply_params():
     g['WIDTH'] = int(g['WIDTH'])
     g['HEIGHT'] = int(g['HEIGHT'])
     g['REACH'] = max(1, int(g['REACH']))
+    g['LAYERS'] = max(2, int(g['LAYERS']))
+    g['NEAR_Z'] = max(0.05, float(g['NEAR_Z']))
+    g['FAR_Z'] = max(g['NEAR_Z'] * 1.2, float(g['FAR_Z']))
+    g['STANDOFF'] = max(g['NEAR_Z'], float(g['STANDOFF']))
     dur = float(g['DURATION'] or 0.0)
     if dur <= 0.0:
         try:
@@ -80,8 +105,29 @@ def _apply_params():
         except Exception:
             dur = 0.0
     g['TAIL_END'] = dur
+    g['SLABS'] = _slab_depths()
     S.pop('laid', None)
     return P
+
+
+def _slab_depths():
+    """The depth each slab stands at, nearest first.
+
+    The same geometric spacing `params.slab_depths` computes, and it has to
+    stay that way: `build.py` fixes each Text TOP's font size from that list,
+    and this script decides which slab a word belongs to from this one. If they
+    disagreed a word would be drawn at a size that did not match its distance,
+    and the perspective would simply be wrong.
+
+    Geometric rather than even because apparent size goes as 1/z: evenly spaced
+    slabs put most of them in the far half of the volume, where the difference
+    between one and the next is a pixel.
+    """
+    n = max(2, int(LAYERS))
+    near = max(1e-3, NEAR_Z)
+    far = max(near * 1.01, FAR_Z)
+    ratio = (far / near) ** (1.0 / (n - 1))
+    return [near * ratio ** i for i in range(n)]
 
 
 try:
@@ -90,6 +136,7 @@ except Exception:
     for _k, _v in DEFAULTS.items():
         globals()[_k.upper()] = _v
     globals()['TAIL_END'] = 0.0
+    globals()['SLABS'] = [0.35, 0.6805, 1.3232, 2.5726, 5.0]
 
 
 def _smooth(a):
@@ -147,30 +194,34 @@ def _read_cues():
 
 
 def _layout(cues):
-    """Where every word sits along the written line, once.
+    """Where every word sits in the volume, once.
 
-    Returns a list of (along, drop) in PIXELS: `along` is distance travelled up
-    the line, `drop` is how far the line has wandered off level at that point.
-    Computed once per cue table rather than per frame -- it is the same line
-    all the way through, and the camera is the only thing that moves.
+    Returns a list of (x, y, z) in depth units, where 1.0 is "as wide as the
+    frame at depth 1". The lyrics march away from the start in z so the song
+    runs off into the distance rather than piling up in one room; x and y
+    wander on two incommensurable periods each, so consecutive words are near
+    enough that the camera does not have to swing to find the next one, and far
+    enough that they are not stacked.
+
+    A pure function of the index -- no RNG anywhere -- so the same song lays
+    out the same way on any machine and a re-render is identical.
     """
     import math
 
     if 'laid' in S:
         return S['laid']
 
-    space = SIZE * EM * GAP
-    out, along = [], 0.0
-    # Two long, incommensurable periods, so the wander never looks ruled and
-    # does not repeat inside a verse.
-    w1 = 2.0 * math.pi / max(1.5, WANDER_WORDS)
-    w2 = 2.0 * math.pi / max(2.0, DRIFT_WORDS)
-    amp = MEANDER * HEIGHT
-    for i, (_start, word) in enumerate(cues):
-        drop = amp * (0.68 * math.sin(i * w1 + 0.6)
-                      + 0.32 * math.sin(i * w2 + 2.4))
-        out.append((along, drop))
-        along += SIZE * EM * max(1, len(word)) + space
+    # Periods in WORDS, chosen to share no small common multiple: over a verse
+    # the path never doubles back on itself in the same place twice.
+    wx1, wx2 = 2.0 * math.pi / 6.0, 2.0 * math.pi / 13.0
+    wy1, wy2 = 2.0 * math.pi / 7.5, 2.0 * math.pi / 17.0
+    out = []
+    for i in range(len(cues)):
+        x = SPREAD_X * (0.68 * math.sin(i * wx1 + 0.7)
+                        + 0.32 * math.sin(i * wx2 + 2.3))
+        y = SPREAD_Y * (0.62 * math.sin(i * wy1 + 1.9)
+                        + 0.38 * math.sin(i * wy2 + 4.4))
+        out.append((x, y, i * MARCH))
     S['laid'] = out
     return out
 
@@ -187,80 +238,146 @@ def _at(cues, t):
     return lo - 1
 
 
-def _camera(cues, laid, t):
-    """Where the camera is, in the line's own coordinates.
+def _drift(t, seed):
+    """A slow wander in -1..1 that never repeats on any useful timescale.
 
-    Eased between the current word and the next, over `chase` times the gap
-    between their cues -- so at the moment the next word is sung the camera is
-    only part of the way to the one before it and is still moving. That lag is
-    the whole feel; with `chase` at 1 it arrives exactly on the beat and the
-    motion reads as a series of stops.
+    Three incommensurable periods, the same shape `beat.drift` uses and for the
+    same reason: a camera that is perfectly still between words makes every
+    word land as a stutter out of a freeze.
     """
     import math
 
+    per = max(0.5, FLOAT_SECS)
+    a = math.sin(2.0 * math.pi * t / per + 0.7 + seed * 1.7)
+    b = math.sin(2.0 * math.pi * t / (per * 0.61) + 2.3 + seed * 3.1)
+    c = math.sin(2.0 * math.pi * t / (per * 0.37) + 4.1 + seed * 5.9)
+    return (a + b + c) / 3.0
+
+
+def _camera(cues, laid, t):
+    """Where the camera is, in the volume's own coordinates.
+
+    Eased between the word being sung and the next, over `chase` times the gap
+    between their cues -- so at the moment the next word lands the camera is
+    only part of the way to the one before it and is still moving. That lag is
+    the whole feel; at `chase` 1 it arrives exactly on the beat and the motion
+    reads as a series of stops.
+
+    It sits `standoff` in front of whatever it is looking at, so the word being
+    sung is ahead of the camera rather than inside it.
+    """
     n = len(cues)
     if not n:
-        return 0.0, 0.0
+        return 0.0, 0.0, -STANDOFF
     i = _at(cues, t)
     if i < 0:
-        a = laid[0]
-        return a[0], a[1]
-    if i >= n - 1:
-        a = laid[-1]
-        along, drop = a[0], a[1]
+        x, y, z = laid[0]
+    elif i >= n - 1:
+        x, y, z = laid[-1]
     else:
         gap = max(1e-3, cues[i + 1][0] - cues[i][0])
         u = _smooth((t - cues[i][0]) / (gap * max(1.0, CHASE)))
         a, b = laid[i], laid[i + 1]
-        along = a[0] + (b[0] - a[0]) * u
-        drop = a[1] + (b[1] - a[1]) * u
+        x = a[0] + (b[0] - a[0]) * u
+        y = a[1] + (b[1] - a[1]) * u
+        z = a[2] + (b[2] - a[2]) * u
 
-    # ... and a slow float of its own, so even a held word is never static.
     if FLOAT_ > 0.0:
-        per = max(0.5, FLOAT_SECS)
-        amp = FLOAT_ * HEIGHT
-        along += amp * 0.6 * math.sin(2.0 * math.pi * t / per + 0.9)
-        drop += amp * math.sin(2.0 * math.pi * t / (per * 1.37) + 2.1)
-    return along, drop
+        x += FLOAT_ * SPREAD_X * _drift(t, 0.0)
+        y += FLOAT_ * SPREAD_Y * _drift(t, 1.0)
+    return x, y, z - STANDOFF
 
 
-def _spec(cues, laid, t, cam_along, cam_drop, gain):
-    """The Specification DAT: the words near the camera, at their screen spots.
+def _project(p, cam):
+    """A word's screen position and its distance from the camera.
 
-    PIXELS FROM THE LOWER LEFT -- the Spec DAT's origin, and the thing that has
-    cost time twice in this project. Written top-down the whole line renders
-    upside down, which reads as a broken renderer rather than as an axis slip.
+    Returns (x, y, depth) in pixels and depth units, or None when the word is
+    behind the near wall or past the far one.
+
+    Both axes are scaled by the frame's WIDTH, not by their own dimension. A
+    step in x covers `width` pixels and a step in y covers `height`, so scaling
+    each by its own would stretch the volume into an ellipsoid -- the mistake
+    this project made twice in one afternoon, on a sun and on a circle.
+    """
+    d = p[2] - cam[2]
+    if d < NEAR_Z or d > FAR_Z:
+        return None
+    k = WIDTH / d
+    return (FOCUS_X * WIDTH + (p[0] - cam[0]) * k,
+            FOCUS_Y * HEIGHT + (p[1] - cam[1]) * k,
+            d)
+
+
+def _slab_of(d):
+    """Which slab draws a word at this distance: the nearest in log depth.
+
+    In log depth, because that is the space the slabs are spaced in and the one
+    apparent size is linear in -- picking by absolute distance would send
+    almost everything to the farthest slab.
     """
     import math
 
-    lines = [SPEC_HEAD]
+    best, best_err = 0, None
+    ld = math.log(max(1e-6, d))
+    for i, z in enumerate(SLABS):
+        err = abs(ld - math.log(max(1e-6, z)))
+        if best_err is None or err < best_err:
+            best, best_err = i, err
+    return best
+
+
+def _spec(cues, laid, t, cam, gain):
+    """One Specification DAT body per slab: the words near the camera.
+
+    PIXELS FROM THE LOWER LEFT -- the Spec DAT's origin, and the thing that has
+    cost time twice in this project. Written top-down the whole volume renders
+    upside down, which reads as a broken renderer rather than as an axis slip.
+    """
+    bodies = [[SPEC_HEAD] for _ in SLABS]
     n = len(cues)
-    if not n:
-        return '\n'.join(lines), 0
+    if not n or gain <= 0.0:
+        return ['\n'.join(b) for b in bodies], 0
 
     i = max(0, min(n - 1, _at(cues, t)))
-    fx = FOCUS_X * WIDTH
-    fy = FOCUS_Y * HEIGHT
-    # The line breathes toward and away from the camera, which keeps the whole
-    # frame alive between words.
-    scale = 1.0 + BREATHE * math.sin(2.0 * math.pi * t / max(0.5, FLOAT_SECS * 1.7))
-
     drawn = 0
     for j in range(max(0, i - REACH), min(n, i + REACH + 1)):
-        along, drop = laid[j]
-        x = fx + (along - cam_along) * scale
-        y = fy + (drop - cam_drop) * scale
-        if x < -WIDTH * 0.6 or x > WIDTH * 1.6:
+        seen = _project(laid[j], cam)
+        if seen is None:
             continue
-        # Dimmed by distance from the word being sung, not by distance in
-        # pixels: a long word should not be fainter than a short one.
-        dim = max(0.0, 1.0 - abs(j - i) * FALLOFF)
-        v = (FLOOR + (PEAK - FLOOR) * dim) * gain
-        if v <= FLOOR * 0.5:
+        x, y, d = seen
+        # A word is written from its centre, so half of it may hang outside the
+        # frame and still be worth drawing; much past that and it is a row for
+        # nothing.
+        half = SIZE_AT_ONE / d * EM * max(1, len(cues[j][1])) * 0.5
+        if x + half < -WIDTH * 0.1 or x - half > WIDTH * 1.1:
             continue
-        lines.append('%d\t%d\t%s' % (int(x), int(HEIGHT - y), cues[j][1]))
+        if y < -HEIGHT * 0.15 or y > HEIGHT * 1.15:
+            continue
+        k = _slab_of(d)
+        bodies[k].append('%d\t%d\t%s' % (int(x), int(HEIGHT - y), cues[j][1]))
         drawn += 1
-    return '\n'.join(lines), drawn
+    return ['\n'.join(b) for b in bodies], drawn
+
+
+def _smear(cues, laid, t):
+    """How far the frame has moved since the last frame, in pixels.
+
+    Measured by projecting the camera's own axis one frame ago rather than by
+    differencing a stored position: a stored one would make the smear depend on
+    whether the previous cook happened, which a seek or a dropped frame breaks.
+    A pure function of `t`, like everything else here.
+    """
+    now = _camera(cues, laid, t)
+    was = _camera(cues, laid, t - BLUR_DT)
+    # At the standoff depth, which is where the word being sung sits: that is
+    # the part of the frame the eye is on.
+    k = WIDTH / max(1e-3, STANDOFF)
+    dx = (now[0] - was[0]) * k
+    dy = (now[1] - was[1]) * k
+    # Depth movement reads as a zoom rather than a slide. Counted in, at the
+    # scale one frame of it moves a word half a frame out from the axis.
+    dz = (now[2] - was[2]) * k * 0.5
+    return dx, dy, dz
 
 
 def _hsv(h, s, v):
@@ -330,21 +447,41 @@ def onCook(scriptOp):
     gain = _section_gain(t)
 
     if held:
-        body, drawn = SPEC_HEAD, 0
-        along = drop = 0.0
+        bodies, drawn = [SPEC_HEAD for _ in SLABS], 0
+        cam = (0.0, 0.0, -STANDOFF)
     else:
-        along, drop = _camera(cues, laid, t)
-        body, drawn = _spec(cues, laid, t, along, drop, gain)
-    try:
-        op(SPEC_DAT).text = body
-    except Exception:
-        pass
+        cam = _camera(cues, laid, t)
+        bodies, drawn = _spec(cues, laid, t, cam, gain)
+    for k, body in enumerate(bodies):
+        try:
+            d = op('%s%d' % (SPEC_STEM, k))
+            if d is not None:
+                d.text = body
+        except Exception:
+            pass
 
-    # A hand-written line is not perfectly level, and the tilt wanders with the
-    # camera rather than sitting at a fixed angle.
-    if TILT > 0.0:
-        _setpar('lh_text', 'rotate',
-                TILT * math.sin(along / max(1.0, WIDTH * 1.7)))
+    # ---- the smear ---------------------------------------------------------
+    # Two taps either side of the frame, so the blur is centred on where the
+    # words are rather than trailing behind them. Zero when the camera is
+    # still, which between words it never quite is.
+    if AMOUNT > 0.0 and not held:
+        dx, dy, dz = _smear(cues, laid, t)
+        span = math.sqrt(dx * dx + dy * dy + dz * dz) * (AMOUNT / WIDTH)
+        span = min(float(CEILING), span)
+        if span > 1e-3:
+            mag = math.sqrt(dx * dx + dy * dy) or 1.0
+            ux, uy = dx / mag, dy / mag
+        else:
+            ux, uy = 0.0, 0.0
+        _setpar('lh_tap_a', 'tx', -span * ux)
+        _setpar('lh_tap_a', 'ty', span * uy)
+        _setpar('lh_tap_b', 'tx', span * ux)
+        _setpar('lh_tap_b', 'ty', -span * uy)
+    else:
+        span = 0.0
+        for tap in ('lh_tap_a', 'lh_tap_b'):
+            _setpar(tap, 'tx', 0.0)
+            _setpar(tap, 'ty', 0.0)
 
     # ---- the ground --------------------------------------------------------
     if 'drums' not in S:
@@ -368,7 +505,8 @@ def onCook(scriptOp):
     scriptOp.copyNumpyArray(np.ascontiguousarray(out))
 
     S['stats'] = {'drawn': drawn, 'cues': len(cues),
-                  'along': round(along, 1), 'drop': round(drop, 1),
+                  'cam': [round(v, 3) for v in cam],
+                  'smear': round(span, 2),
                   'gain': round(gain, 3), 'params_missing': PARAMS_MISSING}
     return
 

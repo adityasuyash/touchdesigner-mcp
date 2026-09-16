@@ -48,13 +48,33 @@ composited into a render chain. That means:
 
 ### Type flying through 3D space
 
-**The Chainsmokers, "Closer"** (official lyric video). Live action with the
-lyrics travelling through three-dimensional space — words arriving from depth,
-growing, and passing the camera.
+**The Chainsmokers, "Closer"** (official lyric video, Rory Kramer, 2016 — the
+most-watched lyric video there is). PremiumBeat, surveying the form: *"In the
+Chainsmokers video, you have live action footage compiled with lyrics that fly
+through 3d space."* The text began as a practical effect — Chung Dha's
+breakdown calls it *"mostly a practical effect"*, written on paper or a
+whiteboard and filmed — and the tutorials that recreate it all name the same
+third ingredient, **motion blur on the type as the camera moves**.
 
-The footage half is out of reach; the type half is not, and it is the part that
-makes the video recognisable. → **`approach`**, which gets its perspective from
-depth slabs, because of the one-font-size-per-DAT limit above.
+So it is three things at once: handwriting, depth, and smear. The footage half
+is out of reach — nothing in this pipeline takes a video input — and the ground
+stays dark; the type half is what makes the video recognisable.
+
+This has been read wrong twice, in opposite directions, which is worth writing
+down because both readings looked right while they were being built:
+
+  * **`approach`** took it for a flight and threw words at the camera from a
+    vanishing point. It had the depth and used a grotesque; no hand, no line,
+    nothing passing to the side.
+  * The first **`longhand`** took it for a camera panning along one long
+    handwritten string of the lyrics. It had the hand and lost the depth
+    entirely, which is the half the reference is actually about.
+
+→ **`longhand`**, which has both: the words are placed once, scattered through
+a volume, and the camera drifts among them — some passing close, most receding.
+Perspective comes from depth slabs, because of the one-font-size-per-DAT limit
+above, and the smear is three taps of the layer offset along the camera's own
+screen velocity.
 
 ### Footage playing inside the letters
 
