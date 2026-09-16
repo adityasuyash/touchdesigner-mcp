@@ -235,7 +235,7 @@ def build_styles() -> list[styles_mod.Style]:
     return out
 
 
-def beat_previews(client, live, moments, force=False) -> list[str]:
+def beat_previews(client, live, force=False) -> list[str]:
     """One capture per beat preset, all on the same word look.
 
     A preset has no picture of its own -- what Punch looks like depends on what
@@ -252,27 +252,31 @@ def beat_previews(client, live, moments, force=False) -> list[str]:
     for slug, name, why, _values in beat_mod.PRESETS:
         cfg = Config(type=vt.slug)
         cfg.track = live.track
+        # The reference must do NOTHING on the beat, or its own response is
+        # what every tile shows. See `beat.reference_params`.
+        cfg.params = beat_mod.reference_params(vt)
         cfg.with_beat(slug)
         draft = S.Style(name=name, slug=slug, type=vt.slug,
                         description=why, params=cfg.params)
         if not force and draft.preview_video(BEAT_ROOT).exists():
             print(f"{name}: beat preview already there")
             continue
-        for at in moments:
-            print(f"{name} (beat): recording from {at:.1f}s")
-            try:
-                S.capture_preview(client, draft, at=at, seconds=4.0,
-                                  root=BEAT_ROOT, live=live,
-                                  with_beat=True, beat=cfg.response,
-                                  progress=lambda m: print("   ", m))
-                break
-            except S.FallbackPreview as e:
-                print(f"    {e}")
-                failed.append(name)
-                break
-            except S.StillPreview as e:
-                print(f"    {e}")
-        else:
+        # One word, held, from `BEAT_MOMENT` -- so the only thing that moves in
+        # the tile is the effect. `none` is that word doing nothing, which is
+        # the whole point of it and why stillness is allowed there.
+        print(f"{name} (beat): recording from {S.BEAT_MOMENT:.1f}s")
+        try:
+            S.capture_preview(client, draft, at=S.BEAT_MOMENT, seconds=4.0,
+                              root=BEAT_ROOT, live=live,
+                              with_beat=True, beat=cfg.response,
+                              cues=S.PREVIEW_BEAT_CUES,
+                              expect_still=(slug == "none"),
+                              progress=lambda m: print("   ", m))
+        except (S.FallbackPreview, S.BeatlessPreview, S.StillPreview) as e:
+            # None of these is worth another moment: an inert reference, an
+            # empty drum table and an unreadable params DAT all look the same
+            # at every moment in the clip.
+            print(f"    {e}")
             failed.append(name)
 
     # Re-pick each poster against the unaffected capture. A tile shows its
@@ -438,12 +442,10 @@ def main(argv: list[str]) -> int:
             failed.append(st.name)
     failed += builtin_previews(client, live, moments_for, force=force,
                            root=root)
-    # The WORD moments, deliberately: the beat reference is `monument`, which
-    # needs lyrics, so parking at the busiest drum window records a frame with
-    # no words in it -- which `WordlessPreview` exists to refuse. The drums a
-    # preset answers are `styles.PREVIEW_DRUMS`, shipped and spanning the same
-    # seconds as the words, so this window has both.
-    failed += beat_previews(client, live, word_moments, force=force)
+    # No moment list: a beat preview has one right answer. `styles.BEAT_MOMENT`
+    # is where the held word is up and four kicks land, and there is nothing a
+    # different moment could rescue.
+    failed += beat_previews(client, live, force=force)
     if failed:
         print(f"no moving preview for: {', '.join(failed)}")
         return 1

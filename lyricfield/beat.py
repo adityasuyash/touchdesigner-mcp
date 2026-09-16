@@ -101,6 +101,37 @@ def drift(t: float, seed: float = 0.0) -> float:
     return (a + b + c) / 3.0
 
 
+def shake_offset(t: float, env: float, span: float, tilt: float,
+                 seed: float = 1.0) -> tuple[float, float]:
+    """Where the jolt throws the layer, in pixels.
+
+    Direction and magnitude are separate, and keeping them separate is the
+    whole point. The first version multiplied the amplitude by `drift()`
+    directly -- a wander in -1..1 whose mean absolute value is 0.39 -- so a
+    jolt asking for 32 pixels landed as about 6, at an amplitude that also
+    wandered. Jolt read as a dimmer Punch because its knock was invisible.
+
+    Here `drift` only picks the direction, normalised, and `span * env` is the
+    distance. `tilt` biases it between the axes: 0 throws the layer sideways,
+    1 straight up and down, and all-horizontal reads as a skip rather than a
+    knock.
+    """
+    dx, dy = drift(t, seed), drift(t, seed + 1.0)
+    n = math.hypot(dx, dy)
+    if n < 1e-9:
+        dx, dy, n = 1.0, 0.0, 1.0
+    # Tilt shapes the direction; it must not shrink the throw. Weighting the
+    # axes and stopping there costs about half the amplitude at tilt 0.45, so
+    # the vector is renormalised and `amount` is the peak displacement it says
+    # it is rather than some fraction of it.
+    wx, wy = (dx / n) * (1.0 - tilt), (dy / n) * tilt
+    m = math.hypot(wx, wy)
+    if m < 1e-9:
+        wx, wy, m = (1.0, 0.0, 1.0) if tilt < 0.5 else (0.0, 1.0, 1.0)
+    reach = span * env
+    return (reach * wx / m, reach * wy / m)
+
+
 @dataclass
 class Zoom:
     """The layer scales on the hit and settles back."""
@@ -239,11 +270,48 @@ REFERENCE = "monument"
 PREVIEW_DIR = "_beat"
 
 
+def reference_params(video_type):
+    """The reference renderer's own params, with its beat response switched off.
+
+    A preset preview shows what the EFFECT does, so the look it is demonstrated
+    on must do nothing on the beat itself. `monument` adds `kick_lift` to the
+    ground across the whole frame on every kick, which is its own response and
+    is identical in all five tiles -- measured, the `none` tile, which shows no
+    effect at all, went from a frame mean of 7.6 to 16.1 on every kick, and it
+    was the loudest thing in every tile. The complaint was that the previews
+    "show just flashes to represent the kick hit and not what the beatsync
+    style actually does", and this was most of why.
+
+    Zeroing `beat.kick_lift` makes monument completely inert: it is that
+    renderer's only drum path. Any future reference has to be checked the same
+    way, which `tests/test_styles_gallery` does by measuring the baseline.
+    """
+    p = video_type.default_params()
+    sec = getattr(p, "beat", None)
+    if sec is not None:
+        for name in ("kick_lift", "snare_lift", "hat_lift", "kick_push",
+                     "hat_grain"):
+            if hasattr(sec, name):
+                setattr(sec, name, 0.0)
+    return p
+
+
 def preview_url(slug: str) -> str:
     return f"/styles/{PREVIEW_DIR}/{REFERENCE}/{slug}/preview.mp4"
 
 # What ships in the second row. A preset is numbers, so adding one costs a dict
 # and works with every word renderer without being told about any of them.
+#
+# ONE KIND OF MOTION EACH, AND ALL OF IT ON THE KICK. Both halves of that were
+# learned by getting them wrong. Every preset used to carry bloom -- a
+# brightness swell -- so the loudest event in all four was light, and the row
+# read as one effect at four strengths: measured, the peak-to-trough of the
+# frame's mean brightness was 18.3, 18.4, 15.9, 13.7 against a baseline that
+# was itself doing 11.4. And the two effects that would have told them apart,
+# the shake and the tear, fired on the SNARE while the brightest moment was the
+# kick, so at the instant the eye is drawn to there was nothing to see but the
+# glow. Now: Punch is size, Pulse is light, Jolt is position, Fracture is
+# colour, and they all happen at the same moment so the row can be read across.
 PRESETS: tuple[tuple[str, str, str, dict], ...] = (
     ("none", "None",
      "the words are left alone",
@@ -252,43 +320,30 @@ PRESETS: tuple[tuple[str, str, str, dict], ...] = (
 
     ("punch", "Punch",
      "the type swells hard on every kick and settles back",
-     {"zoom.on": True, "zoom.drive": KICK, "zoom.amount": 1.20,
-      "zoom.decay": 0.42,
-      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 18.0,
-      "bloom.lift": 0.2, "bloom.decay": 0.45,
-      "shake.on": False, "split.on": False}),
+     {"zoom.on": True, "zoom.drive": KICK, "zoom.amount": 1.26,
+      "zoom.decay": 0.40,
+      "bloom.on": False, "shake.on": False, "split.on": False}),
 
     ("pulse", "Pulse",
      "the glow breathes wide with the kick; the words never move",
      {"zoom.on": False,
-      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 44.0,
+      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 46.0,
       "bloom.lift": 0.42, "bloom.decay": 0.75,
       "shake.on": False, "split.on": False}),
 
     ("jolt", "Jolt",
-     "a hard knock on the snare over a kick-driven swell",
-     {"zoom.on": True, "zoom.drive": KICK, "zoom.amount": 1.13,
-      "zoom.decay": 0.3,
-      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 10.0,
-      "bloom.lift": 0.12, "bloom.decay": 0.3,
-      "shake.on": True, "shake.drive": SNARE, "shake.amount": 0.045,
-      "shake.decay": 0.26, "shake.tilt": 0.5,
+     "a hard knock that throws the words off their line",
+     {"zoom.on": False, "bloom.on": False,
+      "shake.on": True, "shake.drive": KICK, "shake.amount": 0.060,
+      "shake.decay": 0.26, "shake.tilt": 0.45,
       "split.on": False}),
 
-    # The violent one, and it has to measure like it. At 0.024 split and 0.022
-    # shake it read 3.06 against the unaffected baseline where the other three
-    # read 8 to 14 -- a tenth of the frame's width of RGB separation shows on
-    # glyph edges and almost nowhere else, so a chromatic effect needs to be
-    # large before it is an effect at all. Measured in RGB rather than luma to
-    # be sure that was not the metric being colour-blind: 3.20, the same.
     ("fracture", "Fracture",
-     "the channels tear apart on the snare and the frame kicks",
-     {"zoom.on": False,
-      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 8.0,
-      "bloom.lift": 0.1, "bloom.decay": 0.25,
-      "shake.on": True, "shake.drive": KICK, "shake.amount": 0.040,
-      "shake.decay": 0.22, "shake.tilt": 0.25,
-      "split.on": True, "split.drive": SNARE, "split.amount": 0.055,
+     "the colour channels tear apart and snap back",
+     {"zoom.on": False, "bloom.on": False,
+      "shake.on": True, "shake.drive": KICK, "shake.amount": 0.014,
+      "shake.decay": 0.20, "shake.tilt": 0.25,
+      "split.on": True, "split.drive": KICK, "split.amount": 0.065,
       "split.decay": 0.28}),
 )
 

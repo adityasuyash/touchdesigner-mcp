@@ -275,7 +275,15 @@ def reset_field_state(client: TDClient) -> None:
             f"    d = op({dat(box, 'v7_script_callbacks')!r})\n"
             "    if d is None:\n"
             "        return 'no callbacks DAT'\n"
-            "    m = d.module\n"
+            # `d.module` compiles the DAT, so it raises on one that is empty or
+            # half-written -- which is exactly the state a container is in when
+            # a run died before pushing its field script. This runs BEFORE the
+            # push that would fix that, so it must not depend on it: a wrecked
+            # container has no cached state to clear anyway.
+            "    try:\n"
+            "        m = d.module\n"
+            "    except Exception as e:\n"
+            "        return 'no module yet (%s)' % type(e).__name__\n"
             "    if hasattr(m, 'S'):\n"
             "        m.S.clear()\n"
             "    return 'cleared'\n"
@@ -300,7 +308,12 @@ def reset_drive_state(client: TDClient, container: str = ROOT) -> None:
         f"    d = op({dat(container, 'fx_drive_callbacks')!r})\n"
         "    if d is None:\n"
         "        return 'no driver here'\n"
-        "    m = getattr(d, 'module', None)\n"
+        # Same guard as `reset_field_state`: `.module` compiles, so it raises
+        # rather than returning None on a DAT that has not been written yet.
+        "    try:\n"
+        "        m = d.module\n"
+        "    except Exception as e:\n"
+        "        return 'no module yet (%s)' % type(e).__name__\n"
         "    if m is not None and hasattr(m, 'S'):\n"
         "        m.S.clear()\n"
         "    return 'cleared'\n"

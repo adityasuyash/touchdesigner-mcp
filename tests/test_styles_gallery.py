@@ -542,111 +542,63 @@ def test_nothing_pulls_a_still_with_an_input_seek():
     assert not offenders, "\n".join(offenders)
 
 
-# In 0-255 luma, measured away from the word changes. Recorded against an
-# empty drum table -- nothing but the zoom's idle breathe moving -- the four
-# presets peaked at 1.27, 0.83, 0.85 and 0.73 there. Answering a real beat they
-# peak at 14.21, 9.22, 11.79 and 8.61. Five separates those with room on both
-# sides and is not tuned to either.
+# In 0-255 luma. The presets now answer a beat on a reference that does not,
+# over a word that is held still, so the difference from the baseline IS the
+# effect, everywhere, with nothing to mask.
 BEAT_SHOWS = 5.0
 
-PREVIEW_FPS = 24        # `capture_preview`'s default, and what the seeder uses
+# And how flat the baseline has to be. It is a renderer with its own beat
+# response switched off, showing one held word: nothing in it should move.
+# Before that, it flashed -- `monument` lifts the whole frame by `kick_lift` on
+# every kick, so the tile that shows NO effect went from a frame mean of 7.6 to
+# 16.1 four times in four seconds, identically in all five tiles. That flash
+# was the loudest thing in every one of them, and the complaint was that the
+# previews "show just flashes to represent the kick hit and not what the
+# beatsync style actually does".
+BASELINE_FLAT = 2.0
 
 
-def _settled(baseline, seconds: float = 4.0, guard: int = 2):
-    """Which frames of a capture are not a word changing.
+@pytest.mark.ffmpeg
+def test_the_beat_reference_does_nothing_on_its_own():
+    """The check that would have caught the flash.
 
-    Two recordings of the same four seconds do not place a word transition on
-    the same frame -- they land one or two apart -- and each mismatch spikes
-    12-25 luma whether or not anything else is different. Measured, that jitter
-    was the ENTIRE difference between the beat previews before they had a beat:
-    the same spikes at the same indices in all four presets. A check that does
-    not exclude these frames is measuring the recorder.
-
-    Neither source of truth works alone, and finding that out cost two wrong
-    versions of this function:
-
-      * The baseline's own frame-to-frame step marks the transitions exactly,
-        wherever the capture actually started -- but `monument` lifts the whole
-        room on a kick (`kick_lift` 0.10 over `kick_time` 0.20s) and the
-        baseline has a real drum table now, so its steps mark the HITS just as
-        loudly. Masking those covers precisely the frames a beat effect shows
-        in: it hid peaks of 10.0, 14.1 and 14.2 and called `punch` 1.64.
-      * The cue table says which frames are words and which are not -- but only
-        if the capture began exactly where `styles.preview_moment` says. On
-        captures made before that was arithmetic the transitions sat up to six
-        frames off, and a mask two frames wide missed them entirely.
-
-    So: find the runs of movement in the baseline, and mask only the ones a cue
-    can be matched to. A run nothing was sung near is a drum, and stays. Whole
-    runs rather than single frames, because `monument` crossfades a word change
-    over as many as six.
+    Everything else in this file measures presets against the baseline, so
+    anything the baseline does cancels out and is invisible to them -- which is
+    exactly how a reference renderer flashing on every kick survived two rounds
+    of "why do these all look the same".
     """
     import numpy as np
 
-    from lyricfield import styles as S
-    from lyricfield.cues import CueTable
+    from lyricfield import beat as beat_mod
 
-    at = S.preview_moment(seconds)
-    want = [int(round((c.start - at) * PREVIEW_FPS))
-            for c in CueTable.load(S.PREVIEW_CUES).cues
-            if at <= c.start < at + seconds]
-    assert want, f"no placeholder word is sung in the {seconds:g}s from {at}s"
+    base = ROOT / beat_mod.PREVIEW_DIR / beat_mod.REFERENCE / "none" / "preview.mp4"
+    if not base.exists():
+        pytest.skip("the beat previews are not recorded on this machine")
+    b = R._gray_frames(base, 90)
+    assert b is not None and len(b) >= 60
 
-    # A run begins on a decisive step and continues while the picture is still
-    # unsettled, rather than ending at the first frame under one threshold: a
-    # `monument` crossfade dips mid-way (measured, 24.9 4.7 9.2 4.9 **2.9** 3.8
-    # 10.4), and splitting there left the first half of a transition matched to
-    # nothing and unmasked -- which leaked 25.15 into a preview that was not
-    # moving at all.
-    step = np.abs(np.diff(baseline, axis=0)).mean(axis=(1, 2))
-    runs, cur = [], None
-    for i, v in enumerate(step):
-        if cur is None:
-            if v > 3.0:
-                cur = [i, i]
-        elif v > 1.5:
-            cur[1] = i
-        else:
-            runs.append(cur)
-            cur = None
-    if cur is not None:
-        runs.append(cur)
-
-    # How far a cue may sit from the run it matches. Tight, because a word and
-    # a drum can land three frames apart -- a generous window matched kicks to
-    # words and masked the response along with the transition, leaving 28 of 96
-    # frames to judge on. Two frames is enough: it is the run that is matched,
-    # not its centre, so a six-frame crossfade is covered by its own span.
-    SLIP = 2
-    bad, matched = set(), 0
-    for f in want:
-        near = [r for r in runs if r[0] - SLIP <= f <= r[1] + SLIP]
-        if not near:
-            continue
-        matched += 1
-        for r in near:
-            bad.update(range(r[0] - guard, r[1] + guard + 2))
-    assert matched >= len(want) - 1, (
-        f"only {matched} of {len(want)} placeholder words show as movement in "
-        f"the baseline; the capture was not taken at {at}s, or it is not of "
-        "the words this is measuring against")
-    return [i for i in range(len(baseline)) if i not in bad]
+    step = np.abs(np.diff(b, axis=0)).mean(axis=(1, 2))
+    worst = float(step.max())
+    swing = float(b.mean(axis=(1, 2)).max() - b.mean(axis=(1, 2)).min())
+    assert worst < BASELINE_FLAT, (
+        f"the baseline moves by {worst:.2f} between frames (mean brightness "
+        f"swings {swing:.2f} over the clip). The tile that shows no effect has "
+        "to show no effect, or every preset is read against it doing something")
 
 
 @pytest.mark.ffmpeg
 def test_every_beat_preset_visibly_moves_the_words():
-    """Each preset against the unaffected baseline, where the baseline is still.
+    """Each preset against the unaffected baseline.
 
-    Two versions of this check have now passed on previews of nothing. The
-    first would have caught `fx_drive` reading the wrong params DAT but was
-    never run against it; the second took the peak over the whole clip, and the
-    word-transition jitter cleared its threshold while every envelope in the
-    capture was identically zero -- the drum table never reached `fx_drive`, so
-    `_last` returned -1e9 and the only motion left was the zoom's idle breathe,
-    the same waveform in all five recordings.
-
-    The difference has to show up away from the word changes. That is the only
-    place it can mean the effect rather than the recorder.
+    Three versions of this check have passed on previews that showed nothing or
+    showed the wrong thing, and each failure is worth naming because the shape
+    of the test changed to answer it. The first took the peak over the whole
+    clip, and word-transition jitter between two encodes cleared its threshold
+    while every envelope in the capture was zero. The second masked the word
+    changes, and the mask also covered the reference renderer's own kick
+    response -- hiding the frames the effect lives in. The answer to both was
+    to stop measuring around the noise and remove it: one word, held, on a
+    reference that does nothing.
     """
     import numpy as np
 
@@ -658,10 +610,6 @@ def test_every_beat_preset_visibly_moves_the_words():
         pytest.skip("the beat previews are not recorded on this machine")
     b = R._gray_frames(base, 90)
     assert b is not None
-    still = _settled(b)
-    assert len(still) > len(b) // 4, (
-        f"only {len(still)} of {len(b)} frames are settled; too thin a sample "
-        "to judge an effect on")
 
     quiet = []
     for slug, name, _why, _v in beat_mod.PRESETS:
@@ -673,10 +621,9 @@ def test_every_beat_preset_visibly_moves_the_words():
             continue
         a = R._gray_frames(v, 90)
         n = min(len(a), len(b))
-        d = np.abs(a[:n] - b[:n]).mean(axis=(1, 2))
-        peak = max(d[i] for i in still if i < n)
+        peak = float(np.abs(a[:n] - b[:n]).mean(axis=(1, 2)).max())
         if peak < BEAT_SHOWS:
-            quiet.append(f"{name}: peaks {peak:.2f} away from the words")
+            quiet.append(f"{name}: peaks {peak:.2f} against the baseline")
     assert not quiet, (
         "presets that do not show (an empty drum table looks exactly like "
         "this):\n  " + "\n  ".join(quiet))
@@ -697,10 +644,8 @@ def test_no_two_beat_presets_are_the_same_recording():
     from lyricfield import beat as beat_mod
 
     root = ROOT / beat_mod.PREVIEW_DIR / beat_mod.REFERENCE
-    base = root / "none" / "preview.mp4"
-    if not base.exists():
+    if not (root / "none" / "preview.mp4").exists():
         pytest.skip("the beat previews are not recorded on this machine")
-    still = _settled(R._gray_frames(base, 90))
 
     have = {}
     for slug, name, _why, _v in beat_mod.PRESETS:
@@ -712,8 +657,7 @@ def test_no_two_beat_presets_are_the_same_recording():
     same = []
     for (an, a), (bn, b) in itertools.combinations(sorted(have.items()), 2):
         n = min(len(a), len(b))
-        d = np.abs(a[:n] - b[:n]).mean(axis=(1, 2))
-        peak = max(d[i] for i in still if i < n)
+        peak = float(np.abs(a[:n] - b[:n]).mean(axis=(1, 2)).max())
         if peak < BEAT_SHOWS:
             same.append(f"{an} and {bn} peak {peak:.2f} apart")
     assert not same, "presets recorded as the same picture:\n  " + "\n  ".join(same)

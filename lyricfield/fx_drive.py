@@ -122,6 +122,31 @@ def _drift(t, seed=0.0):
     return (a + b + c) / 3.0
 
 
+def _shake_offset(t, env, span, tilt, seed=1.0):
+    """See `lyricfield/beat.py:shake_offset`. Kept in step by a test.
+
+    Direction and magnitude are separate. The first version multiplied the
+    amplitude by the drift itself, whose mean absolute value is 0.39, so a jolt
+    asking for 32 pixels landed as 6 and Jolt read as a dimmer Punch.
+    """
+    import math
+
+    dx, dy = _drift(t, seed), _drift(t, seed + 1.0)
+    n = math.hypot(dx, dy)
+    if n < 1e-9:
+        dx, dy, n = 1.0, 0.0, 1.0
+    # Tilt shapes the direction; it must not shrink the throw. Weighting the
+    # axes and stopping there costs about half the amplitude at tilt 0.45, so
+    # the vector is renormalised and `amount` is the peak displacement it says
+    # it is rather than some fraction of it.
+    wx, wy = (dx / n) * (1.0 - tilt), (dy / n) * tilt
+    m = math.hypot(wx, wy)
+    if m < 1e-9:
+        wx, wy, m = (1.0, 0.0, 1.0) if tilt < 0.5 else (0.0, 1.0, 1.0)
+    reach = span * env
+    return (reach * wx / m, reach * wy / m)
+
+
 def _last(kind, t):
     """When the most recent `kind` landed at or before `t`.
 
@@ -201,10 +226,9 @@ def onCook(scriptOp):
     if SHAKE_ON:
         env = _impulse(t, _last(SHAKE_DRIVE, t), SHAKE_DECAY)
         span = float(SHAKE_AMOUNT) * min(WIDTH, HEIGHT)
-        # Two different drift seeds, so the jolt has a direction that wanders
-        # rather than always throwing the frame the same way.
-        _setpar('fx_shake', 'tx', span * env * (1.0 - SHAKE_TILT) * _drift(t, 1.0))
-        _setpar('fx_shake', 'ty', span * env * SHAKE_TILT * _drift(t, 2.0))
+        tx, ty = _shake_offset(t, env, span, float(SHAKE_TILT))
+        _setpar('fx_shake', 'tx', tx)
+        _setpar('fx_shake', 'ty', ty)
     else:
         _setpar('fx_shake', 'tx', 0.0)
         _setpar('fx_shake', 'ty', 0.0)

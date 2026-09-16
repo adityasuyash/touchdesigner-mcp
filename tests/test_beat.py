@@ -267,6 +267,56 @@ def test_the_script_drifts_the_same_way(drive):
         assert drive._drift(t) == pytest.approx(beat.drift(t), abs=1e-9)
 
 
+def test_the_script_and_the_module_throw_the_jolt_the_same_way(drive):
+    """The third thing that exists twice, for the same reason as the other two."""
+    for tilt in (0.0, 0.25, 0.45, 1.0):
+        for t in (0.0, 1.3, 7.9, 22.4):
+            a = drive._shake_offset(t, 0.8, 40.0, tilt)
+            b = beat.shake_offset(t, 0.8, 40.0, tilt)
+            assert a == pytest.approx(b, abs=1e-9), (tilt, t)
+
+
+def test_the_jolt_throws_as_far_as_it_says_it_does():
+    """`shake.amount` is a peak displacement, and it has to be that.
+
+    It used to be multiplied by `drift()` itself -- a wander in -1..1 whose
+    mean absolute value is 0.39 -- so the direction doubled as the magnitude
+    and a jolt asking for 32 pixels landed as about 6, wandering. Jolt read as
+    a dimmer Punch because its knock could not be seen at all.
+    """
+    import math
+
+    for tilt in (0.0, 0.3, 0.45, 0.8, 1.0):
+        far = [math.hypot(*beat.shake_offset(t, 1.0, 40.0, tilt))
+               for t in (0.0, 0.9, 4.4, 11.1, 26.3)]
+        assert far == pytest.approx([40.0] * len(far), rel=1e-6), tilt
+
+
+def test_the_jolt_is_scaled_by_its_envelope_and_wanders_in_direction():
+    import math
+
+    assert beat.shake_offset(3.0, 0.0, 40.0, 0.45) == (0.0, 0.0)
+    assert math.hypot(*beat.shake_offset(3.0, 0.5, 40.0, 0.45)) == pytest.approx(20.0)
+    # The direction is not the same twice running, or every hit throws the
+    # frame the same way and it reads as a repeated cut.
+    ways = {tuple(round(v / 40.0, 2) for v in beat.shake_offset(t, 1.0, 40.0, 0.45))
+            for t in (0.3, 2.1, 5.8, 9.4, 14.7, 21.2)}
+    assert len(ways) > 4, ways
+
+
+def test_tilt_only_steers_the_jolt(drive):
+    """All-horizontal reads as a skip rather than a knock, so tilt exists -- but
+    it must not quietly halve the throw, which is what weighting the axes and
+    stopping there did."""
+    import math
+
+    flat = beat.shake_offset(2.2, 1.0, 40.0, 0.0)
+    tall = beat.shake_offset(2.2, 1.0, 40.0, 1.0)
+    assert abs(flat[1]) < 1e-9 and abs(tall[0]) < 1e-9
+    assert math.hypot(*flat) == pytest.approx(40.0)
+    assert math.hypot(*tall) == pytest.approx(40.0)
+
+
 def test_the_script_declares_every_number_the_chain_needs(drive):
     """A key in DEFAULTS is a promise the renderer uses the value; a missing one
     means the effect silently runs on a fallback."""
@@ -385,53 +435,51 @@ def test_a_poster_falls_back_rather_than_raising(tmp_path):
 
 # ------------------------------------------------- the beat a preview is of
 
-def test_the_placeholder_beat_never_lands_on_a_placeholder_word():
-    """The separation the preview check depends on.
+def test_the_beat_preview_holds_one_word_across_the_whole_window():
+    """The row shows what the beat does to type, so nothing else may move.
 
-    A preview is judged by comparing it against the same look with the effect
-    switched off, and a word changing is worth 12-25 luma in that difference
-    whether or not anything else did. If the shipped hits sat on the shipped
-    words, every honest preview would be indistinguishable from one recorded
-    against silence, and the whole measurement would be worthless.
+    With the fourteen running words the effect competed with eight transitions
+    in four seconds, and the tiles read as "just flashes". One word, held, and
+    the only thing left moving is the effect.
 
-    Pinned here because the two tables are edited independently: re-timing the
-    placeholder words to read better would quietly disarm the real check, and
-    nothing else would notice.
+    Two cues, not one: `monument._life` holds a word until the NEXT cue lands,
+    or for `word.hold` (0.4s) if it is the last, so a lone cue fades out before
+    the first kick. The second exists only to be the next one.
     """
     from lyricfield import styles as S
     from lyricfield.cues import CueTable
-    from lyricfield.drums import DrumTable
 
-    words = [c.start for c in CueTable.load(S.PREVIEW_CUES).cues]
-    table = DrumTable.load(S.PREVIEW_DRUMS)
-    assert words and len(table)
-
-    gap, where = min((abs(h.start - w), (h.kind, h.start, w))
-                     for h in table.hits for w in words)
-    # Three frames at 24fps, the rate previews are captured at.
-    assert gap >= 3 / 24.0, (
-        f"{where[0]} at {where[1]}s sits {gap:.3f}s from the word at "
-        f"{where[2]}s, close enough that the word change masks the effect")
+    starts = sorted(c.start for c in CueTable.load(S.PREVIEW_BEAT_CUES).cues)
+    at, seconds = S.BEAT_MOMENT, 4.0
+    assert len(starts) >= 2, "one cue alone fades out; there must be a sentinel"
+    assert starts[0] < at, (
+        f"the word lands at {starts[0]}s, inside the window from {at}s -- its "
+        "arrival is then part of what the tile shows")
+    assert starts[1] >= at + seconds, (
+        f"the second cue at {starts[1]}s falls inside the window, so the word "
+        "changes on screen")
 
 
-def test_the_preview_window_holds_enough_of_both_to_judge():
-    """Words to show and hits to answer, in the four seconds actually captured."""
+def test_enough_kicks_land_while_that_word_is_up():
+    """Every preset is driven by the kick now, so the kicks are the whole of
+    what a tile has to show. One is not enough to read a rhythm from."""
     from lyricfield import styles as S
-    from lyricfield.cues import CueTable
     from lyricfield.drums import DrumTable
 
-    at, seconds = S.preview_moment(), 4.0
-    inside = lambda ts: [t for t in ts if at <= t < at + seconds]
+    at, seconds = S.BEAT_MOMENT, 4.0
+    kicks = [t for t in DrumTable.load(S.PREVIEW_DRUMS).times("kick")
+             if at <= t < at + seconds]
+    assert len(kicks) >= 3, f"only {len(kicks)} kick(s) from {at}s: {kicks}"
 
-    words = inside(c.start for c in CueTable.load(S.PREVIEW_CUES).cues)
-    table = DrumTable.load(S.PREVIEW_DRUMS)
-    assert len(words) >= 4, f"only {len(words)} placeholder words at {at}s"
-    # Every shipped preset is driven by kick, snare or both, and one lucky hit
-    # must not be the whole of a preview's evidence.
-    for kind in ("kick", "snare"):
-        assert len(inside(table.times(kind))) >= 2, (
-            f"only {len(inside(table.times(kind)))} {kind}s in the window "
-            f"from {at}s; a preset driven by it has almost nothing to show")
+
+def test_the_words_and_the_beat_are_separate_tables():
+    """A lyric preview shows running words; a beat preview shows one held. They
+    are different questions and a single table cannot answer both -- which is
+    what made the beat row unreadable."""
+    from lyricfield import styles as S
+
+    assert S.PREVIEW_CUES != S.PREVIEW_BEAT_CUES
+    assert S.PREVIEW_BEAT_CUES.exists()
 
 
 def test_the_placeholder_beat_is_a_table_the_renderer_can_read():
@@ -441,3 +489,58 @@ def test_the_placeholder_beat_is_a_table_the_renderer_can_read():
     table = DrumTable.load(S.PREVIEW_DRUMS)
     assert table.problems(9.0) == []
     assert DrumTable.from_dat_text(table.to_dat_text()).hits == table.hits
+
+
+def test_each_preset_is_one_kind_of_motion():
+    """The complaint that prompted this: "just flashes to represent the kick
+    hit and not what the beatsync style actually does".
+
+    Every preset carried bloom -- a brightness swell -- so the loudest event in
+    all four was light and the row read as one effect at four strengths.
+    Measured, the peak-to-trough of the frame's mean brightness came to 18.3,
+    18.4, 15.9 and 13.7, against a baseline already doing 11.4 on its own.
+
+    A preset is what it does. Only the one whose name is a glow may be a glow.
+    """
+    glow, geometry = [], []
+    for slug, name, _why, _v in beat.PRESETS:
+        if slug == "none":
+            continue
+        r = beat.preset(slug)
+        (glow if r.bloom.on else geometry).append(name)
+        moves = [n for n, on in (("zoom", r.zoom.on), ("bloom", r.bloom.on),
+                                 ("shake", r.shake.on), ("split", r.split.on))
+                 if on]
+        assert moves, f"{name} does nothing at all"
+    assert len(glow) == 1, (
+        f"{len(glow)} presets swell the glow ({', '.join(glow)}); brightness is "
+        "the one thing they cannot each be, or the row is one effect at "
+        "different strengths")
+    assert len(geometry) >= 3, geometry
+
+
+def test_every_preset_answers_the_same_drum():
+    """So the row can be read across.
+
+    The shake and the tear used to fire on the snare while the brightest moment
+    was the kick, so at the instant the eye is drawn to there was nothing to
+    tell the tiles apart. Firing together means that at one moment one tile
+    grows, one glows, one jumps and one tears.
+    """
+    for slug, name, _why, _v in beat.PRESETS:
+        r = beat.preset(slug)
+        drives = {s.drive for s in (r.zoom, r.bloom, r.shake, r.split) if s.on}
+        assert drives <= {beat.KICK}, (
+            f"{name} answers {', '.join(sorted(drives))}; its signature lands "
+            "at a different moment from every other tile's")
+
+
+def test_no_two_presets_are_the_same_set_of_numbers():
+    """Distinct by construction, before any video is recorded."""
+    import itertools
+
+    from dataclasses import asdict
+
+    seen = {s: asdict(beat.preset(s)) for s, _, _, _ in beat.PRESETS}
+    for a, b in itertools.combinations(sorted(seen), 2):
+        assert seen[a] != seen[b], f"{a} and {b} are the same preset"

@@ -343,6 +343,24 @@ PREVIEW_DRUMS = Path(__file__).parent / "data" / "preview_drums.tsv"
 # the placeholder words cannot quietly disarm the check.
 
 
+# What a BEAT preset is demonstrated on: one word, held for the whole clip.
+#
+# The row shows what the beat does to type, so everything else in the frame has
+# to hold still. With the fourteen running words the effect competed with eight
+# transitions in four seconds, and the complaint was that the tiles "show just
+# flashes and not what the style actually does".
+#
+# Two cues, not one. `monument._life` holds a word until the NEXT cue lands, or
+# for `word.hold` (0.4s) if it is the last -- so a single cue gives a word that
+# has faded out by 0.56s. The second sits far outside the captured window and
+# exists only to be the next one.
+PREVIEW_BEAT_CUES = Path(__file__).parent / "data" / "preview_beat_cues.tsv"
+
+# Where a beat preview starts. Late enough that the held word is up and its own
+# arrival punch has settled, early enough to catch four kicks.
+BEAT_MOMENT = 0.5
+
+
 def preview_moment(seconds: float = 4.0) -> float:
     """Where a preview of the placeholder words starts.
 
@@ -544,7 +562,9 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
                     root: str | Path = DEFAULT_ROOT, fps: int = 24,
                     width: int = 240, progress=None,
                     restore_cues: bool = True, live: Config | None = None,
-                    with_beat: bool = False, beat=None) -> Path:
+                    with_beat: bool = False, beat=None,
+                    cues: str | Path = PREVIEW_CUES,
+                    expect_still: bool = False) -> Path:
     """Render this style's preview, once.
 
     For a lyric style the words come from `data/preview_cues.tsv`, never from
@@ -585,28 +605,53 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
     # moved, because the ambient field drifts whether or not a word is sung.
     if wants_words:
         from .cues import CueTable as _CT
-        due = [c.start for c in _CT.load(PREVIEW_CUES).cues
-               if at <= c.start < at + seconds]
+        table = _CT.load(cues)
+        # A word is on screen if its cue is inside the window OR it was struck
+        # before and the next one has not landed yet -- which is the whole
+        # point of the beat table, one word held across the clip.
+        starts = sorted(c.start for c in table.cues)
+        ends = at + seconds
+        # Held only if a LATER cue keeps it up past the end of the window. A
+        # renderer holds the final word for its own `hold` and then lets it
+        # fade, which is a fraction of a second and none of this module's
+        # business -- so without a following cue, a word before the window is
+        # not on screen during it.
+        prior = [t for t in starts if t < at]
+        held = prior[-1:] if prior and any(u >= ends for u in starts) else []
+        due = [t for t in starts if at <= t < ends] + held
         if not due:
             raise WordlessPreview(
-                f"no placeholder word is sung in the {seconds:g}s from "
+                f"no placeholder word is sung or held in the {seconds:g}s from "
                 f"{at:.1f}s, so a {style.name} preview taken there cannot show "
-                f"one; the words run to "
-                f"{max(c.start for c in _CT.load(PREVIEW_CUES).cues):.1f}s")
-        say(f"{len(due)} placeholder words in the window")
+                f"one; the words run to {max(starts):.1f}s")
+        say(f"{len(due)} placeholder word(s) in the window")
 
     # The style's own look has to be in the project before anything is recorded,
-    # and it has to come back out afterwards. The measured facts stay the song's
-    # -- a beat renderer previewed against a neutral 120bpm fallback would be
-    # showing its timing against nothing.
+    # and it has to come back out afterwards.
     import copy
 
-    # The look to record, with the song's own measured facts under it: a beat
-    # renderer previewed against a neutral 120bpm fallback would be showing its
-    # timing against nothing.
     shown = style.apply_to(Config(type=style.type))
     if live is not None:
         shown.track = copy.deepcopy(live.track)
+        # ... but NOT the song's structure. Every renderer dims itself before
+        # the drums enter and fades at the end, from `kick_in`, `high_in`,
+        # `duration` and the measured silences -- and a preview is four seconds
+        # of placeholder words, not a position in the song. Measured on the
+        # benchmark track, whose kick enters at 61.2s: a preview parked at
+        # 3.55s computed a section gain of 0.35 and `mon_now_l.brightness1`
+        # read 0.308, so EVERY preview of EVERY renderer was being recorded at
+        # a third of its intended brightness. A `hold_window` covering the
+        # preview moment would have blanked the words entirely.
+        #
+        # The song is still what the audio and the beat come from; only the
+        # arc is neutralised. `duration` stays: it is what the outro fade is
+        # measured back from, and zeroing it sends the field script to
+        # `root.time.end`, which in a scratch container can be short enough to
+        # fade the whole clip out. A cue offset is a per-type param and belongs
+        # to the style, so it is not touched here.
+        shown.track.kick_in = 0.0
+        shown.track.high_in = 0.0
+        shown.track.hold_windows = []
     # The beat preset this capture is OF, when it is of one. Without it the
     # chain is built and then driven by the default response, so every preset
     # preview would come back as the same picture -- the exact failure the
@@ -627,8 +672,7 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
         client.write(f"{words}/params", sync.params_text(shown))
         if wants_words:
             say("pushing the placeholder words")
-            client.write(f"{words}/lyrics",
-                         CueTable.load(PREVIEW_CUES).to_dat_text())
+            client.write(f"{words}/lyrics", CueTable.load(cues).to_dat_text())
         # The placeholder beat, pushed to BOTH containers -- the renderer reads
         # it inside its picture and `fx_drive` reads it outside, and they are
         # different operators with different parents. `push_composed` writes it
@@ -713,11 +757,16 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
         # repeated, it is not a calm style -- it is a broken capture, and every
         # other check passes it: the container parses, the brightness is in
         # range, the band is filled. Say so rather than shipping a still.
+        #
+        # `expect_still` is for exactly one caller: the beat row's `none` tile,
+        # which is a reference renderer doing nothing, with one held word, and
+        # no effect on it. Stillness is what that tile MEANS -- it is the thing
+        # the other four are read against. Nothing else may pass this.
         moved = render_mod.measure_motion(style.preview_video(root),
                                           peak_width=width)
         say(f"{moved['frames']} frames, motion {moved['motion']}, "
             f"peak {moved['peak']}")
-        if not moved["moving"]:
+        if not moved["moving"] and not expect_still:
             raise StillPreview(
                 f"the {style.name} preview is a still frame "
                 f"(motion {moved['motion']} over {moved['frames']} frames); "
