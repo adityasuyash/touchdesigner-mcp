@@ -107,7 +107,9 @@ class Zoom:
 
     on: bool = True
     drive: str = KICK
-    # Peak scale. 1.0 is no movement; much past 1.2 and the words leave frame.
+    # Peak scale at the hit. 1.0 is no movement. `validate` caps it at 1.35,
+    # past which the words genuinely leave the frame; the shipped presets go
+    # to 1.20, because 8% was measurable and not visible.
     amount: float = 1.075
     decay: float = 0.42
     # A slow breath under it, as a share of `amount`'s travel.
@@ -228,48 +230,60 @@ def reconcile(r: "Response") -> None:
 
 # ------------------------------------------------------------------ presets
 
+# The word look the presets are demonstrated on, and where those captures live.
+# One word filling the frame: a zoom, a jolt and a channel split all read
+# clearly at that size and are nearly invisible on a field of small glyphs.
+# Named here rather than in the seeder so the recorder and the server cannot
+# disagree about the path.
+REFERENCE = "monument"
+PREVIEW_DIR = "_beat"
+
+
+def preview_url(slug: str) -> str:
+    return f"/styles/{PREVIEW_DIR}/{REFERENCE}/{slug}/preview.mp4"
+
 # What ships in the second row. A preset is numbers, so adding one costs a dict
 # and works with every word renderer without being told about any of them.
-PRESETS: tuple[tuple[str, str, dict], ...] = (
+PRESETS: tuple[tuple[str, str, str, dict], ...] = (
     ("none", "None",
      "the words are left alone",
      {"zoom.on": False, "bloom.on": False, "shake.on": False,
       "split.on": False}),
 
     ("punch", "Punch",
-     "the type swells on every kick and settles back",
-     {"zoom.on": True, "zoom.drive": KICK, "zoom.amount": 1.085,
-      "zoom.decay": 0.40,
-      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 10.0,
-      "bloom.lift": 0.14, "bloom.decay": 0.45,
+     "the type swells hard on every kick and settles back",
+     {"zoom.on": True, "zoom.drive": KICK, "zoom.amount": 1.20,
+      "zoom.decay": 0.42,
+      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 18.0,
+      "bloom.lift": 0.2, "bloom.decay": 0.45,
       "shake.on": False, "split.on": False}),
 
     ("pulse", "Pulse",
-     "the glow breathes with the kick; the words never move",
+     "the glow breathes wide with the kick; the words never move",
      {"zoom.on": False,
-      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 24.0,
-      "bloom.lift": 0.3, "bloom.decay": 0.7,
+      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 44.0,
+      "bloom.lift": 0.42, "bloom.decay": 0.75,
       "shake.on": False, "split.on": False}),
 
     ("jolt", "Jolt",
      "a hard knock on the snare over a kick-driven swell",
-     {"zoom.on": True, "zoom.drive": KICK, "zoom.amount": 1.06,
+     {"zoom.on": True, "zoom.drive": KICK, "zoom.amount": 1.13,
       "zoom.decay": 0.3,
-      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 8.0,
-      "bloom.lift": 0.1, "bloom.decay": 0.3,
-      "shake.on": True, "shake.drive": SNARE, "shake.amount": 0.018,
-      "shake.decay": 0.22, "shake.tilt": 0.5,
+      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 10.0,
+      "bloom.lift": 0.12, "bloom.decay": 0.3,
+      "shake.on": True, "shake.drive": SNARE, "shake.amount": 0.045,
+      "shake.decay": 0.26, "shake.tilt": 0.5,
       "split.on": False}),
 
     ("fracture", "Fracture",
      "the channels tear apart on the snare and the frame kicks",
      {"zoom.on": False,
-      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 6.0,
-      "bloom.lift": 0.08, "bloom.decay": 0.25,
-      "shake.on": True, "shake.drive": KICK, "shake.amount": 0.009,
-      "shake.decay": 0.18, "shake.tilt": 0.2,
-      "split.on": True, "split.drive": SNARE, "split.amount": 0.009,
-      "split.decay": 0.22}),
+      "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 8.0,
+      "bloom.lift": 0.1, "bloom.decay": 0.25,
+      "shake.on": True, "shake.drive": KICK, "shake.amount": 0.022,
+      "shake.decay": 0.2, "shake.tilt": 0.2,
+      "split.on": True, "split.drive": SNARE, "split.amount": 0.024,
+      "split.decay": 0.26}),
 )
 
 

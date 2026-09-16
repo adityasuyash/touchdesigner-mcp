@@ -432,6 +432,29 @@ def render(client: TDClient, out_path: str | Path, duration: float,
     )
 
 
+def still_at(video, at: float, out) -> Path:
+    """One frame of `video`, at `at` seconds, written to `out`.
+
+    `-ss` BEFORE `-i` is an input seek and lands on a keyframe, not on the
+    frame asked for. That stays invisible until two clips of the same thing are
+    compared at the same timestamp: the beat-preset posters were extracted that
+    way, and `none` and `punch` -- identical four-second renders, cut at the
+    same frames -- came back showing *different words* at 1.79s, because their
+    encoders had put keyframes in different places. The stills said the presets
+    changed the lyrics.
+
+    `-ss` after `-i` is an output seek: it decodes from the start and is frame
+    accurate. These clips are four seconds long, so the cost is nothing.
+    """
+    out = Path(out)
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+         "-i", str(video), "-ss", f"{at:g}", "-frames:v", "1", str(out)],
+        check=True,
+    )
+    return out
+
+
 def sample_frames(video: str | Path, times: list[float],
                   out_dir: str | Path) -> list[Path]:
     """Pull stills out of a finished MP4. Verifying in TD is not enough -- content
@@ -440,13 +463,7 @@ def sample_frames(video: str | Path, times: list[float],
     out_dir.mkdir(parents=True, exist_ok=True)
     made: list[Path] = []
     for t in times:
-        dst = out_dir / f"{video.stem}_{t:g}s.png"
-        subprocess.run(
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-             "-ss", f"{t:g}", "-i", str(video), "-frames:v", "1", str(dst)],
-            check=True,
-        )
-        made.append(dst)
+        made.append(still_at(video, t, out_dir / f"{video.stem}_{t:g}s.png"))
     return made
 
 

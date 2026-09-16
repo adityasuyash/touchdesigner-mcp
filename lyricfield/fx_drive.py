@@ -22,7 +22,12 @@ which is what makes a beat effect read as a meter. The same file is imported by
 the tests, so the shape asserted there is the shape that runs.
 """
 
-PARAMS_DAT = 'params'
+# `fx_params`, not `params`: the renderer's own params DAT is called `params`
+# and lives in the words container, and this chain sits at the root beside it.
+# Reading the wrong name does not fail -- it falls back to the DEFAULTS below
+# and every preset renders as the same picture, which is exactly what happened:
+# five previews recorded, `jolt` and `pulse` identical to three decimal places.
+PARAMS_DAT = 'fx_params'
 
 DEFAULTS = {
     'width': 720, 'height': 1280,

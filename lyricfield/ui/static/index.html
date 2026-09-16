@@ -1898,10 +1898,12 @@ function renderGallery() {
   // the same layer rather than a thing beside it.
   const rows = [
     ['lyric', [...builtins, ...STYLES]],
-    ['beatsync', (BEAT_PRESETS || []).filter(p => p.slug !== 'none')
-                   .map(p => ({slug: p.slug, type: '', name: p.name,
-                               family: 'beatsync', description: p.description,
-                               preset: true, has_preview: false}))],
+    // `none` is a real tile here, not the synthetic one: it is the unaffected
+    // baseline, so the difference between the first two tiles IS the effect.
+    ['beatsync', (BEAT_PRESETS || []).map(p => ({
+        slug: p.slug, type: '', name: p.name, family: 'beatsync',
+        description: p.description, preset: true, reference: p.reference,
+        preview: p.preview, has_preview: !!p.has_preview}))],
   ];
   for (const [fam, list] of rows) {
     if (!list || !list.length) continue;
@@ -1933,7 +1935,8 @@ function renderGallery() {
     grid.className = 'gallery' + (pType ? ' has-pick' : '');
     // "None" is what makes either row optional without a hidden mode: no
     // lyric look is a beatsync video, no beatsync look is a lyric video.
-    grid.append(noneCard(fam));
+    // The beat row's "none" is a recorded preset, so it needs no synthetic card.
+    if (fam !== 'beatsync') grid.append(noneCard(fam));
     for (const st of list) grid.append(styleCard(st, fam));
     if (fam === 'lyric') grid.append(customCard());
     wrap.append(head, grid); host.append(wrap);
@@ -2034,22 +2037,10 @@ function styleCard(st, fam) {
   b.type = 'button'; b.className = 'scard';
   b.setAttribute('role','radio'); b.setAttribute('aria-checked', String(on));
   const t = document.createElement('div'); t.className = 'thumb';
-  // A beatsync look behind words is dimmer and thinner than the same look as
-  // the whole picture, so its own preview would promise something the render
-  // cannot deliver -- when there IS a behind-the-words capture, that is the
-  // honest tile.
-  //
-  // Which there usually is not. This used to build the path itself and trust
-  // it: `_backdrops/<picked lyric type>/<slug>/preview.mp4`, with `shown` forced
-  // true. Backdrops are only ever generated under lyric_grid and only for the
-  // looks that share its field, so six of thirteen beatsync tiles asked for a
-  // file that is never made -- and all thirteen did for the five lyric
-  // renderers that carry no backdrop at all. The client cannot know what is on
-  // disk. The server looks, and says.
-  // The look's own preview, always. A beatsync tile used to swap in a
-  // "behind the words" capture when one existed, because a layer was then a
-  // rescaled version of the look rather than the look itself. Composited, what
-  // lands behind the words IS this picture, dimmed by the mix.
+  // Whether there is a video is the server's answer, never this code's guess.
+  // The tiles used to build a path and trust it -- `_backdrops/<type>/<slug>/
+  // preview.mp4` with `shown` forced true -- and six of thirteen asked for a
+  // file that is never made. The client cannot know what is on disk.
   const src = st.preview, shown = st.has_preview;
   const poster = src ? src.replace(/\.mp4$/, '.png') : '';
   // The poster is always there, so the grid is whole on first paint -- it used
@@ -2088,7 +2079,12 @@ function styleCard(st, fam) {
   // it away -- so two tiles could only be told apart by staring at them. It is
   // set as `title` for screen readers whatever happens, and shown as a tooltip
   // on hover and on keyboard focus.
-  const blurb = (st.description || '').trim();
+  let blurb = (st.description || '').trim();
+  // A preset's preview is it demonstrated on one word look, and the tile has
+  // to say so: it applies to whichever look is picked in the row above, and a
+  // silent tile reads as a promise to render Monument.
+  if (st.preset && shown && st.reference)
+    blurb += ` · shown on ${nameOfType(st.reference)}`;
   if (blurb) b.title = `${st.name} — ${blurb}`;
   b.onpointerenter = b.onfocus = () => {
     if (vid) {

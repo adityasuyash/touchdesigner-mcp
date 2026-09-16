@@ -1142,7 +1142,16 @@ def list_beat():
     """
     from .. import beat as beat_mod
 
-    return {"presets": beat_mod.preset_payload()}
+    out = []
+    for d in beat_mod.preset_payload():
+        url = beat_mod.preview_url(d["slug"])
+        # Answered by looking on disk, never asserted. Hardcoding this true is
+        # what put six broken tiles on screen the last time.
+        d["preview"] = url
+        d["has_preview"] = (STYLES_ROOT / url[len("/styles/"):]).exists()
+        d["reference"] = beat_mod.REFERENCE
+        out.append(d)
+    return {"presets": out}
 
 
 @app.post("/api/styles/custom")

@@ -328,7 +328,8 @@ def test_a_preview_whose_script_cannot_read_its_params_is_refused():
     # The network build is somebody else's test; stand it aside so what is
     # under test here is the question asked after the push.
     saved = (S._scratch_network, S._drop_scratch, sync_mod.params_were_read)
-    S._scratch_network = lambda client, cfg, say: "/project1/_preview"
+    S._scratch_network = (lambda client, cfg, say, with_beat=False:
+                          ("/project1/_preview", "/project1/_preview/words"))
     S._drop_scratch = lambda client: None
     sync_mod.params_were_read = lambda client, container=None: False
     try:
@@ -410,7 +411,14 @@ def test_no_two_previews_in_the_gallery_are_the_same_video():
 
     import numpy as np
 
-    vids = sorted(ROOT.rglob("preview.mp4"))
+    # `_beat/` is left out deliberately; it has its own check below. A beat
+    # preset IS the same picture as the next one at rest -- that is what it is,
+    # an effect on somebody else's look -- and differs only in the frames after
+    # a hit. An average over sixteen frames dilutes precisely the event that
+    # distinguishes it: measured on the reference captures, Punch against None
+    # averages 0.055 and peaks at 25.7. For these the question is the peak.
+    vids = [v for v in sorted(ROOT.rglob("preview.mp4"))
+            if "_beat" not in v.parts]
     if len(vids) < 2:
         pytest.skip("no previews on this machine")
     frames = {}
@@ -467,3 +475,122 @@ def test_no_two_tiles_in_a_row_share_a_display_name():
     names = [st.name for st in SHIPPED]
     dupes = [n for n, c in collections.Counter(names).items() if c > 1]
     assert not dupes, f"the row has two tiles called {dupes}"
+
+
+# ------------------------------------------------- the frame that was asked for
+
+@pytest.mark.ffmpeg
+def test_a_still_comes_from_the_frame_it_was_asked_for(tmp_path):
+    """`-ss` before `-i` is an input seek and lands on a keyframe.
+
+    It looks right on any single clip and is only exposed by comparing two
+    encodes of the same thing at the same timestamp -- which is exactly what a
+    row of beat-preset tiles does. `none` and `punch`, identical four-second
+    renders cut at the same frames, came back showing DIFFERENT WORDS at
+    1.79s, because their encoders had placed keyframes differently. The stills
+    said the effect changed the lyrics.
+
+    A fixture with a known value per frame has the ground truth a real
+    recording cannot give: frame n is grey n, so the still says which frame it
+    is.
+    """
+    import subprocess
+
+    import numpy as np
+
+    from lyricfield import render as render_mod
+
+    src = tmp_path / "ramp.mp4"
+    # 48 frames at 24fps, frame n a flat grey of 4n. Long GOP on purpose, so an
+    # input seek has somewhere wrong to land.
+    subprocess.run(
+        ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+         "-f", "lavfi", "-i", "color=c=black:s=64x64:r=24:d=2",
+         "-vf", "geq=lum='4*N':cb=128:cr=128",
+         "-c:v", "libx264", "-g", "48", "-pix_fmt", "yuv420p", str(src)],
+        check=True)
+
+    frames = render_mod._gray_frames(src, 64)
+    assert frames is not None and len(frames) >= 40
+
+    for n in (5, 17, 33):
+        out = render_mod.still_at(src, n / 24.0, tmp_path / f"{n}.png")
+        got = render_mod._gray_frames(out, 64)
+        assert got is not None
+        # Within one frame's worth of grey, and nowhere near the keyframe at 0.
+        assert abs(float(got[0].mean()) - float(frames[n].mean())) < 6.0, (
+            f"frame {n}: still reads {got[0].mean():.1f}, "
+            f"the frame reads {frames[n].mean():.1f}")
+
+
+def test_nothing_pulls_a_still_with_an_input_seek():
+    """The class, not the instance. Three places extracted stills and all three
+    seeked before `-i`; they now go through `render.still_at`."""
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[1]
+    offenders = []
+    for py in list((repo / "lyricfield").rglob("*.py")) + \
+            list((repo / "scripts").rglob("*.py")):
+        src = py.read_text(encoding="utf-8")
+        for call in re.findall(r"\[[^\[\]]*?\"ffmpeg\".*?\]", src, re.S):
+            if "frames:v" not in call:
+                continue            # an audio seek; accurate enough, not this
+            if '"-ss"' in call and call.index('"-ss"') < call.index('"-i"'):
+                offenders.append(f"{py.relative_to(repo)}: {call[:70]}...")
+    assert not offenders, "\n".join(offenders)
+
+
+@pytest.mark.ffmpeg
+def test_every_beat_preset_visibly_moves_the_words():
+    """Each preset against the unaffected baseline, at its peak.
+
+    This is the check that would have caught `fx_drive` reading the wrong
+    params DAT: the chain was built, driven by its compiled-in defaults, and
+    all five presets recorded as the same video -- `jolt` and `pulse` agreeing
+    to three decimal places.
+    """
+    import numpy as np
+
+    from lyricfield import beat as beat_mod
+
+    root = ROOT / beat_mod.PREVIEW_DIR / beat_mod.REFERENCE
+    base = root / "none" / "preview.mp4"
+    if not base.exists():
+        pytest.skip("the beat previews are not recorded on this machine")
+    b = R._gray_frames(base, 90)
+    assert b is not None
+
+    quiet = []
+    for slug, name, _why, _v in beat_mod.PRESETS:
+        if slug == "none":
+            continue
+        v = root / slug / "preview.mp4"
+        if not v.exists():
+            quiet.append(f"{name}: no preview recorded")
+            continue
+        a = R._gray_frames(v, 90)
+        n = min(len(a), len(b))
+        peak = float(np.abs(a[:n] - b[:n]).mean(axis=(1, 2)).max())
+        # In 0-255 luma. A word change between two aligned captures measures
+        # about 12; a real effect has to clear that.
+        if peak < 13.0:
+            quiet.append(f"{name}: peaks {peak:.1f} from the baseline")
+    assert not quiet, "presets that do not show:\n  " + "\n  ".join(quiet)
+
+
+def test_re_saving_a_style_keeps_the_date_it_first_appeared(tmp_path):
+    """`created` is when the look appeared, not when the file was last written.
+
+    The seeder mints a fresh timestamp on every run, so re-seeding rewrote that
+    one line in all nine shipped styles -- nine files in the diff saying
+    nothing had changed.
+    """
+    from lyricfield import styles as S
+
+    a = S.Style(name="Keep", slug="keep", created="2020-01-01T00:00:00+00:00")
+    a.save(tmp_path)
+    S.Style(name="Keep", slug="keep",
+            created="2026-09-16T00:00:00+00:00").save(tmp_path)
+    assert S.Style.load(tmp_path / a.type / "keep").created == a.created

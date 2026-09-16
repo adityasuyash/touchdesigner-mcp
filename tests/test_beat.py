@@ -286,3 +286,98 @@ def test_the_last_strike_is_found_by_bisection(drive):
 def test_a_song_with_no_drums_does_not_raise(drive):
     drive.S["drums"] = {"kick": [], "snare": [], "hat": []}
     assert drive._impulse(1.0, drive._last("kick", 1.0), 0.4) == 0.0
+
+
+def test_the_driver_reads_the_dat_the_chain_creates(drive):
+    """One writer, one reader, one name.
+
+    `fx_drive` read `params` while the chain created and `sync` wrote
+    `fx_params`. Nothing failed: a field script that cannot find its DAT falls
+    back to the defaults compiled into it and draws a plausible picture, so all
+    five preset previews recorded as the same thing -- `jolt` and `pulse`
+    identical to three decimal places.
+
+    This is the third time in this project that a name mismatch between a
+    writer and a reader has shipped as "it works, but every look is the same".
+    """
+    from lyricfield import sync
+
+    created = {s.name for s in compose.network(Config(type="monument"))}
+    assert drive.PARAMS_DAT in created, (
+        f"fx_drive reads {drive.PARAMS_DAT!r}, which the chain does not create; "
+        f"it would silently run on its defaults")
+    # ... and the writer agrees with both.
+    src = __import__("inspect").getsource(sync.push_composed)
+    assert f'"{drive.PARAMS_DAT}"' in src
+
+
+def test_the_driver_reports_when_it_cannot_find_its_params(drive):
+    """The flag that would have caught the above. A renderer running on
+    fallbacks must say so rather than drawing something plausible."""
+    drive.S.clear()
+    drive.__dict__["op"] = lambda name: None
+    drive._apply_params()
+    assert drive.PARAMS_MISSING is True
+
+
+# ------------------------------------------------------------- the posters
+
+def test_a_poster_is_picked_against_the_unaffected_capture(tmp_path):
+    """A tile shows its poster at rest, and for a beat effect any fixed moment
+    is the wrong one: a punch lasts one or two frames in ninety-six, so the
+    midpoint lands between hits and all five presets show the same still.
+
+    "Furthest from its own average" does not work either -- that finds the
+    frame where the WORD changes, which every preset shares. The reference has
+    to be the same look with the effect off.
+    """
+    import numpy as np
+
+    from lyricfield import styles as styles_mod
+
+    # A baseline that never moves, and a clip with one bright frame in it.
+    base = np.zeros((10, 8, 6), np.float32)
+    shot = base.copy()
+    shot[7] = 200.0
+
+    calls: dict = {}
+    monkey = {"video": shot, "baseline": base}
+
+    def fake_frames(v, w):
+        return monkey["video"] if v == "clip" else monkey["baseline"]
+
+    import subprocess as sp
+
+    from lyricfield import render as render_mod
+
+    def fake_run(argv, **k):
+        calls["argv"] = argv
+        return sp.CompletedProcess(argv, 0, b"", b"")
+
+    real = (render_mod._gray_frames, styles_mod._fps_of, sp.run)
+    render_mod._gray_frames = fake_frames
+    styles_mod._fps_of = lambda v: 24.0
+    sp.run = fake_run
+    try:
+        at = styles_mod.poster_against("clip", "base", tmp_path / "p.png")
+    finally:
+        render_mod._gray_frames, styles_mod._fps_of, sp.run = real
+
+    assert at is not None
+    # frame 7 of a 24fps clip
+    assert at == pytest.approx(7 / 24.0, abs=1e-6), at
+    assert "-ss" in calls["argv"]
+
+
+def test_a_poster_falls_back_rather_than_raising(tmp_path):
+    """A clip too short to compare, or one ffmpeg could not read, must not stop
+    a preview that is otherwise fine."""
+    from lyricfield import render as render_mod
+    from lyricfield import styles as styles_mod
+
+    real = render_mod._gray_frames
+    render_mod._gray_frames = lambda v, w: None
+    try:
+        assert styles_mod.poster_against("a", "b", tmp_path / "p.png") is None
+    finally:
+        render_mod._gray_frames = real

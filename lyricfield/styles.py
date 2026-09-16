@@ -147,6 +147,17 @@ class Style:
     def save(self, root: str | Path = DEFAULT_ROOT) -> Path:
         d = self.dir(root)
         d.mkdir(parents=True, exist_ok=True)
+        # Keep the date this look first appeared. The seeder mints a fresh one
+        # every run, so re-seeding rewrote the `created` line of every shipped
+        # style and put nine files in the diff that said nothing had changed.
+        was = d / "style.toml"
+        if was.exists():
+            try:
+                old = tomllib.loads(was.read_text(encoding="utf-8"))
+                self.created = (old.get("meta", {}).get("created")
+                                or self.created)
+            except (tomllib.TOMLDecodeError, OSError):
+                pass
         out = [
             "# lyricfield style. Reusable across songs; contains no song data.",
             "",
@@ -347,7 +358,7 @@ class FallbackPreview(RuntimeError):
 PREVIEW_BOX = "_preview"
 
 
-def _scratch_network(client, cfg, say):
+def _scratch_network(client, cfg, say, with_beat: bool = False):
     """Build this renderer's own network somewhere the song cannot be hurt.
 
     Previews used to be captured by pushing a style's params and field script
@@ -377,9 +388,34 @@ def _scratch_network(client, cfg, say):
         "    b.nodeX, b.nodeY = -2400, 1400\n"
         "go()")
     say(f"building the {cfg.type} network to preview in")
+    if with_beat:
+        # A beat preset has no picture of its own -- what Punch looks like
+        # depends on the word look it is applied to -- so its preview is a
+        # renderer AND the chain, which is exactly what `compose` builds.
+        from . import compose
+        from . import sync as sync_mod
+
+        words = f"{box}/{compose.WORDS}"
+        client.run(
+            "def go():\n"
+            f"    b = op({box!r})\n"
+            f"    e = b.op({compose.WORDS!r})\n"
+            "    if e: e.destroy()\n"
+            f"    b.create(baseCOMP, {compose.WORDS!r})\n"
+            "go()")
+        cfg.video_type.build(client, cfg, progress=lambda m: None,
+                             container=words, push=False)
+        specs = compose.network(cfg)
+        from .types._build import create_ops, wire_ops
+        create_ops(client, specs, progress=lambda m: None, container=box)
+        wire_ops(client, specs, progress=lambda m: None, container=box)
+        client.write(f"{box}/fx_drive_callbacks", compose.drive_source())
+        client.write(f"{box}/fx_params",
+                     sync_mod.params_module(compose.drive_params(cfg)))
+        return box, words
     cfg.video_type.build(client, cfg, progress=lambda m: None, container=box,
                          push=False)
-    return box
+    return box, box
 
 
 def _drop_scratch(client) -> None:
@@ -394,10 +430,66 @@ def _drop_scratch(client) -> None:
         pass
 
 
+def poster_at(video, at: float, out) -> float:
+    """Write the frame of `video` at `at` seconds to `out`."""
+    from . import render as render_mod
+
+    render_mod.still_at(video, at, out)
+    return at
+
+
+def poster_against(video, baseline, out) -> float | None:
+    """Write `out` from the frame of `video` least like `baseline`.
+
+    A tile shows its poster at rest, and for a beat effect any fixed moment is
+    the wrong one: a punch lasts one or two frames in ninety-six, so the
+    midpoint lands between hits and every preset shows the same still.
+
+    "Furthest from its own average" does not work either -- that finds the frame
+    where the WORD changes, which every preset shares. The honest reference is
+    the same look with no effect on it, and the frame that differs most from
+    that is, by construction, where the effect is doing the most.
+
+    The tiles in a row therefore show different WORDS, because each preset
+    peaks wherever its own drum lands. Confining them all to one word was tried
+    and is wrong: measured on the reference capture, the longest stretch where
+    the picture holds still is the longest stretch with no hit in it -- every
+    preset sat within 1.0 of the baseline across the whole of it. A still that
+    is comparable is a still of nothing happening.
+    """
+    import numpy as np
+
+    from . import render as render_mod
+
+    a = render_mod._gray_frames(video, 96)
+    b = render_mod._gray_frames(baseline, 96)
+    if a is None or b is None or len(a) < 2:
+        return None
+    n = min(len(a), len(b))
+    per = np.abs(a[:n] - b[:n]).mean(axis=(1, 2))
+    if per.max() <= 0:
+        return None                     # the clip IS the baseline: `none`
+    return poster_at(video, int(np.argmax(per)) / max(1.0, _fps_of(video)), out)
+
+
+def _fps_of(video) -> float:
+    from . import render as render_mod
+
+    probe = render_mod._ffprobe(video) or {}
+    stream = next((x for x in probe.get("streams", [])
+                   if x.get("codec_type") == "video"), {})
+    try:
+        num, den = (float(v) for v in (stream.get("r_frame_rate") or "24/1").split("/"))
+        return num / den if den else 24.0
+    except (ValueError, ZeroDivisionError):
+        return 24.0
+
+
 def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
                     root: str | Path = DEFAULT_ROOT, fps: int = 24,
                     width: int = 240, progress=None,
-                    restore_cues: bool = True, live: Config | None = None) -> Path:
+                    restore_cues: bool = True, live: Config | None = None,
+                    with_beat: bool = False, beat=None) -> Path:
     """Render this style's preview, once.
 
     For a lyric style the words come from `data/preview_cues.tsv`, never from
@@ -456,21 +548,27 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
     shown = style.apply_to(Config(type=style.type))
     if live is not None:
         shown.track = copy.deepcopy(live.track)
+    # The beat preset this capture is OF, when it is of one. Without it the
+    # chain is built and then driven by the default response, so every preset
+    # preview would come back as the same picture -- the exact failure the
+    # params-DAT split produced across seven renderers.
+    if beat is not None:
+        shown.response = copy.deepcopy(beat)
 
-    box = _scratch_network(client, shown, say)
+    box, words = _scratch_network(client, shown, say, with_beat=with_beat)
     try:
         say(f"pushing the {style.name} look")
         src = shown.video_type.field_source()
         if src:
-            client.write(f"{box}/v7_script_callbacks", src)
+            client.write(f"{words}/v7_script_callbacks", src)
         # Written the way `sync` writes it, not a second hand-rolled
         # encoding of the same dict: the two disagreed, and a field
         # script that cannot read its params does not fail -- it draws
         # its fallbacks and reports success.
-        client.write(f"{box}/params", sync.params_text(shown))
+        client.write(f"{words}/params", sync.params_text(shown))
         if wants_words:
             say("pushing the placeholder words")
-            client.write(f"{box}/lyrics",
+            client.write(f"{words}/lyrics",
                          CueTable.load(PREVIEW_CUES).to_dat_text())
         # The drums the song actually has, so a beat renderer answers a real
         # rhythm rather than an empty table.
@@ -480,7 +578,7 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
                 from .workspace import Workspace
                 ws = Workspace.open(getattr(live.track, "title", "") or "")
                 if ws.drums_path.exists():
-                    client.write(f"{box}/drums",
+                    client.write(f"{words}/drums",
                                  DrumTable.load(ws.drums_path).to_dat_text())
             except Exception:
                 pass                    # a preview without drums is still a preview
@@ -495,7 +593,7 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
         # its words, it parses -- except that every style of that renderer
         # comes back as the same video. Seven did.
         if src:
-            read = sync.params_were_read(client, box)
+            read = sync.params_were_read(client, words)
             if read is False:
                 raise FallbackPreview(
                     f"the {shown.type} field script cannot read the params "
@@ -526,12 +624,11 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
              str(style.preview_video(root))],
             check=True,
         )
-        subprocess.run(
-            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-             "-ss", f"{seconds / 2:g}", "-i", str(style.preview_video(root)),
-             "-frames:v", "1", str(style.preview_poster(root))],
-            check=True,
-        )
+        # Half way through, which suits a look. A beat preset needs the frame
+        # where its effect peaks instead; `poster_against` does that afterwards,
+        # because it needs the unaffected capture to compare with.
+        render_mod.still_at(style.preview_video(root), seconds / 2,
+                            style.preview_poster(root))
         raw.unlink(missing_ok=True)
 
         # A preview exists to show motion. If it came back as one frame

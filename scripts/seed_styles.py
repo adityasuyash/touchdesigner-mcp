@@ -24,11 +24,19 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from lyricfield import styles as styles_mod           # noqa: E402
+from lyricfield import beat as beat_mod
 from lyricfield import types as types_mod             # noqa: E402
 
 # Each renderer's own defaults, so the "Built-in" tiles are not the only ones in
 # the gallery showing "no preview yet".
 BUILTIN_ROOT = styles_mod.DEFAULT_ROOT / "_builtin"
+# One capture per beat preset. Not styles either: a preset is a set of numbers
+# for the chain that sits after every renderer, so it is filed by the look it
+# was demonstrated ON -- `_beat/<reference>/<preset>/` says both.
+BEAT_ROOT = styles_mod.DEFAULT_ROOT / beat_mod.PREVIEW_DIR
+# One word filling the frame. A zoom, a jolt and a channel split all read
+# clearly at that size and are nearly invisible on a field of small glyphs.
+BEAT_REFERENCE = beat_mod.REFERENCE
 
 # (type, name, description, {section.field: value})
 LOOKS: list[tuple[str, str, str, dict]] = [
@@ -227,6 +235,62 @@ def build_styles() -> list[styles_mod.Style]:
     return out
 
 
+def beat_previews(client, live, moments, force=False) -> list[str]:
+    """One capture per beat preset, all on the same word look.
+
+    A preset has no picture of its own -- what Punch looks like depends on what
+    it is applied to -- so the honest tile is the effect demonstrated on a fixed
+    reference. `none` is recorded too, so the row opens with an unaffected
+    baseline and the difference between the first two tiles IS the effect.
+    """
+    from lyricfield import beat as beat_mod
+    from lyricfield import styles as S
+    from lyricfield.config import Config
+
+    vt = types_mod.get_type(BEAT_REFERENCE)
+    failed = []
+    for slug, name, why, _values in beat_mod.PRESETS:
+        cfg = Config(type=vt.slug)
+        cfg.track = live.track
+        cfg.with_beat(slug)
+        draft = S.Style(name=name, slug=slug, type=vt.slug,
+                        description=why, params=cfg.params)
+        if not force and draft.preview_video(BEAT_ROOT).exists():
+            print(f"{name}: beat preview already there")
+            continue
+        for at in moments:
+            print(f"{name} (beat): recording from {at:.1f}s")
+            try:
+                S.capture_preview(client, draft, at=at, seconds=4.0,
+                                  root=BEAT_ROOT, live=live,
+                                  with_beat=True, beat=cfg.response,
+                                  progress=lambda m: print("   ", m))
+                break
+            except S.FallbackPreview as e:
+                print(f"    {e}")
+                failed.append(name)
+                break
+            except S.StillPreview as e:
+                print(f"    {e}")
+        else:
+            failed.append(name)
+
+    # Re-pick each poster against the unaffected capture. A tile shows its
+    # poster at rest, and the midpoint of the clip lands between hits -- which
+    # had all five presets showing the identical still while their videos
+    # genuinely differed.
+    base = BEAT_ROOT / BEAT_REFERENCE / "none" / "preview.mp4"
+    if base.exists():
+        for slug, name, _why, _v in beat_mod.PRESETS:
+            vid = BEAT_ROOT / BEAT_REFERENCE / slug / "preview.mp4"
+            if not vid.exists():
+                continue
+            at = styles_mod.poster_against(vid, base, vid.with_suffix(".png"))
+            if at is not None:
+                print(f"{name}: poster from {at:.2f}s, where the effect peaks")
+    return failed
+
+
 def builtin_previews(client, live, moments_for, force=False,
                      root=styles_mod.DEFAULT_ROOT) -> list[str]:
     """One capture per RENDERER, of its own defaults.
@@ -372,6 +436,7 @@ def main(argv: list[str]) -> int:
             failed.append(st.name)
     failed += builtin_previews(client, live, moments_for, force=force,
                            root=root)
+    failed += beat_previews(client, live, word_moments, force=force)
     if failed:
         print(f"no moving preview for: {', '.join(failed)}")
         return 1
