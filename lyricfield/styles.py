@@ -633,15 +633,21 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
     shown = style.apply_to(Config(type=style.type))
     if live is not None:
         shown.track = copy.deepcopy(live.track)
-        # ... but NOT the song's structure. Every renderer dims itself before
-        # the drums enter and fades at the end, from `kick_in`, `high_in`,
-        # `duration` and the measured silences -- and a preview is four seconds
-        # of placeholder words, not a position in the song. Measured on the
-        # benchmark track, whose kick enters at 61.2s: a preview parked at
-        # 3.55s computed a section gain of 0.35 and `mon_now_l.brightness1`
-        # read 0.308, so EVERY preview of EVERY renderer was being recorded at
-        # a third of its intended brightness. A `hold_window` covering the
-        # preview moment would have blanked the words entirely.
+        # ... but NOT the song's structure. Seven of the eight renderers dim
+        # themselves before the drums enter and fade at the end, from
+        # `kick_in`, `high_in`, `duration` and the measured silences -- and a
+        # preview is four seconds of placeholder words, not a position in the
+        # song. Measured live on the benchmark track, whose kick enters at
+        # 61.2s: a preview parked at 3.55s computed a section gain of 0.35 and
+        # `mon_now_l.brightness1` read 0.308, a third of what the look asks
+        # for. A `hold_window` covering the preview moment would have blanked
+        # the words outright.
+        #
+        # It bit the beat row and not the older tiles, which is worth knowing:
+        # those were seeded before this song had been analysed, so `kick_in`
+        # was 0 and the gain was already 1. The damage arrives the first time a
+        # preview is recorded against a song that HAS been analysed -- which is
+        # to say, normal use.
         #
         # The song is still what the audio and the beat come from; only the
         # arc is neutralised. `duration` stays: it is what the outro fade is
