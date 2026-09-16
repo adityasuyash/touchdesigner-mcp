@@ -1,49 +1,38 @@
 """Construct the longhand network.
 
-One Text TOP per depth slab, each fixed at the size that depth calls for, each
-reading its own Specification DAT -- which is what makes per-word perspective
-possible at all, because a Text TOP has one font size for its whole table.
+One Text TOP per LETTER SIZE, each reading its own Specification DAT, over a
+plate that is either the song's footage or a generated stand-in.
 
-    v7_script (scriptTOP)   16px of ground; also writes every spec table
-    spec0..specN (tableDAT) one per slab, nearest first
-    lh_text0..N (textTOP)   the slabs, sizes from `params.slab_depths`
-    lh_haze (blurTOP)       the farthest slab only: distance costs focus
-    lh_lvl0..N (levelTOP)   the fog: the farthest slab is dimmest
-    ...stacked OVER, farthest first
-    lh_dim (levelTOP)       a third, so the three taps sum to one
-    lh_tap_a/b (transform)  the motion blur, two taps either side of centre
+    v7_script (scriptTOP)   16px; writes every spec table and drives the plate
+    plate                   moviefileinTOP, or the generated stand-in
+    lh_fit (transformTOP)   cover-crop: scale to fill, centre, trim overflow
+    lh_dim (levelTOP)       the plate brought down so white marker reads on it
+    spec0..specN (tableDAT) one per letter size
+    lh_text0..N (textTOP)   the lettering, sizes from `params.hand_sizes`
+    lh_ink (levelTOP)       ... summed and taken to the ink brightness
+    lh_over (compositeTOP)  the lettering OVER the plate
     ...bloomed, clamped -> out
 
-Two things here have to be right or the depth simply does not read, with
-nothing on screen to say why:
+Three things here have to be right:
 
-  * The slabs are composited FARTHEST FIRST, so a near word covers a far one
-    rather than the other way round. `over` is correct despite the warning in
-    CLAUDE.md that it does nothing over an opaque frame -- these Text TOPs
-    carry `bgalpha` 0, so they are transparent between glyphs. The stack goes
-    under the ground rather than over it.
-  * The font sizes come from `params.slab_depths`, the same list `field.py`
-    assigns words from. If the two ever disagreed a word would be drawn at a
-    size that did not match its distance.
+  * The letters are summed with ADD, not `over`, and only then taken to `ink`.
+    Each size draws a different subset of the same line, so between them the
+    layers are transparent and never overlap -- but a composite `add` clamps at
+    white on an 8-bit TOP, which is why the brightness is applied after the sum
+    and not before it.
+  * `over` is correct for putting the lettering on the plate, despite the note
+    in CLAUDE.md that it does nothing over an opaque frame: the TEXT is the top
+    layer and it carries alpha. It is the plate underneath that is opaque.
+  * The cover-crop is an EXPRESSION, not a constant. A plate's dimensions are
+    not knowable from Python at build time, so the scale is computed inside
+    TouchDesigner from the operator's own width and height.
 """
 
 from __future__ import annotations
 
 from .._build import (OpSpec, ROOT, apply_exprs, check_types, create_ops,
                       drop_autocreated, wire_ops)
-from .params import slab_depths
-
-
-def _fog_u(z: float, standoff: float, far: float) -> float:
-    """How far into the fog a slab at depth `z` is, 0 at the eye's focus to 1
-    at the far wall. In log depth, to match the geometric slab spacing."""
-    import math
-
-    near = max(1e-6, standoff)
-    if z <= near:
-        return 0.0
-    span = math.log(max(near * 1.000001, far)) - math.log(near)
-    return min(1.0, max(0.0, (math.log(z) - math.log(near)) / span))
+from .params import hand_sizes
 
 
 def _rgb(h: float, sat: float) -> tuple[float, float, float]:
@@ -58,29 +47,12 @@ def _rgb(h: float, sat: float) -> tuple[float, float, float]:
 
 
 def network(cfg) -> list[OpSpec]:
-    s, d, bl, lk = cfg.stage, cfg.depth, cfg.blur, cfg.look
+    s, ln, g, lk = cfg.stage, cfg.line, cfg.ground, cfg.look
     frame = {"outputresolution": "custom", "resolutionw": s.width,
              "resolutionh": s.height, "resmult": False}
-    ink = _rgb(lk.hue, lk.sat)
-
-    depths = slab_depths(cfg.params if hasattr(cfg, "params") else cfg)
-    # `size_at_one` is the font size at depth 1.0, so a slab standing at depth
-    # z draws at size_at_one/z. This is the whole of the perspective.
-    sizes = [s.size_at_one / z for z in depths]
+    sizes = hand_sizes(cfg.params if hasattr(cfg, "params") else cfg)
     n = len(sizes)
-
-    def text_par(px, spec):
-        return {**frame, "font": s.font, "text": "", "specdat": spec,
-                "alignx": "center", "aligny": "center",
-                # Points is the default and follows the display's DPI; pixels
-                # is the only unit that means the same thing on two machines.
-                "fontsizexunit": "pixels", "fontsizeyunit": "pixels",
-                "positionunit": "pixels",
-                "fontsizex": round(px, 2), "fontsizey": round(px, 2),
-                "fontcolorr": round(ink[0], 4), "fontcolorg": round(ink[1], 4),
-                "fontcolorb": round(ink[2], 4),
-                "bgcolorr": 0.0, "bgcolorg": 0.0, "bgcolorb": 0.0,
-                "bgalpha": 0.0}
+    plate = (getattr(cfg.track, "plate", "") or "").strip()
 
     specs = [
         OpSpec("audio", "audiofileinCHOP", (-1800, 200),
@@ -96,102 +68,123 @@ def network(cfg) -> list[OpSpec]:
                params={"callbacks": "v7_script_callbacks", "resolutionw": 16,
                        "resolutionh": 16, "resmult": False,
                        "format": "rgba32float"}),
-        OpSpec("lh_ground", "levelTOP", (-1200, -400),
-               params={**frame, "fillmode": "fill"}, inputs=["v7_script"]),
     ]
 
-    # Farthest first, so the composite stacks near over far.
+    # ---- the plate ---------------------------------------------------------
+    if plate:
+        # Cover-crop by expression: scale so the SHORTER side fills, which
+        # leaves the longer one overflowing and trimmed. A plate's dimensions
+        # are not knowable here, so this is computed in TouchDesigner from the
+        # operator's own.
+        cover = ("max({w}/max(1, op('plate').width), "
+                 "{h}/max(1, op('plate').height))").format(w=s.width, h=s.height)
+        specs += [
+            OpSpec("plate", "moviefileinTOP", (-1800, -700),
+                   params={"file": plate, "play": True, "loop": True}),
+            OpSpec("lh_fit", "transformTOP", (-1600, -700),
+                   params={**frame, "extend": "hold"},
+                   exprs={"scale1": cover, "scale2": cover}),
+        ]
+        ground = "lh_fit"
+    else:
+        # No footage: a warm, soft, slowly drifting stand-in. Not pretending to
+        # be film, but it gives the lettering something to sit on -- and it is
+        # what every style preview records against, since a preview carries
+        # nothing of the song that happens to be loaded.
+        warm = _rgb(g.hue, g.sat)
+        specs += [
+            OpSpec("plate", "noiseTOP", (-1800, -700), params={
+                **frame, "type": "sparse", "period": 3.2, "harmonics": 2,
+                "amp": 0.5, "offset": 0.5, "monochrome": True,
+                "tz": f"me.time.seconds/{max(0.5, g.drift_secs):g}"}),
+            OpSpec("lh_soft", "blurTOP", (-1650, -700),
+                   params={**frame, "size": g.blur}, inputs=["plate"]),
+            OpSpec("lh_fit", "levelTOP", (-1500, -700), params={
+                **frame, "brightness1": g.lift,
+                "gamma1": 1.6,
+                "blacklevel": 0.0,
+                "invert": 0.0,
+                "opacity": 1.0,
+                "redm": round(warm[0], 4), "greenm": round(warm[1], 4),
+                "bluem": round(warm[2], 4)}, inputs=["lh_soft"]),
+        ]
+        ground = "lh_fit"
+
+    specs.append(
+        # Brought down so white marker reads over it. A Level TOP rather than a
+        # black card over the top: the reference darkens the picture, it does
+        # not lay a scrim on it.
+        OpSpec("lh_dim", "levelTOP", (-1350, -700),
+               params={**frame, "opacity": round(1.0 - g.dim, 4)},
+               inputs=[ground]))
+
+    # ---- the lettering -----------------------------------------------------
+    def text_par(px, spec):
+        return {**frame, "font": s.font, "text": "", "specdat": spec,
+                "alignx": "left",
+                # Bottom, so a row's y IS its baseline and letters of different
+                # sizes sit on one line instead of on their own centres. With
+                # centre alignment a bigger letter rides up and the line reads
+                # as bouncing rather than as drawn.
+                "aligny": "bottom",
+                # Points is the default and follows the display's DPI; pixels
+                # is the only unit that means the same thing on two machines.
+                "fontsizexunit": "pixels", "fontsizeyunit": "pixels",
+                "positionunit": "pixels",
+                "fontsizex": round(px, 2), "fontsizey": round(px, 2),
+                "fontcolorr": 1.0, "fontcolorg": 1.0, "fontcolorb": 1.0,
+                "bgcolorr": 0.0, "bgcolorg": 0.0, "bgcolorb": 0.0,
+                "bgalpha": 0.0}
+
     prev = None
-    for k, i in enumerate(range(n - 1, -1, -1)):
-        y = -900 - k * 130
+    for i in range(n):
+        y = -1100 - i * 130
         specs.append(OpSpec("spec%d" % i, "tableDAT", (-1800, y - 45),
                             preserve=True))
         specs.append(OpSpec("lh_text%d" % i, "textTOP", (-1400, y),
                             params=text_par(sizes[i], "spec%d" % i)))
-        src = "lh_text%d" % i
-        if i == n - 1 and d.haze > 0:
-            specs.append(OpSpec("lh_haze", "blurTOP", (-1250, y),
-                                params={**frame, "size": d.haze},
-                                inputs=[src]))
-            src = "lh_haze"
-        # Fog: dimmer with distance, measured from where the EYE is rather
-        # than from the nearest slab. The camera stands `standoff` back from
-        # the word being sung, which is two slabs into a five-slab volume, so
-        # keying the fog to slab 0 dimmed the one word the frame is about to
-        # 0.51 of white -- a whole preview was refused for never lighting a
-        # word, at peak 0.61 against the 0.78 a lit word must reach. Anything
-        # at or in front of the standoff is at full brightness; only what is
-        # further off fades.
-        f = d.fog ** _fog_u(depths[i], cfg.camera.standoff, depths[-1])
-        specs.append(OpSpec("lh_lvl%d" % i, "levelTOP", (-1100, y),
-                            params={**frame,
-                                    "brightness1": round(lk.peak * f, 4)},
-                            inputs=[src]))
-        cur = "lh_lvl%d" % i
+        cur = "lh_text%d" % i
         if prev is None:
             prev = cur
         else:
-            name = "lh_over%d" % i
-            specs.append(OpSpec(name, "compositeTOP", (-900, y),
-                                params={**frame, "operand": "over"},
-                                inputs=[cur, prev]))
+            name = "lh_sum%d" % i
+            specs.append(OpSpec(name, "compositeTOP", (-1150, y),
+                                params={**frame, "operand": "add"},
+                                inputs=[prev, cur]))
             prev = name
 
-    # ---- the smear -------------------------------------------------------
-    # Three taps of the stack averaged: the middle one undisplaced and two
-    # offset either side along the camera's screen velocity, which `field.py`
-    # sets each frame. A directional-blur operator would be one node instead of
-    # four, but nothing in this repo has used one and its existence cannot be
-    # checked without TouchDesigner running; this is built from the transform
-    # and composite TOPs every renderer here already leans on, and it is a pure
-    # function of the timestamp either way.
-    if bl.amount > 0:
-        third = round(1.0 / 3.0, 4)
-        specs += [
-            # A third BEFORE the sum, not after. A composite `add` on an 8-bit
-            # TOP clamps at white, so adding three copies of a 0.93 layer and
-            # then scaling by a third gives 1.0/3 = 0.333, not 0.93 -- measured
-            # exactly that at `lh_mix1`, and the whole renderer came back grey
-            # at a peak of 0.59 with every slab reading 0.93 just upstream.
-            # Dimming first keeps the sum under one and loses nothing.
-            OpSpec("lh_dim", "levelTOP", (-800, -850),
-                   params={**frame, "brightness1": third}, inputs=[prev]),
-            OpSpec("lh_tap_a", "transformTOP", (-700, -700),
-                   params={**frame, "tunit": "pixels", "extend": "zero",
-                           "tx": 0.0, "ty": 0.0}, inputs=["lh_dim"]),
-            OpSpec("lh_tap_b", "transformTOP", (-700, -1000),
-                   params={**frame, "tunit": "pixels", "extend": "zero",
-                           "tx": 0.0, "ty": 0.0}, inputs=["lh_dim"]),
-            OpSpec("lh_mix1", "compositeTOP", (-550, -700),
-                   params={**frame, "operand": "add"},
-                   inputs=["lh_dim", "lh_tap_a"]),
-            OpSpec("lh_smear", "compositeTOP", (-550, -850),
-                   params={**frame, "operand": "add"},
-                   inputs=["lh_mix1", "lh_tap_b"]),
-        ]
-        lit = "lh_smear"
-    else:
-        lit = prev
-
     specs += [
-        OpSpec("lh_sum1", "compositeTOP", (-400, -400),
-               params={**frame, "operand": "add"},
-               inputs=[lit, "lh_ground"]),
+        # After the sum, never before: `add` clamps at white, so scaling the
+        # layers first and adding second is what loses the brightness.
+        OpSpec("lh_ink", "levelTOP", (-950, -1100),
+               params={**frame, "brightness1": lk.ink}, inputs=[prev]),
+        # The lettering over the plate. `over` is right here -- the text
+        # carries alpha and the plate underneath is what is opaque.
+        OpSpec("lh_over", "compositeTOP", (-700, -700),
+               params={**frame, "operand": "over"},
+               inputs=["lh_ink", "lh_dim"]),
 
-        OpSpec("lh_bloom", "blurTOP", (-400, -150),
-               params={**frame, "size": lk.bloom}, inputs=[lit]),
-        OpSpec("lh_bloom_l", "levelTOP", (-250, -150),
+        OpSpec("lh_bloom", "blurTOP", (-700, -400),
+               params={**frame, "size": lk.bloom}, inputs=["lh_ink"]),
+        OpSpec("lh_bloom_l", "levelTOP", (-550, -400),
                params={**frame, "brightness1": lk.glow}, inputs=["lh_bloom"]),
-        OpSpec("lh_sum2", "compositeTOP", (-250, -400),
+        OpSpec("lh_lit", "compositeTOP", (-400, -700),
                params={**frame, "operand": "add"},
-               inputs=["lh_sum1", "lh_bloom_l"]),
+               inputs=["lh_over", "lh_bloom_l"]),
+
+        # The kick lift, from the 16px script, added across the whole frame.
+        OpSpec("lh_ground", "levelTOP", (-700, -100),
+               params={**frame, "fillmode": "fill"}, inputs=["v7_script"]),
+        OpSpec("lh_sum", "compositeTOP", (-250, -700),
+               params={**frame, "operand": "add"},
+               inputs=["lh_lit", "lh_ground"]),
 
         # nothing may exceed white; a Level TOP remaps rather than clamps
-        OpSpec("lh_white", "constantTOP", (-250, -650), params=frame),
-        OpSpec("lh_clamp", "compositeTOP", (-100, -400),
+        OpSpec("lh_white", "constantTOP", (-250, -950), params=frame),
+        OpSpec("lh_clamp", "compositeTOP", (-100, -700),
                params={**frame, "operand": "minimum"},
-               inputs=["lh_sum2", "lh_white"]),
-        OpSpec("out", "nullTOP", (100, -400), params={"resmult": False},
+               inputs=["lh_sum", "lh_white"]),
+        OpSpec("out", "nullTOP", (100, -700), params={"resmult": False},
                inputs=["lh_clamp"]),
     ]
     return specs
@@ -203,7 +196,7 @@ def build(client, cfg, progress=None, container: str = ROOT,
 
     `calibrate` is accepted and ignored: the glyph metrics the grid renderers
     solve for do not arise here, because the Specification DAT places every
-    word at a pixel coordinate this script computed.
+    letter at a pixel coordinate this script computed.
     """
     say = progress or (lambda m: None)
     specs = network(cfg)

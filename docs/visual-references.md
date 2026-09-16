@@ -49,32 +49,42 @@ composited into a render chain. That means:
 ### Type flying through 3D space
 
 **The Chainsmokers, "Closer"** (official lyric video, Rory Kramer, 2016 — the
-most-watched lyric video there is). PremiumBeat, surveying the form: *"In the
-Chainsmokers video, you have live action footage compiled with lyrics that fly
-through 3d space."* The text began as a practical effect — Chung Dha's
-breakdown calls it *"mostly a practical effect"*, written on paper or a
-whiteboard and filmed — and the tutorials that recreate it all name the same
-third ingredient, **motion blur on the type as the camera moves**.
+most-watched lyric video there is).
 
-So it is three things at once: handwriting, depth, and smear. The footage half
-is out of reach — nothing in this pipeline takes a video input — and the ground
-stays dark; the type half is what makes the video recognisable.
+**Read it from frames, not from articles.** This reference was rebuilt three
+times from written descriptions and was wrong every time; one look at a still
+settled it. YouTube's page returns only navigation chrome to a fetcher, but its
+generated frames are plain images and can be downloaded and viewed:
 
-This has been read wrong twice, in opposite directions, which is worth writing
-down because both readings looked right while they were being built:
+    https://img.youtube.com/vi/<id>/maxresdefault.jpg    the poster
+    https://img.youtube.com/vi/<id>/{1,2,3}.jpg          25% / 50% / 75%
+    https://img.youtube.com/vi/<id>/hq{1,2,3}.jpg        the same, larger
 
-  * **`approach`** took it for a flight and threw words at the camera from a
-    vanishing point. It had the depth and used a grotesque; no hand, no line,
-    nothing passing to the side.
-  * The first **`longhand`** took it for a camera panning along one long
-    handwritten string of the lyrics. It had the hand and lost the depth
-    entirely, which is the half the reference is actually about.
+What four frames of this one show: thick white marker lettering sitting **flat
+and large** over live-action footage — a couple indoors, a man with a camera in
+golden grass, a couple silhouetted against a sunset, an aerial of a coastal
+highway. A lyric phrase at a time, filling most of the frame width, stacked in
+two or three rows with generous leading. Unmistakably drawn by hand: mixed caps
+and lowercase inside a single word ("I CAN'4 Stop", "you CAN't AFFORD"),
+letters of different sizes, a baseline that wanders. Over the brightest part of
+the sunset the lettering still reads, and there is no outline or drop shadow —
+the picture underneath is darkened instead.
 
-→ **`longhand`**, which has both: the words are placed once, scattered through
-a volume, and the camera drifts among them — some passing close, most receding.
-Perspective comes from depth slabs, because of the one-font-size-per-DAT limit
-above, and the smear is three taps of the layer offset along the camera's own
-screen velocity.
+The three wrong readings, written down because each looked right while it was
+being built and each cost a renderer:
+
+  * **`approach`** — words flying at the camera from a vanishing point.
+  * **`longhand` v1** — a camera panning along one long handwritten line.
+  * **`longhand` v2** — words scattered through a volume, camera drifting.
+
+All three lean on one sentence, PremiumBeat's *"live action footage compiled
+with lyrics that fly through 3d space"*. That describes the aerial shot alone,
+where the lettering is tracked onto the landscape so it sits in the scene. The
+type never moves through space. It sits there, and the drone moves.
+
+→ **`longhand`**, which letters a phrase at a time, flat and big, in a marker
+face with per-letter size, case and baseline variation, over the song's own
+footage (`Track.plate`) or a generated stand-in when it has none.
 
 ### Footage playing inside the letters
 

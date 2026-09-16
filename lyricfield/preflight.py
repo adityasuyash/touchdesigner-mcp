@@ -61,6 +61,7 @@ def run(client, cfg, workspace=None, covers: float = 0.0,
     for name, check in (
         ("the song this project holds", _project_is_the_song),
         ("lyrics, for a type that needs them", _lyrics_present),
+        ("the footage, if this song has any", _plate_readable),
         ("the timeline and its play range", _timeline),
         ("the pushed parameters", _params),
         ("the pushed field script, and whether it runs", _field_script),
@@ -107,6 +108,53 @@ def _lyrics_present(client, cfg, ws, covers, repair, res, say):
         f"{vt.name} draws the song's words and this song has none. Transcribe "
         f"the vocal or type the words in; rendering now would produce an empty "
         f"field for the length of the track.")
+
+
+def _plate_readable(client, cfg, ws, covers, repair, res, say):
+    """Footage the lyrics are lettered over, if this song has any.
+
+    Two assertions, because either alone passes a broken render. The path can
+    be gone -- it is the one path a person types rather than one ingest
+    produces. And TouchDesigner can fail to decode a file that is perfectly
+    present: a Movie File In pointed at something it cannot read cooks BLACK
+    and reports nothing, which is exactly the silent-success class this module
+    exists to refuse. The lettering would still draw, every brightness check
+    would pass, and the footage would simply not be there.
+    """
+    from pathlib import Path
+
+    plate = (getattr(cfg.track, "plate", "") or "").strip()
+    if not plate:
+        return
+    if not Path(plate).exists():
+        res.problems.append(
+            f"the footage for this song is gone: {plate}. Pick it again, or "
+            f"clear it to letter over the generated ground instead.")
+        return
+
+    try:
+        out = client.run(
+            "def go():\n"
+            "    o = op('/project1/words/plate') or op('/project1/plate')\n"
+            "    if o is None:\n"
+            "        return 'absent'\n"
+            "    o.cook(force=True)\n"
+            "    return '%d %d' % (o.width, o.height)\n"
+            "print(go())").strip()
+    except Exception as e:
+        say(f"could not ask about the footage: {e}")
+        return
+    if out == "absent":
+        return                      # not built yet; the build is the next step
+    try:
+        w, h = (int(v) for v in out.split())
+    except ValueError:
+        return
+    if w < 2 or h < 2:
+        res.problems.append(
+            f"TouchDesigner cannot decode {Path(plate).name} -- it reads "
+            f"{w}x{h}. The lettering would draw over black and every other "
+            f"check would pass. Try a different file, or clear it.")
 
 
 def _timeline(client, cfg, ws, covers, repair, res, say):

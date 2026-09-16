@@ -247,3 +247,45 @@ def test_a_renderer_that_can_read_its_params_is_not_reported(ws, monkeypatch):
                         lambda c, dat=None: CueTable.from_dat_text(c.dats[sync.CUE_DAT]))
     res = preflight.run(td, cfg, ws, covers=60.0)
     assert res.ok, res.problems
+
+
+def test_missing_footage_is_refused_rather_than_rendered(tmp_path):
+    """The one path a person types rather than one ingest produces, so it can
+    be wrong from the moment a song is made."""
+    from lyricfield import preflight
+
+    cfg = Config()
+    cfg.track.plate = str(tmp_path / "gone.mp4")
+    res = preflight.Result()
+    preflight._plate_readable(FakeTD(), cfg, None, 0.0, False, res, lambda m: None)
+    assert any("footage for this song is gone" in m for m in res.problems)
+
+
+def test_footage_touchdesigner_cannot_decode_is_refused(tmp_path):
+    """A Movie File In pointed at something it cannot read cooks BLACK and
+    reports nothing. The lettering still draws and every brightness check
+    passes, which is the whole class this module exists to refuse."""
+    from lyricfield import preflight
+
+    clip = tmp_path / "broken.mp4"
+    clip.write_bytes(b"not a movie")
+    cfg = Config()
+    cfg.track.plate = str(clip)
+
+    class Undecodable(FakeTD):
+        def run(self, code, *a, **k):
+            return "0 0" if "plate" in code else super().run(code, *a, **k)
+
+    res = preflight.Result()
+    preflight._plate_readable(Undecodable(), cfg, None, 0.0, False, res,
+                              lambda m: None)
+    assert any("cannot decode" in m for m in res.problems)
+
+
+def test_a_song_with_no_footage_is_not_asked_about_it(tmp_path):
+    from lyricfield import preflight
+
+    cfg = Config()
+    res = preflight.Result()
+    preflight._plate_readable(FakeTD(), cfg, None, 0.0, False, res, lambda m: None)
+    assert res.problems == []

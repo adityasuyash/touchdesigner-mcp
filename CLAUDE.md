@@ -99,7 +99,7 @@ lyricfield/
     orbit/       the line riding a parametric curve
     swarm/       words that fly in and are knocked apart
     horizon/     a neon grid to a banded sun
-    longhand/    handwritten words in a volume, a camera drifting through
+    longhand/    the lyrics lettered by hand, big, over your footage
     glitch/      the words torn, split and scanlined
 docs/
   visual-references.md   the looks these were built from, and what is out of reach
@@ -194,14 +194,15 @@ cost real time to discover. None is findable from the Python side.
   from the line's start, costs almost nothing and re-renders exactly.
 - **Whole-array or nothing.** 720x1280 is a million pixels a frame; a per-pixel
   Python loop is not an option. Precompute the coordinate grids once.
-- **A Text TOP has ONE font size for its whole Specification DAT.** Per-word
-  scale is therefore not available, which is why `longhand` cuts its space into
-  depth slabs -- one Text TOP per slab, fixed at the size that depth calls for,
-  composited farthest first so a near word covers a far one. The slab depths
-  come from `params.slab_depths` and both halves read that one list: if the
-  size `build.py` bakes in ever drifted from the depth `field.py` assigns a
-  word to, the perspective would simply be wrong with nothing on screen to say
-  why.
+- **A Text TOP has ONE font size for its whole Specification DAT.** Per-letter
+  scale is therefore not available inside one, which is why `longhand` draws
+  its lettering through one Text TOP per size step and assigns each letter to
+  one. The sizes come from `params.hand_sizes` and both halves read that one
+  list: if the size `build.py` bakes in drifted from the size `field.py` laid
+  the row out at, the row would not close up.
+- **Bottom-align a Text TOP when rows of different sizes share a line.** With
+  `aligny` at centre a taller letter rides up and the line reads as bouncing;
+  at bottom a row's y IS its baseline and sizes line up for free.
 - **A Remap TOP moves the pixels that are there**; input1 is the picture,
   input2 the map, and `horzsource`/`vertsource` say which channel carries which
   coordinate. It is how `glitch` tears. Drawing displaced rectangles instead
@@ -248,6 +249,17 @@ amplitude by `drift()` itself, a wander in -1..1 whose mean absolute value is
 0.39, so a 32px knock landed as about 6 and Jolt read as a dimmer Punch.
 `beat.shake_offset` normalises the direction, and renormalises again after the
 tilt weighting, so `shake.amount` is the peak displacement it says it is.
+
+### Reading a visual reference
+
+**Get frames of it. Do not read about it.** The Chainsmokers' "Closer" was
+rebuilt three times from written descriptions -- once from the user's own
+passing description -- and was wrong every time; one look at a still settled
+it. YouTube serves generated frames as plain images at
+`img.youtube.com/vi/<id>/{maxresdefault,1,2,3}.jpg`, which are 25%, 50% and 75%
+through. Four of them were worth more than every article about the video.
+`docs/visual-references.md` records what each reference actually shows, and the
+readings that turned out to be wrong.
 
 ### What a preset preview has to be
 
