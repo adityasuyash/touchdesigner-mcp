@@ -30,6 +30,18 @@ class Cue:
 class CueTable:
     cues: list[Cue] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        """In time order, always.
+
+        Every renderer looks a cue up by bisecting this list, so an unsorted
+        one does not raise -- it silently returns the wrong word. Four of the
+        entry points sorted and the rest did not, and a run reported "cues are
+        not sorted by time" against a table that was sorted on disk, because
+        something had rebuilt one without sorting it. An invariant that holds
+        by construction cannot be forgotten at the next entry point.
+        """
+        self.cues.sort(key=lambda c: c.start)
+
     # ---------- io ----------
 
     @classmethod

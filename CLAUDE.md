@@ -208,6 +208,11 @@ cost real time to discover. None is findable from the Python side.
   looks like rectangles.
 - **A Reorder TOP takes FOUR inputs**, so a three-way channel split is one
   operator rather than a tree of them.
+- **A composite `add` CLAMPS at white on an 8-bit TOP.** So "sum N copies and
+  scale by 1/N" is not an average: three taps of a 0.93 layer summed to exactly
+  1.0 and the Level after them turned that into 0.333, which made a whole
+  renderer grey at a peak of 0.59 while every slab read 0.9294 one operator
+  upstream. Scale each input BEFORE the sum.
 - **A map that is linear in x can be computed eight pixels wide.** Interpolating
   it back up to frame width is then exact, not approximate -- `glitch`'s tear
   field is a per-row displacement, so a full-resolution map would be a million
@@ -237,6 +242,46 @@ to be invisible is the same as not being there.
 
 `fx_drive.py` cannot import `beat.py` -- it is pushed as one DAT -- so the
 envelope exists twice, and a test walks both and asserts they agree to 1e-9.
+
+**A direction must not double as a magnitude.** The jolt multiplied its
+amplitude by `drift()` itself, a wander in -1..1 whose mean absolute value is
+0.39, so a 32px knock landed as about 6 and Jolt read as a dimmer Punch.
+`beat.shake_offset` normalises the direction, and renormalises again after the
+tilt weighting, so `shake.amount` is the peak displacement it says it is.
+
+### What a preset preview has to be
+
+The row of beat tiles is read ACROSS, so everything that is not the effect has
+to be held still. Getting this wrong produced three rounds of "they all look
+the same", and none of the causes was the effect itself:
+
+- **The reference renderer must do nothing on the beat.** `monument` lifts the
+  whole frame by `kick_lift` on every kick; that is its own response, it is
+  identical in all five tiles, and it was the loudest thing in each -- the
+  `none` tile, which shows no effect at all, went from a frame mean of 7.6 to
+  16.1 four times in four seconds. `beat.reference_params` switches it off.
+  A new reference has to be checked the same way.
+- **One word, held.** `data/preview_beat_cues.tsv` is one cue plus a sentinel:
+  a renderer holds a word until the NEXT cue lands, so a lone cue fades out
+  before the first kick. Running words meant the effect competed with eight
+  transitions in four seconds.
+- **One kind of motion per preset, all on the same drum.** Every preset used to
+  carry bloom, which is light, so the row was one effect at four strengths.
+  And the shake and the tear fired on the snare while the brightest moment was
+  the kick, so at the instant the eye is drawn to there was nothing to tell the
+  tiles apart.
+- **Measure the baseline, not just the presets.** Every other check compares a
+  preset against the baseline, so anything the baseline does cancels out and is
+  invisible to all of them. That is how a flashing reference survived twice.
+
+**A preview must not inherit the song's structure.** `capture_preview` copied
+`kick_in`, `high_in` and the measured silences from whatever song was loaded,
+and every renderer dims itself before the drums enter. Measured live: a song
+whose kick enters at 61.2s, previewed at 3.55s, gave a section gain of 0.35 and
+`mon_now_l.brightness1` of 0.308 -- every preview of every renderer recorded at
+a third of its brightness, with a silence window able to blank the words
+outright. The song still supplies the audio and the beat; the arc is
+neutralised.
 
 **`Config.response`, not `Config.beat`.** Every renderer already has a `[beat]`
 section of its own -- what the drums do *inside* its picture -- and `Config`
@@ -348,6 +393,10 @@ re-introduce them by calling the raw tools.
   own black ground, so its output is fully opaque and an `over` composite hides
   whatever is under it completely. `add` stacks, which is the brightness defect
   this project has fixed three times. `maximum` is usually what is wanted.
+- **`.module` on a DAT compiles it, so it RAISES rather than returning None.**
+  `reset_field_state` died on a container whose callbacks DAT was empty --
+  exactly the state a run that crashed before pushing leaves behind, and it
+  runs before the push that would repair it. Guard every `.module` access.
 - **A recovery path must not depend on the thing it is recovering.** The
   Restart-TouchDesigner button first asked `osascript ... to quit` with a 30s
   timeout -- which is exactly what a wedged TouchDesigner cannot answer. It

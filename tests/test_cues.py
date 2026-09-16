@@ -110,3 +110,23 @@ def test_cues_from_lines_spreads_words():
     assert t.cues[0].start == 0.0
     assert t.cues[0].line != t.cues[-1].line
     assert all(a.start <= b.start for a, b in zip(t.cues, t.cues[1:]))
+
+
+def test_a_cue_table_is_always_in_time_order():
+    """Every renderer bisects this list, so an unsorted one does not raise --
+    it returns the wrong word for the moment. The invariant holds by
+    construction rather than at each of the entry points that build one, four
+    of which sorted and the rest of which did not."""
+    from lyricfield.cues import Cue, CueTable
+
+    t = CueTable([Cue("late", 9.0, 1), Cue("early", 1.0, 1), Cue("mid", 4.0, 1)])
+    assert [c.word for c in t.cues] == ["early", "mid", "late"]
+    assert t.problems(20.0) == []
+
+
+def test_sorting_survives_the_operations_that_build_a_new_table():
+    from lyricfield.cues import Cue, CueTable
+
+    t = CueTable([Cue("b", 2.0, 1), Cue("a", 1.0, 1)])
+    assert [c.start for c in t.shift(5.0).cues] == [6.0, 7.0]
+    assert [c.start for c in CueTable.from_dat_text(t.to_dat_text()).cues] == [1.0, 2.0]
