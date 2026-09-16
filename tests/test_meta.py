@@ -547,3 +547,58 @@ def test_every_attribute_read_off_a_ctx_is_a_field_of_ctx():
     assert not bad, (
         f"run.py reads attributes a Ctx does not have: {bad}. "
         f"Ctx has: {sorted(known - set(dir(object)))}")
+
+
+# ------------------------------------------- what may be read off a Config
+
+def test_nothing_reads_an_attribute_a_config_does_not_have():
+    """`cfg.<name>` is only valid for a Config field or a section of the active
+    type's params. Anything else raises at run time and nowhere else.
+
+    `Workspace.provision` asked for `cfg.back_type` -- a field that lives on
+    `Track`, left behind when the beatsync-layer family was deleted. Nothing
+    ever wrote it, so the line could only ever raise, and it raised on every
+    provision of every renderer: the whole pipeline was down behind one dead
+    attribute in a progress message. No test caught it because nothing calls
+    `provision` without TouchDesigner.
+
+    So: walk the source for `cfg.X` / `config.X` and check X against the union
+    of Config's own fields and every registered type's section names. A typo
+    or a leftover now fails here rather than on a user's run.
+    """
+    import ast
+    from pathlib import Path
+
+    from lyricfield import types as types_mod
+    from lyricfield.config import Config
+
+    allowed = set(Config.__dataclass_fields__)
+    allowed |= {m for m in dir(Config) if not m.startswith("__")}
+    for vt in types_mod.list_types():
+        allowed |= set(vt.default_params().__dataclass_fields__)
+    # The beat response chain hangs off a Config too, and is not a params
+    # section: it belongs to every type at once.
+    allowed |= {"response"}
+
+    repo = Path(__file__).resolve().parents[1]
+    # Only the names this project uses for a Config. `live` and `shown` are
+    # Paths and lists elsewhere, and a static walk cannot tell them apart -- so
+    # the rule is the naming convention, which is worth keeping anyway.
+    named = {"cfg", "config"}
+    bad = []
+    for py in sorted((repo / "lyricfield").rglob("*.py")):
+        # `config.py` defines the thing; a `field.py` runs inside TouchDesigner
+        # and never sees a Config at all.
+        if py.name in ("config.py", "field.py"):
+            continue
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Attribute)
+                    and isinstance(node.value, ast.Name)
+                    and node.value.id in named
+                    and node.attr not in allowed
+                    and not node.attr.startswith("_")):
+                bad.append(f"{py.relative_to(repo)}:{node.lineno} "
+                           f"{node.value.id}.{node.attr}")
+    assert not bad, (
+        "attributes read off a Config that no Config has:\n  " + "\n  ".join(bad))

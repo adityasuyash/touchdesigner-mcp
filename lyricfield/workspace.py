@@ -170,13 +170,13 @@ class Workspace:
         if not self.exports_dir.exists():
             return out
         for mp4 in sorted(self.exports_dir.glob("*.mp4")):
-            cfg = mp4.with_suffix(".toml")
+            settings = mp4.with_suffix(".toml")
             out.append({
                 "name": mp4.stem,
                 "file": mp4.name,
                 "when": mp4.stat().st_mtime,
                 "size_mb": round(mp4.stat().st_size / 1048576, 1),
-                "has_settings": cfg.exists(),
+                "has_settings": settings.exists(),
                 "ready": mp4.with_suffix(".ready").exists(),
             })
         return sorted(out, key=lambda t: -t["when"])
@@ -390,8 +390,7 @@ class Workspace:
             drums = DrumTable.load(self.drums_path)
         say("pushing params, field script"
             + (", cues" if wants_words else "")
-            + (", drums" if drums is not None else "")
-            + (", and the layer behind" if cfg.back_type else ""))
+            + (", drums" if drums is not None else ""))
         out["pushed"] = sync.push_composed(client, cfg, cues, drums)
 
         # ---- 4. persist ----

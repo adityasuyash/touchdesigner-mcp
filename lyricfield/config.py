@@ -32,9 +32,13 @@ class Track:
     title: str = ""
     source: str = ""            # the original audio file
     style: str = ""             # slug of the style last applied
-    # What sits behind the words: a beatsync renderer and, optionally, one of
-    # its styles. Stored beside `style` so a reload shows what was picked.
-    back_type: str = ""
+    # Which beat preset was picked, stored beside `style` so a reload shows it.
+    # Named `back_style` from when the beat was a renderer composited BEHIND the
+    # words; it is an effect on them now. `back_type` -- that renderer's slug --
+    # went with the family, and its one surviving reader was
+    # `Workspace.provision`, asking `cfg.back_type` where the field lives on
+    # `Track`. Nothing wrote it, so it was never anything but an AttributeError,
+    # and it raised on every provision of every renderer.
     back_style: str = ""
     vocals: str = ""
     instrumental: str = ""
