@@ -208,3 +208,45 @@ def test_the_ui_offers_the_three_start_choices():
         assert mark in src, f"no {mark} button"
     assert "function startSeconds()" in src
     assert "vocal_in" in src, "the vocals option has no measured entry to use"
+
+
+# -------------------------------------------------------------- the footage
+
+def test_footage_can_be_set_on_a_song_that_already_exists(song, tmp_path):
+    """The defect class this whole function exists for: a choice accepted,
+    acknowledged and then discarded. `Workspace.create` honours the plate, so a
+    NEW song was always right; an existing one would have ignored it."""
+    clip = tmp_path / "coast.mp4"
+    clip.write_bytes(b"not really a movie")
+    changed = run_mod._honour_pick(_ctx(song, plate=str(clip)), lambda m: None)
+    assert changed.get("plate")
+    assert song.load_config().track.plate.endswith("coast.mp4")
+
+
+def test_footage_is_copied_into_the_song_folder(song, tmp_path):
+    """A song folder that depends on a file elsewhere stops rendering the day
+    that file moves -- which is why the audio is copied in too."""
+    clip = tmp_path / "coast.mp4"
+    clip.write_bytes(b"not really a movie")
+    run_mod._honour_pick(_ctx(song, plate=str(clip)), lambda m: None)
+    got = Path(song.load_config().track.plate)
+    assert got.parent == song.source_dir, got
+    assert got.exists()
+
+
+def test_no_footage_leaves_the_song_alone(song):
+    assert "plate" not in run_mod._honour_pick(_ctx(song), lambda m: None)
+    assert song.load_config().track.plate == ""
+
+
+def test_the_ui_sends_the_footage_with_the_run():
+    body = re.search(r"function runBody\(extra\) \{(.+?)\n\}", INDEX.read_text(), re.S)
+    assert body and "plate:" in body.group(1), "runBody() does not send the footage"
+
+
+def test_the_picker_asks_for_the_kind_of_file_it_is_filling():
+    """One modal serves both fields, and the server owns the extension sets --
+    the client only says which kind it wants."""
+    src = INDEX.read_text()
+    assert "BROWSE_FOR" in src and "kind: 'plate'" in src
+    assert "kind: want.kind" in src or "kind: want.kind" in src or "want.kind" in src

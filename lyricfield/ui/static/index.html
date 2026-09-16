@@ -961,6 +961,14 @@
     </div>
 
     <div class="field">
+      <label for="runPlate">Footage <span class="hint">optional — some looks letter the lyrics over it</span></label>
+      <div class="row nowrap">
+        <input type="text" id="runPlate" placeholder="a clip or a photo" style="flex:1">
+        <button class="btn" id="btnBrowsePlate" data-run-lock type="button">Browse…</button>
+      </div>
+    </div>
+
+    <div class="field">
       <!-- Each picker carries its own heading now, so one more "Style" label
            above them would only be a third thing to read. -->
       <label id="styleLabel" class="sr-only">Style</label>
@@ -1767,8 +1775,20 @@ function songName() {
 }
 
 // ---------------------------------------------------------------- browsing
-async function openBrowser(at) {
-  const r = await api('/api/browse' + (at ? `?path=${encodeURIComponent(at)}` : '')).catch(showErr);
+// Which field the picker is filling, and therefore which files it lists. The
+// server owns the extension sets; the client only says which kind it wants.
+const BROWSE_FOR = {
+  audio: {into: '#runSource', kind: 'audio', glyph: '\u266a', names: true},
+  plate: {into: '#runPlate', kind: 'plate', glyph: '\u25a3', names: false},
+};
+let BROWSE_AS = 'audio';
+
+async function openBrowser(at, as) {
+  if (as) BROWSE_AS = as;
+  const want = BROWSE_FOR[BROWSE_AS];
+  const q = new URLSearchParams({kind: want.kind});
+  if (at) q.set('path', at);
+  const r = await api('/api/browse?' + q).catch(showErr);
   if (!r) return;
   $('#browser').hidden = false;
   const sc = $('#browseShortcuts'); sc.innerHTML = '';
@@ -1786,10 +1806,11 @@ async function openBrowser(at) {
   const list = $('#browseList'); list.innerHTML = '';
   if (r.parent) list.append(entry('↰', 'Up a level', '', () => openBrowser(r.parent)));
   for (const d of r.dirs) list.append(entry('▸', d.name, '', () => openBrowser(d.path)));
-  for (const f of r.files) list.append(entry('♪', f.name, f.mb + ' MB', () => {
-    $('#runSource').value = f.path;
-    // Named from the file, so the common case needs no typing at all.
-    if (!$('#song').value && !$('#runName').value.trim())
+  for (const f of r.files) list.append(entry(want.glyph, f.name, f.mb + ' MB', () => {
+    $(want.into).value = f.path;
+    // Named from the file, so the common case needs no typing at all. Only the
+    // audio names the song; footage is not what the song is called.
+    if (want.names && !$('#song').value && !$('#runName').value.trim())
       $('#runName').value = prettyName(f.name);
     $('#browser').hidden = true;
   }));
@@ -1809,10 +1830,12 @@ function entry(ico, name, size, onclick) {
                 (size ? `<span class="sz">${size}</span>` : '');
   return b;
 }
-$('#btnBrowse').onclick = () => {
-  const cur = $('#runSource').value.trim();
-  openBrowser(cur ? cur.replace(/\/[^/]*$/, '') : null);
-};
+function browseFrom(as) {
+  const cur = $(BROWSE_FOR[as].into).value.trim();
+  openBrowser(cur ? cur.replace(/\/[^/]*$/, '') : null, as);
+}
+$('#btnBrowse').onclick = () => browseFrom('audio');
+$('#btnBrowsePlate').onclick = () => browseFrom('plate');
 $('#browseClose').onclick = () => { $('#browser').hidden = true; };
 $('#browser').onclick = e => { if (e.target.id === 'browser') $('#browser').hidden = true; };
 document.addEventListener('keydown', e => { if (e.key === 'Escape') $('#browser').hidden = true; });
@@ -2203,6 +2226,7 @@ function runBody(extra) {
   return JSON.stringify(Object.assign({
     name: songName(),
     source: $('#runSource').value.trim() || null,
+    plate: $('#runPlate').value.trim() || null,
     // Without this every run became the default renderer whatever the gallery
     // had selected, so a beatsync look silently rendered as lyric_grid.
     // With no words chosen, the beatsync look IS the renderer rather than
@@ -2566,6 +2590,7 @@ async function refreshAll() {
   $('#vtypenote').textContent = vt ? `${vt.description} · needs ${vt.needs.join(', ')}` : '';
   $('#typeField').hidden = TYPES.length < 2;
   if (CFG.track.source && !$('#runSource').value) $('#runSource').value = CFG.track.source;
+  if (CFG.track.plate && !$('#runPlate').value) $('#runPlate').value = CFG.track.plate;
   if (CFG.track.duration) {
     const m = Math.floor(CFG.track.duration/60), s = Math.round(CFG.track.duration%60);
     $('#fullLabel').textContent = `Full track ${m}:${String(s).padStart(2,'0')}`;

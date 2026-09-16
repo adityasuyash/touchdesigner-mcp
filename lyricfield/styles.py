@@ -768,6 +768,13 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
         # which is a reference renderer doing nothing, with one held word, and
         # no effect on it. Stillness is what that tile MEANS -- it is the thing
         # the other four are read against. Nothing else may pass this.
+        #
+        # As recorded it does not need the allowance: the held word drifts
+        # slowly over its life, so it measures 0.035 against a threshold of
+        # 0.005. The allowance is here because the tile is ALLOWED to be still,
+        # and the next tightening of the reference -- zeroing that drift, a
+        # shorter hold -- should not fail the seed with a message about a
+        # broken capture.
         moved = render_mod.measure_motion(style.preview_video(root),
                                           peak_width=width)
         say(f"{moved['frames']} frames, motion {moved['motion']}, "

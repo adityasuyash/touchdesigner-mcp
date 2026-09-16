@@ -94,6 +94,7 @@ class RunIn(BaseModel):
     """Everything the system needs. After this, nothing is manual."""
     name: str
     source: str | None = None
+    plate: str | None = None        # footage the lyrics are lettered over
     type: str | None = None
     style: str | None = None
     back_style: str | None = None   # ... and which of its styles
@@ -175,6 +176,7 @@ def start_run(payload: RunIn):
         RUN_ARGS = payload.model_dump()
         ctx = RUN_CTX = run_mod.Ctx(
             client=client, name=payload.name, source=payload.source or "",
+            plate=payload.plate or "",
             video_type=payload.type, style=payload.style,
             back_style=payload.back_style,
             # `is not None`, not truthiness. "Was this provided" and "is this
@@ -782,15 +784,29 @@ def set_song_type(slug: str, payload: dict):
 AUDIO_EXT = {".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".aiff", ".aif",
              ".opus", ".wma"}
 
+# What a renderer can letter its lyrics over. TouchDesigner's Movie File In
+# reads both, and a still is a perfectly good plate.
+PLATE_EXT = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm",
+             ".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+
+BROWSE_KINDS = {"audio": AUDIO_EXT, "plate": PLATE_EXT}
+
 
 @app.get("/api/browse")
-def browse(path: str | None = None):
-    """List folders and audio files, so the UI can offer a file picker.
+def browse(path: str | None = None, kind: str = "audio"):
+    """List folders and files of one kind, so the UI can offer a file picker.
 
     A browser deliberately withholds the real path from `<input type="file">`,
     and the pipeline needs a path it can hand to ffmpeg and Demucs. Since the
     server is on the same machine and bound to localhost, it can do the listing.
+
+    `kind` picks the extension set, so one picker serves the song's audio and
+    the footage a renderer letters over.
     """
+    want = BROWSE_KINDS.get(kind)
+    if want is None:
+        raise HTTPException(400, f"no such kind {kind!r}; "
+                                 f"try {', '.join(sorted(BROWSE_KINDS))}")
     here = Path(path).expanduser() if path else Path.home()
     try:
         here = here.resolve()
@@ -807,16 +823,18 @@ def browse(path: str | None = None):
         try:
             if e.is_dir():
                 dirs.append({"name": e.name, "path": str(e)})
-            elif e.suffix.lower() in AUDIO_EXT:
+            elif e.suffix.lower() in want:
                 files.append({"name": e.name, "path": str(e),
                               "mb": round(e.stat().st_size / 1048576, 1)})
         except OSError:
             continue
 
     home = Path.home()
+    folders = (("Movies", "Pictures", "Desktop", "Downloads", "Documents")
+               if kind == "plate" else
+               ("Music", "Desktop", "Downloads", "Documents"))
     shortcuts = [{"name": n, "path": str(home / n)}
-                 for n in ("Music", "Desktop", "Downloads", "Documents")
-                 if (home / n).is_dir()]
+                 for n in folders if (home / n).is_dir()]
     shortcuts.insert(0, {"name": "Home", "path": str(home)})
     return {
         "path": str(here),
@@ -832,6 +850,7 @@ def browse(path: str | None = None):
 class SongIn(BaseModel):
     name: str
     source: str | None = None
+    plate: str | None = None        # footage the lyrics are lettered over
     type: str | None = None
     style: str | None = None
     back_style: str | None = None   # ... and which of its styles
@@ -849,7 +868,8 @@ def list_songs():
 @app.post("/api/songs")
 def create_song(payload: SongIn):
     ws = workspace.Workspace.create(payload.name, payload.source,
-                                    video_type=payload.type, style=payload.style)
+                                    video_type=payload.type, style=payload.style,
+                                    plate=payload.plate)
     cfg = ws.load_config()
     cfg.track.title = payload.name
     ws.save_config(cfg)

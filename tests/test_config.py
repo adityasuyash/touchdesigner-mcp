@@ -225,3 +225,41 @@ def test_every_region_is_a_legal_crop():
         assert w >= 1 and h >= 1, name
         assert 0 <= x and x + w <= p.grid.width, name
         assert 0 <= y and y + h <= p.grid.height, name
+
+
+def test_a_plate_survives_the_round_trip(tmp_path):
+    """Footage the lyrics are lettered over: user-supplied, per song."""
+    from lyricfield.config import Config
+
+    c = Config()
+    c.track.plate = "/clips/coast.mp4"
+    c.save(tmp_path / "config.toml")
+    assert Config.load(tmp_path / "config.toml").track.plate == "/clips/coast.mp4"
+
+
+def test_a_missing_plate_is_reported_before_anything_is_measured(tmp_path):
+    """Unlike the stems, a plate is a path a person types, so it can be wrong
+    the moment a song is created. Waiting for ingest to run before checking it
+    means finding out at render time, which costs a build."""
+    from lyricfield.config import Config
+
+    c = Config()
+    c.track.plate = str(tmp_path / "nope.mp4")
+    assert any("plate file is recorded but missing" in m for m in c.validate())
+
+    (tmp_path / "nope.mp4").write_bytes(b"")
+    assert not any("plate" in m for m in c.validate())
+
+
+def test_no_type_may_declare_a_tunable_called_plate():
+    """`Config.as_params` merges the whole of Track into the flat dict every
+    field script reads, so the name is reserved repo-wide the moment
+    `Track.plate` exists."""
+    from lyricfield import types as T
+
+    for vt in T.list_types():
+        p = vt.default_params()
+        for section in p.__dataclass_fields__:
+            assert "plate" not in getattr(p, section).__dataclass_fields__, (
+                f"{vt.slug}.{section} declares `plate`, which collides with the "
+                "song's own")

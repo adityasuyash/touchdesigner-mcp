@@ -101,6 +101,7 @@ class Ctx:
     client: object
     name: str = ""
     source: str = ""
+    plate: str = ""
     video_type: str | None = None
     back_style: str | None = None
     style: str | None = None
@@ -180,7 +181,8 @@ def _workspace(ctx: Ctx, say) -> dict:
     except FileNotFoundError:
         ctx.workspace = Workspace.create(
             ctx.name, ctx.source or None,
-            video_type=ctx.video_type, style=ctx.style, slug=slug)
+            video_type=ctx.video_type, style=ctx.style, slug=slug,
+            plate=ctx.plate or None)
         say(f"created {slug}")
     cfg = ctx.workspace.load_config()
     if not cfg.track.title:
@@ -240,6 +242,16 @@ def _honour_pick(ctx: Ctx, say) -> dict:
         ws.save_config(cfg)
         say(f"applied the {st.name} look")
         changed["style"] = st.slug
+
+    # Footage to letter over. Adopted into the song folder the same way the
+    # audio is, and set on an EXISTING song rather than only at create time --
+    # which is the whole reason this function exists: a choice that is accepted,
+    # acknowledged and then discarded is worse than one that is refused.
+    if ctx.plate and ctx.plate != cfg.track.plate:
+        cfg.track.plate = str(ws._adopt(ctx.plate))
+        ws.save_config(cfg)
+        say(f"lettering over {Path(cfg.track.plate).name}")
+        changed["plate"] = cfg.track.plate
 
     # What sits behind the words, applied last so it overrides whatever the
     # style brought with it -- the style is the word look, this is the choice

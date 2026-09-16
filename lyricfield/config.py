@@ -40,6 +40,15 @@ class Track:
     # `Track`. Nothing wrote it, so it was never anything but an AttributeError,
     # and it raised on every provision of every renderer.
     back_style: str = ""
+    # Footage or a photograph the lyrics are lettered over. User-supplied and
+    # optional: a renderer that wants one generates a stand-in when it is
+    # empty, which is also what a style preview records against, since a
+    # preview carries nothing of the song that happens to be loaded.
+    #
+    # `Config.as_params` merges the whole of Track into the flat dict every
+    # field script reads, so this name is reserved repo-wide -- no type may
+    # declare a tunable called `plate`. `test_meta` enforces that.
+    plate: str = ""
     vocals: str = ""
     instrumental: str = ""
     # The isolated drums, when separation produced one. What the beat is
@@ -226,6 +235,13 @@ class Config:
         and complaining before ingest has run would be noise.
         """
         t, out = self.track, []
+        # The plate is the one path a person types rather than one ingest
+        # produces, so it is checked whether or not anything has been measured:
+        # a song that has only just been created can already have a bad one,
+        # and finding that out at render time costs a build.
+        if t.plate and not Path(t.plate).exists():
+            out.append(f"plate file is recorded but missing: {t.plate}")
+
         measured = bool(t.duration or t.beat_period != Track.beat_period
                         or t.vocals or t.instrumental)
         if not measured:

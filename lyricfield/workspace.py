@@ -195,13 +195,24 @@ class Workspace:
 
     # ---------- lifecycle ----------
 
+    def _adopt(self, path: str | Path, copy: bool = True) -> Path:
+        """Take a user-supplied file into the song folder, if it is there."""
+        src = Path(path).expanduser()
+        if copy and src.exists():
+            dst = self.source_dir / src.name
+            if not dst.exists():
+                shutil.copy2(src, dst)
+            return dst
+        return src
+
     @classmethod
     def create(cls, name: str, source_audio: str | Path | None = None,
                root: str | Path = DEFAULT_ROOT,
                video_type: str | None = None,
                style: str | Style | None = None,
                copy_source: bool = True,
-               slug: str | None = None) -> "Workspace":
+               slug: str | None = None,
+               plate: str | Path | None = None) -> "Workspace":
         # `slug` is passed when the caller has already resolved a collision --
         # two songs whose titles slug the same must not share a folder.
         ws = cls(root=Path(root).expanduser(), slug=slug or slugify(name), name=name)
@@ -220,13 +231,13 @@ class Workspace:
             cfg.track.style = st.slug
 
         if source_audio:
-            src = Path(source_audio).expanduser()
-            if copy_source and src.exists():
-                dst = ws.source_dir / src.name
-                if not dst.exists():
-                    shutil.copy2(src, dst)
-                src = dst
-            cfg.track.source = str(src)
+            cfg.track.source = str(ws._adopt(source_audio, copy_source))
+        if plate:
+            # Footage the lyrics are lettered over. Copied in beside the audio
+            # for the same reason: a song folder that depends on a file
+            # somewhere else in the filesystem stops rendering the day that
+            # file moves.
+            cfg.track.plate = str(ws._adopt(plate, copy_source))
 
         if not ws.config_path.exists():
             cfg.save(ws.config_path)
