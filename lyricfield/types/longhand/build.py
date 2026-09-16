@@ -72,18 +72,24 @@ def network(cfg) -> list[OpSpec]:
 
     # ---- the plate ---------------------------------------------------------
     if plate:
-        # Cover-crop by expression: scale so the SHORTER side fills, which
-        # leaves the longer one overflowing and trimmed. A plate's dimensions
-        # are not knowable here, so this is computed in TouchDesigner from the
-        # operator's own.
-        cover = ("max({w}/max(1, op('plate').width), "
-                 "{h}/max(1, op('plate').height))").format(w=s.width, h=s.height)
         specs += [
+            # `textendright`, not `loop` -- a Movie File In has no `loop`;
+            # looping is what it does past the end of the clip, and `cycle` is
+            # the menu value. Asked TouchDesigner rather than inferred, which
+            # is the rule here and has now caught three names in this file.
             OpSpec("plate", "moviefileinTOP", (-1800, -700),
-                   params={"file": plate, "play": True, "loop": True}),
+                   params={"file": plate, "play": True,
+                           "textendleft": "cycle", "textendright": "cycle"}),
+            # `fillmode` "outside" IS cover-crop: scale until the image
+            # covers the output and trim the overflow. This started as an
+            # expression computing the ratio from `op('plate').width`, because
+            # a plate's dimensions are not knowable from Python at build time
+            # -- which was true and beside the point, since TouchDesigner does
+            # not need to be told. Asking it what a Transform TOP has turned up
+            # the parameter; the expression was two more things to get wrong.
             OpSpec("lh_fit", "transformTOP", (-1600, -700),
-                   params={**frame, "extend": "hold"},
-                   exprs={"scale1": cover, "scale2": cover}),
+                   params={**frame, "extend": "zero", "fillmode": "outside"},
+                   inputs=["plate"]),
         ]
         ground = "lh_fit"
     else:
@@ -93,20 +99,32 @@ def network(cfg) -> list[OpSpec]:
         # nothing of the song that happens to be loaded.
         warm = _rgb(g.hue, g.sat)
         specs += [
-            OpSpec("plate", "noiseTOP", (-1800, -700), params={
-                **frame, "type": "sparse", "period": 3.2, "harmonics": 2,
-                "amp": 0.5, "offset": 0.5, "monochrome": True,
-                "tz": f"me.time.seconds/{max(0.5, g.drift_secs):g}"}),
+            # `harmon` and `mono`, not `harmonics` and `monochrome`: asked
+            # TouchDesigner rather than inferred, which is the rule here and
+            # was written after a Level TOP turned out to have no `extendleft`.
+            # And `tz` is an EXPRESSION -- assigning a string to a numeric
+            # parameter errors rather than evaluating, so it goes through
+            # `exprs`, which `apply_exprs` sets as `.expr` after creation.
+            OpSpec("plate", "noiseTOP", (-1800, -700),
+                   params={**frame, "type": "sparse", "period": 3.2,
+                           "harmon": 2, "amp": 0.5, "offset": 0.5,
+                           "mono": True},
+                   exprs={"tz": "me.time.seconds/%g" % max(0.5, g.drift_secs)}),
             OpSpec("lh_soft", "blurTOP", (-1650, -700),
                    params={**frame, "size": g.blur}, inputs=["plate"]),
-            OpSpec("lh_fit", "levelTOP", (-1500, -700), params={
-                **frame, "brightness1": g.lift,
-                "gamma1": 1.6,
-                "blacklevel": 0.0,
-                "invert": 0.0,
-                "opacity": 1.0,
-                "redm": round(warm[0], 4), "greenm": round(warm[1], 4),
-                "bluem": round(warm[2], 4)}, inputs=["lh_soft"]),
+            # A Level TOP has no per-channel multiplier -- asked TouchDesigner,
+            # and there is nothing like `redm` on it -- so the warmth comes
+            # from a constant multiplied in, which is two operators and cannot
+            # be got wrong.
+            OpSpec("lh_warm", "constantTOP", (-1650, -900), params={
+                **frame, "colorr": round(warm[0], 4),
+                "colorg": round(warm[1], 4), "colorb": round(warm[2], 4)}),
+            OpSpec("lh_tint", "compositeTOP", (-1500, -700),
+                   params={**frame, "operand": "multiply"},
+                   inputs=["lh_soft", "lh_warm"]),
+            OpSpec("lh_fit", "levelTOP", (-1350, -700),
+                   params={**frame, "brightness1": g.lift, "gamma1": 1.6},
+                   inputs=["lh_tint"]),
         ]
         ground = "lh_fit"
 
@@ -114,7 +132,7 @@ def network(cfg) -> list[OpSpec]:
         # Brought down so white marker reads over it. A Level TOP rather than a
         # black card over the top: the reference darkens the picture, it does
         # not lay a scrim on it.
-        OpSpec("lh_dim", "levelTOP", (-1350, -700),
+        OpSpec("lh_dim", "levelTOP", (-1200, -700),
                params={**frame, "opacity": round(1.0 - g.dim, 4)},
                inputs=[ground]))
 

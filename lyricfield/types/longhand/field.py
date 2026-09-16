@@ -36,7 +36,7 @@ DEFAULTS = {
     # `dim`, `hue`, `sat`, `lift`, `drift_secs`, `blur`, `ink`, `glow` and
     # `bloom` are not here: `build.py` bakes them into the plate and lettering
     # chains, and a key in DEFAULTS is a promise that this script reads it.
-    'width': 720, 'height': 1280, 'size': 104.0,
+    'width': 720, 'height': 1280, 'size': 112.0,
     'center_x': 0.5, 'center_y': 0.47,
     'max_words': 5, 'max_chars': 26, 'max_seconds': 3.5,
     'wrap': 0.86, 'leading': 1.30, 'linger': 2.6,
@@ -57,10 +57,27 @@ INTRO_RAMP = 2.0
 
 SPEC_HEAD = 'x\ty\ttext'
 
-# Roughly how wide a character is, in ems, for a marker face. Only used to set
-# the line, so it does not have to be exact -- it has to be consistent, which a
-# measured advance would not be across fonts.
-EM = 0.56
+# How wide a character is, in ems, for a marker face. A single average is not
+# good enough: the face is proportional, so spacing every letter by the mean
+# leaves visible gaps around the narrow ones and the words come apart into
+# letters -- measured on the first recording, "the quiet field" set as
+# "THE QUi et  fi el d". A rough per-character table costs nothing and keeps
+# words looking like words.
+EM = 0.52
+NARROW = "iljt!|.,;:'`"
+WIDE = "MWmw@"
+
+
+def _advance(ch):
+    if ch in NARROW:
+        return EM * 0.42
+    if ch in WIDE:
+        return EM * 1.34
+    if ch == ' ':
+        return EM * 0.62
+    if ch.isupper():
+        return EM * 1.12
+    return EM
 
 
 def _load_params():
@@ -113,7 +130,7 @@ except Exception:
     for _k, _v in DEFAULTS.items():
         globals()[_k.upper()] = _v
     globals()['TAIL_END'] = 0.0
-    globals()['SIZES'] = [92.56, 104.0, 115.44]
+    globals()['SIZES'] = [99.68, 112.0, 124.32]
 
 
 def _smooth(a):
@@ -244,14 +261,19 @@ def _shout(ch, i):
     return ch.upper() if (_wobble(i, 5.0) + 1.0) * 0.5 < SHOUT else ch
 
 
+def _measure(text):
+    """How wide a string sets, in pixels, at the nominal size."""
+    return sum(_advance(c) for c in text) * SIZE
+
+
 def _rows(words):
     """Break a phrase into rows that fit `wrap` of the frame width."""
     limit = max(1.0, WRAP * WIDTH)
     rows, cur = [], []
     for w in words:
         trial = cur + [w]
-        wide = sum(len(x) + 1 for x in trial) - 1
-        if cur and wide * SIZE * EM > limit:
+        wide = _measure(' '.join(trial))
+        if cur and wide > limit:
             rows.append(cur)
             cur = [w]
         else:
@@ -292,19 +314,21 @@ def _spec(phrases, t, gain):
         text = ' '.join(words)
         # Laid out at the nominal size, so the row stays centred however the
         # letters are resized: the variation is a look, not a re-flow.
-        wide = (len(text) - 1) * SIZE * EM if text else 0.0
-        x = WIDTH * CENTER_X - wide * 0.5
+        x = WIDTH * CENTER_X - _measure(text) * 0.5
         base = top - r * step
         for ch in text:
+            shown = _shout(ch, k)
             if ch != ' ':
                 pick = int((_wobble(k, 1.0) + 1.0) * 0.5 * len(SIZES))
                 pick = max(0, min(len(SIZES) - 1, pick))
                 dx = _wobble(k, 2.0) * JITTER * SIZE
                 dy = _wobble(k, 3.0) * WAVER * SIZE
                 bodies[pick].append('%d\t%d\t%s' % (
-                    int(x + dx), int(base + dy), _shout(ch, k)))
+                    int(x + dx), int(base + dy), shown))
                 drawn += 1
-            x += SIZE * EM
+            # Advance on what is DRAWN, not on what was written: a letter that
+            # came out capitalised is wider than the one it replaced.
+            x += _advance(shown) * SIZE
             k += 1
     return ['\n'.join(b) for b in bodies], drawn
 

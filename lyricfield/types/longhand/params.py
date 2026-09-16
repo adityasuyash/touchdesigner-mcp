@@ -35,7 +35,7 @@ class Stage:
     font: str = "Marker Felt"
     # Letter height in pixels, before the per-letter variation. Big: the
     # reference fills most of the frame width with three or four words.
-    size: float = 104.0
+    size: float = 112.0
     # Where the block sits, 0..1. Slightly above centre, as the reference is
     # more often than not.
     center_x: float = 0.5
@@ -102,8 +102,8 @@ class Ground:
     dim: float = 0.42
     # The generated stand-in: how warm, how bright, how fast it drifts.
     hue: float = 0.07
-    sat: float = 0.30
-    lift: float = 0.30
+    sat: float = 0.42
+    lift: float = 0.52
     drift_secs: float = 14.0
     # Softness of the stand-in, in pixels. Large: it stands in for something
     # shot at a wide aperture.

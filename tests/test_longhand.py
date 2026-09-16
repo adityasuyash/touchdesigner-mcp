@@ -232,15 +232,15 @@ def test_the_song_s_own_footage_is_used_when_there_is_some():
     assert specs["plate"].params["file"] == "/clips/coast.mp4"
 
 
-def test_the_fit_is_an_expression_because_the_plate_s_size_is_unknown():
-    """A plate's dimensions cannot be known from Python at build time, so the
-    cover-crop is computed inside TouchDesigner from the operator's own."""
+def test_footage_of_any_shape_is_cropped_to_fill_the_frame():
+    """A plate is whatever the user had -- 16:9 against a 9:16 frame, most
+    likely. `fillmode` "outside" scales until it covers and trims the overflow,
+    so it is never letterboxed and never squashed."""
     cfg = Config(type="longhand")
     cfg.track.plate = "/clips/coast.mp4"
     specs = {s.name: s for s in network(cfg)}
-    fit = specs["lh_fit"].exprs
-    assert fit and "op('plate').width" in fit["scale1"]
-    assert "max(" in fit["scale1"], "a cover-crop fills the SHORTER side"
+    assert specs["lh_fit"].params["fillmode"] == "outside"
+    assert specs["lh_fit"].inputs == ["plate"]
 
 
 def test_a_song_with_no_footage_gets_a_generated_stand_in():
@@ -366,3 +366,19 @@ def test_no_two_sections_share_a_key():
              for f in getattr(p, sec).__dataclass_fields__]
     dupes = [n for n, c in collections.Counter(names).items() if c > 1]
     assert not dupes, f"sections flatten into one dict; {dupes} would collide"
+
+
+def test_the_field_defaults_agree_with_the_params(lh):
+    """Two copies of the same numbers: the dataclass, and the fallbacks the
+    field script uses when it cannot read its params DAT. A drift between them
+    means a preview and a render disagree, silently -- which is how this one
+    was found, by the sizes test failing after `stage.size` moved."""
+    p = P.Params()
+    for section in p.__dataclass_fields__:
+        for key, val in vars(getattr(p, section)).items():
+            if key not in lh.DEFAULTS:
+                continue
+            assert lh.DEFAULTS[key] == pytest.approx(val) if isinstance(
+                val, float) else lh.DEFAULTS[key] == val, (
+                f"{section}.{key}: params says {val!r}, "
+                f"field.py's DEFAULTS says {lh.DEFAULTS[key]!r}")
