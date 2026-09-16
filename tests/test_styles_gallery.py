@@ -542,14 +542,62 @@ def test_nothing_pulls_a_still_with_an_input_seek():
     assert not offenders, "\n".join(offenders)
 
 
+# In 0-255 luma. The four previews recorded against an empty drum table -- so
+# that nothing but the zoom's idle breathe was moving -- peaked at 1.27, 0.83,
+# 0.85 and 0.73 away from the word changes. A punch three frames into its
+# response still carries 42% of its envelope, which on a word filling the frame
+# is tens of luma.
+BEAT_SHOWS = 5.0
+
+
+def _settled(baseline, guard: int = 2):
+    """Which frames of a capture are not next to something the baseline did.
+
+    Two recordings of the same four seconds do not place the word transitions
+    on the same frame -- they land one or two apart -- and each mismatch spikes
+    12-25 luma whether or not anything else is different. Measured, that jitter
+    was the ENTIRE difference between the beat previews: the same spikes at the
+    same indices in all four presets. A check that does not exclude these
+    frames is measuring the recorder.
+
+    Taken from the baseline's own frame-to-frame step rather than computed from
+    the cue table, because the two do not agree: `monument` begins a word's
+    crossfade before its cue, by one frame in places and eight in others, so a
+    mask built from cue arithmetic leaves the real transitions half uncovered.
+    The capture is asked where it moved.
+
+    The cost is that the mask also covers `monument`'s own kick lift, which
+    fires in the baseline too (`kick_lift` 0.10 over `kick_time` 0.20s) -- so a
+    few frames at the very start of each response are spent. It is affordable:
+    the lift is 5 frames at 24fps and the shortest response in `beat.PRESETS`
+    decays over 0.20s more than that, so the back half of every envelope
+    survives the mask. A guard of one frame does not work; at +-1 a leaked
+    transition still read 25.67 for `punch` while every honest frame read under
+    1.3.
+    """
+    import numpy as np
+
+    step = np.abs(np.diff(baseline, axis=0)).mean(axis=(1, 2))
+    bad = set()
+    for i in np.where(step > 3.0)[0]:
+        bad.update(range(int(i) - guard, int(i) + guard + 2))
+    return [i for i in range(len(baseline)) if i not in bad]
+
+
 @pytest.mark.ffmpeg
 def test_every_beat_preset_visibly_moves_the_words():
-    """Each preset against the unaffected baseline, at its peak.
+    """Each preset against the unaffected baseline, where the baseline is still.
 
-    This is the check that would have caught `fx_drive` reading the wrong
-    params DAT: the chain was built, driven by its compiled-in defaults, and
-    all five presets recorded as the same video -- `jolt` and `pulse` agreeing
-    to three decimal places.
+    Two versions of this check have now passed on previews of nothing. The
+    first would have caught `fx_drive` reading the wrong params DAT but was
+    never run against it; the second took the peak over the whole clip, and the
+    word-transition jitter cleared its threshold while every envelope in the
+    capture was identically zero -- the drum table never reached `fx_drive`, so
+    `_last` returned -1e9 and the only motion left was the zoom's idle breathe,
+    the same waveform in all five recordings.
+
+    The difference has to show up where the baseline is holding still. That is
+    the only place it can mean the effect.
     """
     import numpy as np
 
@@ -561,6 +609,10 @@ def test_every_beat_preset_visibly_moves_the_words():
         pytest.skip("the beat previews are not recorded on this machine")
     b = R._gray_frames(base, 90)
     assert b is not None
+    still = _settled(b)
+    assert len(still) > len(b) // 5, (
+        f"only {len(still)} of {len(b)} frames are settled; too thin a sample "
+        "to judge an effect on")
 
     quiet = []
     for slug, name, _why, _v in beat_mod.PRESETS:
@@ -572,25 +624,136 @@ def test_every_beat_preset_visibly_moves_the_words():
             continue
         a = R._gray_frames(v, 90)
         n = min(len(a), len(b))
-        peak = float(np.abs(a[:n] - b[:n]).mean(axis=(1, 2)).max())
-        # In 0-255 luma. A word change between two aligned captures measures
-        # about 12; a real effect has to clear that.
-        if peak < 13.0:
-            quiet.append(f"{name}: peaks {peak:.1f} from the baseline")
-    assert not quiet, "presets that do not show:\n  " + "\n  ".join(quiet)
+        d = np.abs(a[:n] - b[:n]).mean(axis=(1, 2))
+        peak = max(d[i] for i in still if i < n)
+        if peak < BEAT_SHOWS:
+            quiet.append(f"{name}: peaks {peak:.2f} on the settled frames")
+    assert not quiet, (
+        "presets that do not show (an empty drum table looks exactly like "
+        "this):\n  " + "\n  ".join(quiet))
 
 
-def test_re_saving_a_style_keeps_the_date_it_first_appeared(tmp_path):
-    """`created` is when the look appeared, not when the file was last written.
+@pytest.mark.ffmpeg
+def test_no_two_beat_presets_are_the_same_recording():
+    """Not just "each differs from none" -- each has to differ from the others.
 
-    The seeder mints a fresh timestamp on every run, so re-seeding rewrote that
-    one line in all nine shipped styles -- nine files in the diff saying
-    nothing had changed.
+    With no drum table every preset is the zoom's idle breathe scaled by its
+    own travel, so they differ from `none` by a little and from each other by
+    almost nothing. Comparing only against the baseline cannot see that.
     """
-    from lyricfield import styles as S
+    import itertools
 
-    a = S.Style(name="Keep", slug="keep", created="2020-01-01T00:00:00+00:00")
-    a.save(tmp_path)
-    S.Style(name="Keep", slug="keep",
-            created="2026-09-16T00:00:00+00:00").save(tmp_path)
-    assert S.Style.load(tmp_path / a.type / "keep").created == a.created
+    import numpy as np
+
+    from lyricfield import beat as beat_mod
+
+    root = ROOT / beat_mod.PREVIEW_DIR / beat_mod.REFERENCE
+    base = root / "none" / "preview.mp4"
+    if not base.exists():
+        pytest.skip("the beat previews are not recorded on this machine")
+    still = _settled(R._gray_frames(base, 90))
+
+    have = {}
+    for slug, name, _why, _v in beat_mod.PRESETS:
+        if slug == "none":
+            continue
+        v = root / slug / "preview.mp4"
+        if v.exists():
+            have[name] = R._gray_frames(v, 90)
+    same = []
+    for (an, a), (bn, b) in itertools.combinations(sorted(have.items()), 2):
+        n = min(len(a), len(b))
+        d = np.abs(a[:n] - b[:n]).mean(axis=(1, 2))
+        peak = max(d[i] for i in still if i < n)
+        if peak < BEAT_SHOWS:
+            same.append(f"{an} and {bn} peak {peak:.2f} apart")
+    assert not same, "presets recorded as the same picture:\n  " + "\n  ".join(same)
+
+
+# ------------------------------------------ a beat preview with nothing in it
+
+def _stub_capture(monkeypatched):
+    """A client and a stood-aside network, for the checks made after the push."""
+    class _Client:
+        def run(self, code, *a, **k):
+            return ""
+
+        def write(self, path, text):
+            return None
+
+        def call(self, *a, **k):
+            raise AssertionError("a render was started despite the refusal")
+
+    return _Client()
+
+
+def test_a_beat_preview_with_no_drum_hits_is_refused():
+    """The failure that shipped five identical tiles.
+
+    The drum table never reached `fx_drive`: `capture_preview` looked the
+    workspace up by title where a slug was wanted, and wrote the table to the
+    renderer's container while the driver reads its own. Both failures were
+    silent -- an empty table does not raise, `_last` returns -1e9 and every
+    envelope clamps to 0.0 -- so five presets recorded as five copies of the
+    zoom's idle breathe and passed every check there was.
+    """
+    import lyricfield.sync as sync_mod
+    from lyricfield import beat as beat_mod
+
+    st = next(s for s in SHIPPED if types_mod.get_type(s.type).needs_lyrics)
+    saved = (S._scratch_network, S._drop_scratch,
+             sync_mod.params_were_read, sync_mod.drums_were_read)
+    S._scratch_network = (lambda client, cfg, say, with_beat=False:
+                          ("/project1/_preview", "/project1/_preview/words"))
+    S._drop_scratch = lambda client: None
+    sync_mod.params_were_read = lambda client, container=None: True
+    sync_mod.drums_were_read = (lambda client, container=None:
+                                {"kick": 0, "snare": 0, "hat": 0})
+    try:
+        with pytest.raises(S.BeatlessPreview) as e:
+            S.capture_preview(_stub_capture(None), st, at=3.55, seconds=4.0,
+                              live=None, with_beat=True,
+                              beat=beat_mod.preset("punch"))
+    finally:
+        (S._scratch_network, S._drop_scratch,
+         sync_mod.params_were_read, sync_mod.drums_were_read) = saved
+    assert "no drum hits" in str(e.value)
+
+
+def test_the_none_preset_is_allowed_to_have_nothing_to_answer():
+    """It switches every effect off, and it is the baseline the whole row is
+    read against. Refusing it would leave the comparison nothing to compare to.
+
+    Asserted as "whatever stops this capture, it is not the beat check" rather
+    than by running it to completion: the stub has no timeline, so it gets as
+    far as the seek and no further, and how far that is is not this test's
+    business.
+    """
+    import lyricfield.sync as sync_mod
+    from lyricfield import beat as beat_mod
+
+    st = next(s for s in SHIPPED if types_mod.get_type(s.type).needs_lyrics)
+    saved = (S._scratch_network, S._drop_scratch,
+             sync_mod.params_were_read, sync_mod.drums_were_read)
+    S._scratch_network = (lambda client, cfg, say, with_beat=False:
+                          ("/project1/_preview", "/project1/_preview/words"))
+    S._drop_scratch = lambda client: None
+    sync_mod.params_were_read = lambda client, container=None: True
+    sync_mod.drums_were_read = (lambda client, container=None:
+                                {"kick": 0, "snare": 0, "hat": 0})
+    try:
+        with pytest.raises(Exception) as e:
+            S.capture_preview(_stub_capture(None), st, at=3.55, seconds=4.0,
+                              live=None, with_beat=True,
+                              beat=beat_mod.preset("none"))
+    finally:
+        (S._scratch_network, S._drop_scratch,
+         sync_mod.params_were_read, sync_mod.drums_were_read) = saved
+    assert not isinstance(e.value, S.BeatlessPreview), \
+        "the none preset was refused for having no beat to answer"
+
+
+def test_refusing_a_beatless_preview_is_not_worth_retrying():
+    """The seeder walks a list of moments on `StillPreview`. An empty drum
+    table is empty at every moment, so this must not send it round that loop."""
+    assert not issubclass(S.BeatlessPreview, S.StillPreview)

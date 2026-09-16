@@ -30,6 +30,10 @@ REQUIRED = [
     # the placeholder words style previews are rendered from, so a preview
     # carries no song's lyrics
     "lyricfield/data/preview_cues.tsv",
+    # and the beat they are sung over, so a beat preset demonstrates itself on
+    # a machine whose song has never been drum-analysed. Every shipped preset
+    # preview was recorded against an empty table before this existed.
+    "lyricfield/data/preview_drums.tsv",
     # the project every new song is forked from, in its diffable text form
     "templates/_template.toe.toc",
     "templates/_template.toe.dir/local/time.parm",

@@ -381,3 +381,63 @@ def test_a_poster_falls_back_rather_than_raising(tmp_path):
         assert styles_mod.poster_against("a", "b", tmp_path / "p.png") is None
     finally:
         render_mod._gray_frames = real
+
+
+# ------------------------------------------------- the beat a preview is of
+
+def test_the_placeholder_beat_never_lands_on_a_placeholder_word():
+    """The separation the preview check depends on.
+
+    A preview is judged by comparing it against the same look with the effect
+    switched off, and a word changing is worth 12-25 luma in that difference
+    whether or not anything else did. If the shipped hits sat on the shipped
+    words, every honest preview would be indistinguishable from one recorded
+    against silence, and the whole measurement would be worthless.
+
+    Pinned here because the two tables are edited independently: re-timing the
+    placeholder words to read better would quietly disarm the real check, and
+    nothing else would notice.
+    """
+    from lyricfield import styles as S
+    from lyricfield.cues import CueTable
+    from lyricfield.drums import DrumTable
+
+    words = [c.start for c in CueTable.load(S.PREVIEW_CUES).cues]
+    table = DrumTable.load(S.PREVIEW_DRUMS)
+    assert words and len(table)
+
+    gap, where = min((abs(h.start - w), (h.kind, h.start, w))
+                     for h in table.hits for w in words)
+    # Three frames at 24fps, the rate previews are captured at.
+    assert gap >= 3 / 24.0, (
+        f"{where[0]} at {where[1]}s sits {gap:.3f}s from the word at "
+        f"{where[2]}s, close enough that the word change masks the effect")
+
+
+def test_the_preview_window_holds_enough_of_both_to_judge():
+    """Words to show and hits to answer, in the four seconds actually captured."""
+    from lyricfield import styles as S
+    from lyricfield.cues import CueTable
+    from lyricfield.drums import DrumTable
+
+    at, seconds = S.preview_moment(), 4.0
+    inside = lambda ts: [t for t in ts if at <= t < at + seconds]
+
+    words = inside(c.start for c in CueTable.load(S.PREVIEW_CUES).cues)
+    table = DrumTable.load(S.PREVIEW_DRUMS)
+    assert len(words) >= 4, f"only {len(words)} placeholder words at {at}s"
+    # Every shipped preset is driven by kick, snare or both, and one lucky hit
+    # must not be the whole of a preview's evidence.
+    for kind in ("kick", "snare"):
+        assert len(inside(table.times(kind))) >= 2, (
+            f"only {len(inside(table.times(kind)))} {kind}s in the window "
+            f"from {at}s; a preset driven by it has almost nothing to show")
+
+
+def test_the_placeholder_beat_is_a_table_the_renderer_can_read():
+    from lyricfield import styles as S
+    from lyricfield.drums import DrumTable
+
+    table = DrumTable.load(S.PREVIEW_DRUMS)
+    assert table.problems(9.0) == []
+    assert DrumTable.from_dat_text(table.to_dat_text()).hits == table.hits

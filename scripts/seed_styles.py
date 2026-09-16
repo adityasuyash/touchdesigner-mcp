@@ -400,9 +400,11 @@ def main(argv: list[str]) -> int:
     # So slide the window over the table that is actually pushed, which is the
     # same rule `busiest_window` uses over the drums.
     from lyricfield.cues import CueTable
-    from lyricfield.run import preview_window
     words = CueTable.load(styles_mod.PREVIEW_CUES).cues
-    word_moments = [preview_window(live, words, 4.0)]
+    # Through `styles.preview_moment` rather than `preview_window(live, ...)`,
+    # so the answer is a function of the shipped table alone and a test can
+    # work out which frame of a capture a given hit lands on.
+    word_moments = [styles_mod.preview_moment(4.0)]
     last = max(c.start for c in words) if words else 0.0
     word_moments += [m for m in spread if m < last - 1.0]
     print(f"previewing beats from {beat_moments[0]:.1f}s, "
@@ -436,6 +438,11 @@ def main(argv: list[str]) -> int:
             failed.append(st.name)
     failed += builtin_previews(client, live, moments_for, force=force,
                            root=root)
+    # The WORD moments, deliberately: the beat reference is `monument`, which
+    # needs lyrics, so parking at the busiest drum window records a frame with
+    # no words in it -- which `WordlessPreview` exists to refuse. The drums a
+    # preset answers are `styles.PREVIEW_DRUMS`, shipped and spanning the same
+    # seconds as the words, so this window has both.
     failed += beat_previews(client, live, word_moments, force=force)
     if failed:
         print(f"no moving preview for: {', '.join(failed)}")

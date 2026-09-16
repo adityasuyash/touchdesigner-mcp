@@ -15,10 +15,11 @@ per type and applying one across types is refused rather than silently partial.
         preview.png     all motion, and two styles can look identical frozen
 
 Styles are tracked in the repo; they are the reusable output of the work, and so
-are their previews. A lyric preview is rendered from the placeholder words in
-`data/preview_cues.tsv` and a beatsync one has no words at all, so neither
-carries anything of the song that happened to be loaded -- which is what makes
-them shippable rather than remade on every machine.
+are their previews. A preview is rendered from the placeholder words in
+`data/preview_cues.tsv` over the placeholder beat in `data/preview_drums.tsv`,
+so it carries nothing of the song that happened to be loaded -- which is what
+makes them shippable rather than remade on every machine, and what lets a beat
+preset demonstrate itself on a machine whose song has never been analysed.
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from pathlib import Path
 
 from . import types as types_mod
 from .config import Config
+from .drums import DrumTable
 from .sections import toml_value
 
 DEFAULT_ROOT = Path(__file__).resolve().parents[1] / "styles"
@@ -319,6 +321,40 @@ def delete_style(slug: str, root: str | Path = DEFAULT_ROOT,
 # which is why previews used to be per-machine and remade constantly.
 PREVIEW_CUES = Path(__file__).parent / "data" / "preview_cues.tsv"
 
+# And the beat those words are sung over. Shipped for the same reason the words
+# are: a preview that borrows whichever song is loaded is not shareable, and on
+# a machine whose song has never been drum-analysed it has no rhythm at all --
+# which is exactly what happened. Every beat preset recorded against an empty
+# table, so `_last` returned -1e9, every envelope was 0.0, and the five videos
+# were five recordings of the zoom's idle breathe.
+#
+# 109 BPM: sixteen beats of 0.55s from 0.40s, which is the spacing the
+# placeholder words already have, so hits and words land together rather than
+# drifting against each other.
+PREVIEW_DRUMS = Path(__file__).parent / "data" / "preview_drums.tsv"
+
+# The drums take the words' pulse shifted half a beat, so no hit ever lands on
+# a word -- closest approach is 0.125s, three frames at 24fps. That offset is
+# load-bearing rather than taste. A preview is judged by comparing it against
+# the same look with the effect off, and a word changing is worth 12-25 luma
+# whether or not anything else did; if hits and words coincided, an honest
+# preview would be indistinguishable from a broken one and the fix would be
+# unprovable. `tests/test_styles_gallery` pins the separation so that re-timing
+# the placeholder words cannot quietly disarm the check.
+
+
+def preview_moment(seconds: float = 4.0) -> float:
+    """Where a preview of the placeholder words starts.
+
+    A function of the shipped cue table and nothing else, so the seeder and the
+    tests agree on it without one having to tell the other -- which is what
+    lets a test know which frame of a capture a given hit should land on.
+    """
+    from .cues import CueTable
+    from .run import preview_window
+
+    return preview_window(Config(), CueTable.load(PREVIEW_CUES).cues, seconds)
+
 # How bright the brightest pixel of a lyric preview must get, 0-1, before the
 # capture counts as having shown a word. The bold layer draws white, so a lit
 # word lands near 1.0 and a field with none tops out around 0.4.
@@ -352,6 +388,25 @@ class FallbackPreview(RuntimeError):
     picture is of the renderer's compiled-in defaults rather than of this look
     and would be identical at every moment. It is a wiring fault, and the
     callers that walk a list of moments should stop rather than walk it.
+    """
+
+
+class BeatlessPreview(RuntimeError):
+    """A beat preview was recorded with nothing for the effect to answer.
+
+    Not a `StillPreview`, for the same reason `FallbackPreview` is not:
+    retrying at another moment cannot help, because an empty drum table is
+    empty at every moment, and the callers that walk a list of moments should
+    stop rather than walk it.
+
+    It is the third version of one lie this module now refuses. A preview whose
+    field script could not read its params draws that renderer's defaults; a
+    lyric preview parked past the last cue draws a field with no words in it;
+    and a beat preview with no hits draws the word layer untouched. All three
+    move, parse, fill the frame and pass every other check, and all three
+    promise something the render will not deliver. Five shipped previews were
+    in this state -- five recordings of the zoom's idle breathe, differing from
+    each other by under 1.4 of 255.
     """
 
 
@@ -499,6 +554,10 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
     cue table for a renderer that never reads one would only mean restoring it
     afterwards for nothing.
 
+    The beat under them is shipped too, and for the same reason. It used to be
+    the loaded song's, looked up by title where a slug was wanted, so it was
+    never found and every preset previewed against an empty table.
+
     Pass `live` -- the config the project is actually wearing -- to preview a
     style the project is *not* wearing. This function used to record whatever
     happened to be pushed, which quietly made it useless for any style but the
@@ -570,18 +629,23 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
             say("pushing the placeholder words")
             client.write(f"{words}/lyrics",
                          CueTable.load(PREVIEW_CUES).to_dat_text())
-        # The drums the song actually has, so a beat renderer answers a real
-        # rhythm rather than an empty table.
-        if live is not None:
-            try:
-                from .drums import DrumTable
-                from .workspace import Workspace
-                ws = Workspace.open(getattr(live.track, "title", "") or "")
-                if ws.drums_path.exists():
-                    client.write(f"{words}/drums",
-                                 DrumTable.load(ws.drums_path).to_dat_text())
-            except Exception:
-                pass                    # a preview without drums is still a preview
+        # The placeholder beat, pushed to BOTH containers -- the renderer reads
+        # it inside its picture and `fx_drive` reads it outside, and they are
+        # different operators with different parents. `push_composed` writes it
+        # twice for this reason; this path used to write it once, to the
+        # renderer's container only, so the effect chain saw an empty table
+        # however good the data was. Through `sync.push_drums` rather than a
+        # third hand-rolled `client.write`, so the two cannot drift again.
+        say("pushing the placeholder beat")
+        drums = DrumTable.load(PREVIEW_DRUMS)
+        sync.push_drums(client, drums, words)
+        if with_beat:
+            sync.push_drums(client, drums, box)
+            # And make the driver read it. `_scratch_network` writes
+            # `fx_drive_callbacks` before this point, so the driver may already
+            # have cooked and cached the empty table that `compose.network`
+            # created -- in which case the push above changes nothing at all.
+            sync.reset_drive_state(client, box)
 
         d = style.dir(root)
         d.mkdir(parents=True, exist_ok=True)
@@ -599,6 +663,20 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
                     f"the {shown.type} field script cannot read the params "
                     f"just pushed, so a {style.name} preview would be a "
                     f"recording of that renderer's defaults")
+
+        # And the same question of the beat chain, which nothing used to ask.
+        # `fx_drive` counts the hits it can see into its own stats, so this is
+        # one round trip. Conditional on an effect actually being switched on:
+        # the `none` preset legitimately has nothing to answer, and it is the
+        # baseline the whole row is read against.
+        if with_beat and (shown.response.active() if shown.response else []):
+            seen = sync.drums_were_read(client, box)
+            if seen is not None and not sum(seen.values()):
+                raise BeatlessPreview(
+                    f"{style.name} switches on "
+                    f"{', '.join(shown.response.active())}, but the driver in "
+                    f"{box} can see no drum hits, so the capture would be the "
+                    "word layer untouched")
 
         # Through `park` rather than setting the frame here: a seek outside the
         # play range is discarded silently, and a style preview captured from

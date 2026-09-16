@@ -175,6 +175,41 @@ def params_were_read(client: TDClient, container: str = ROOT) -> bool | None:
     return bool(int(out)) if out.strip() in ("0", "1") else None
 
 
+def drums_were_read(client: TDClient, container: str = ROOT) -> dict | None:
+    """How many hits of each kind `fx_drive` can actually see.
+
+    The beat-response half of `params_were_read`, and the same class of lie: an
+    empty drum table does not fail. `_last` returns -1e9, `_impulse` clamps to
+    0.0 on every frame, and the chain renders the word layer untouched while
+    reporting success -- so five preset previews came back as five recordings
+    of the zoom's idle breathe, all of them passing every check there was.
+
+    `fx_drive` already counts them into its stats, so the answer costs one
+    round trip. Returns None when the driver has not cooked and has no stats,
+    which `field_errors` is the check for.
+    """
+    try:
+        out = client.run(
+            "def go():\n"
+            f"    t = op({container!r} + '/fx_drive')\n"
+            "    if t is not None:\n"
+            "        t.cook(force=True)\n"
+            f"    o = op({container!r} + '/fx_drive_callbacks')\n"
+            "    m = getattr(o, 'module', None) if o is not None else None\n"
+            "    st = getattr(m, 'S', {}).get('stats') if m is not None else None\n"
+            "    print('' if st is None else repr(st.get('drums') or {}))\n"
+            "go()").strip()
+    except TDError:
+        return None
+    if not out:
+        return None
+    try:
+        got = eval(out)
+    except Exception:
+        return None
+    return got if isinstance(got, dict) else None
+
+
 def push_cues(client: TDClient, table: CueTable, container: str = ROOT) -> None:
     client.write(dat(container, "lyrics"), table.to_dat_text())
 
@@ -246,6 +281,31 @@ def reset_field_state(client: TDClient) -> None:
             "    return 'cleared'\n"
             "print(main())"
         )
+
+
+def reset_drive_state(client: TDClient, container: str = ROOT) -> None:
+    """`reset_field_state`'s other half, for the beat chain.
+
+    `fx_drive` reads the drum table once and keeps it -- `if 'drums' not in S`
+    -- and clears `S` only when the params text changes length. So a table
+    pushed after the driver has cooked is never seen: it caches the empty one
+    that `compose.network` created and drives nothing, for the life of the
+    project. `reset_field_state` walks `v7_script_callbacks` and has never
+    touched this DAT, and in `push_composed` the ordering makes it right only
+    by accident -- the callbacks are rewritten after the drums, which reloads
+    the module and wipes `S` on the way past.
+    """
+    client.run(
+        "def main():\n"
+        f"    d = op({dat(container, 'fx_drive_callbacks')!r})\n"
+        "    if d is None:\n"
+        "        return 'no driver here'\n"
+        "    m = getattr(d, 'module', None)\n"
+        "    if m is not None and hasattr(m, 'S'):\n"
+        "        m.S.clear()\n"
+        "    return 'cleared'\n"
+        "print(main())"
+    )
 
 
 def quiesce(client: TDClient) -> None:
