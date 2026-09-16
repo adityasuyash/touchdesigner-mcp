@@ -143,6 +143,10 @@
                    margin-bottom: var(--s-2); letter-spacing: -.006em; }
   .hint { display: block; color: var(--dim); font-size: var(--t-sm);
           margin-top: var(--s-2); line-height: 1.45; }
+  /* A hint sitting INSIDE a label is an aside to it, not a second label: it
+     runs on the same line and does not inherit the label's weight. */
+  .field > label .hint { display: inline; margin: 0 0 0 .45em;
+                         font-weight: 400; letter-spacing: 0; }
 
   input[type=text], input[type=number], select, textarea {
     width: 100%; font: inherit; font-size: var(--t-base); color: var(--text);
