@@ -289,3 +289,64 @@ def test_a_song_with_no_footage_is_not_asked_about_it(tmp_path):
     res = preflight.Result()
     preflight._plate_readable(FakeTD(), cfg, None, 0.0, False, res, lambda m: None)
     assert res.problems == []
+
+
+def test_a_picked_beat_whose_driver_never_cooked_is_refused():
+    """The question the preview path asks and the render path never did.
+
+    `fx_drive` sets its siblings' parameters as a side effect of cooking, so a
+    driver nothing cooks leaves the whole chain passing the word layer through
+    untouched -- while the network is built, the params are right and the drum
+    table is full, so every other check here passes. Measured on a real
+    project: a render with `punch` picked came out identical to one with no
+    beat at all.
+    """
+    from lyricfield import preflight, sync
+
+    cfg = Config()
+    cfg.with_beat("punch")
+    assert cfg.response.active(), "punch switches something on"
+
+    saved = sync.drums_were_read
+    sync.drums_were_read = lambda client, container=None: None   # never cooked
+    try:
+        res = preflight.Result()
+        preflight._beat_is_driven(FakeTD(), cfg, None, 0.0, False, res,
+                                  lambda m: None)
+    finally:
+        sync.drums_were_read = saved
+    assert any("has not cooked" in m for m in res.problems), res.problems
+
+
+def test_a_driver_that_sees_no_hits_is_refused_differently():
+    from lyricfield import preflight, sync
+
+    cfg = Config()
+    cfg.with_beat("punch")
+    saved = sync.drums_were_read
+    sync.drums_were_read = lambda client, container=None: {"kick": 0, "snare": 0}
+    try:
+        res = preflight.Result()
+        preflight._beat_is_driven(FakeTD(), cfg, None, 0.0, False, res,
+                                  lambda m: None)
+    finally:
+        sync.drums_were_read = saved
+    assert any("no drum hits" in m for m in res.problems), res.problems
+
+
+def test_no_beat_preset_means_nothing_to_check():
+    """`none` is a legitimate choice and asks the driver for nothing."""
+    from lyricfield import preflight, sync
+
+    cfg = Config()
+    cfg.with_beat("none")
+    asked = []
+    saved = sync.drums_were_read
+    sync.drums_were_read = lambda client, container=None: asked.append(1)
+    try:
+        res = preflight.Result()
+        preflight._beat_is_driven(FakeTD(), cfg, None, 0.0, False, res,
+                                  lambda m: None)
+    finally:
+        sync.drums_were_read = saved
+    assert res.problems == [] and not asked

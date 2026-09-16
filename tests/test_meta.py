@@ -602,3 +602,56 @@ def test_nothing_reads_an_attribute_a_config_does_not_have():
                            f"{node.value.id}.{node.attr}")
     assert not bad, (
         "attributes read off a Config that no Config has:\n  " + "\n  ".join(bad))
+
+
+# ------------------------------------------- a script that nothing asks for
+
+def test_no_script_top_is_left_with_nothing_downstream_of_it():
+    """A Script TOP with no outputs is in nobody's cook chain, and so it never
+    runs.
+
+    `CookLevel.ALWAYS` says how OFTEN an operator cooks when something asks for
+    it, not whether anything asks. `fx_drive` was built as "not the picture" --
+    sixteen pixels whose whole job is to set parameters on its siblings -- and
+    that left it hanging off the end of the graph. Measured on a real project
+    with a beat preset picked: `fx_drive.outputs` empty, its stats None, and
+    `fx_zoom.sx` at exactly 1.0, while the params and a 963-row drum table
+    beside it were perfectly correct. Every check passed and the render was
+    untouched. One forced cook moved it.
+
+    Previews escaped because `capture_preview` force-cooks the driver to ask it
+    about the drums, which puts it in the cook list for the recording.
+
+    So: whatever a Script TOP is for, something downstream has to want it.
+    """
+    from lyricfield import compose
+    from lyricfield.config import Config
+
+    def orphans(specs, where):
+        wanted = {name for s in specs for name in (s.inputs or [])}
+        return [f"{where}: {s.name}" for s in specs
+                if s.type == "scriptTOP" and s.name not in wanted]
+
+    bad = []
+    for vt in types_mod.list_types():
+        if not getattr(vt, "can_build", True):
+            continue
+        cfg = Config(type=vt.slug)
+        try:
+            bad += orphans(vt.network(cfg) if hasattr(vt, "network")
+                           else _network_of(vt, cfg), vt.slug)
+        except Exception as e:                       # pragma: no cover
+            pytest.skip(f"{vt.slug} has no inspectable network: {e}")
+    bad += orphans(compose.network(Config(type=types_mod.DEFAULT_TYPE)),
+                   "compose")
+    assert not bad, (
+        "Script TOPs nothing consumes, which TouchDesigner will never cook:\n  "
+        + "\n  ".join(bad))
+
+
+def _network_of(vt, cfg):
+    """A type's `network()`, which lives in its build module."""
+    import importlib
+
+    mod = importlib.import_module(f"lyricfield.types.{vt.slug}.build")
+    return mod.network(cfg)

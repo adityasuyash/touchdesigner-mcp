@@ -8,8 +8,9 @@ what `render` records and what every check measures.
     words/out -> fx_in (select) -> fx_shake -> fx_zoom
               -> fx_r / fx_g / fx_b -> fx_split      (the fringe)
               -> fx_level -> fx_bloom -> fx_add -> fx_clamp -> out
-                                    ^
-                              fx_drive (16px script)
+                   ^                ^
+                   |          fx_drive (16px script) sets the rest
+              fx_liftmap <- fx_drive's own pixels ARE the lift
 
 Why a chain rather than code inside each renderer: there are eight word
 renderers and the beat means the same thing to all of them. A preset is then a
@@ -111,8 +112,31 @@ def network(cfg) -> list[OpSpec]:
         lit = "fx_zoom"
 
     specs += [
-        OpSpec("fx_level", "levelTOP", (-400, -400),
-               params={**frame, "brightness1": 1.0}, inputs=[lit]),
+        # The lift, as a SIGNAL rather than as a parameter write -- and that is
+        # the whole reason these three operators exist.
+        #
+        # `fx_drive` had no outputs. A Script TOP with nothing downstream of it
+        # is in nobody's cook chain, and `CookLevel.ALWAYS` governs how often an
+        # operator cooks when something asks for it, not whether anything asks.
+        # So the driver never ran in a render: measured on a real project with
+        # `punch` picked, `fx_drive.outputs` was empty, its stats were None, and
+        # `fx_zoom.sx` sat at exactly 1.0 while the params and the 963-row drum
+        # table beside it were perfectly correct. One forced cook moved it.
+        # Previews escaped it only because `capture_preview` force-cooks the
+        # driver to ask it about the drums.
+        #
+        # A tap that changed nothing would have fixed the cook and invited the
+        # next reader to delete it as dead weight. This is load-bearing: the
+        # driver outputs the bloom's lift, `fx_liftmap` fills the frame with it,
+        # and multiply-then-add is `word * (1 + lift)` -- exactly what the Level
+        # TOP's `brightness1` used to do, with the driver in the path.
+        OpSpec("fx_liftmap", "levelTOP", (-600, -650),
+               params={**frame, "fillmode": "fill"}, inputs=["fx_drive"]),
+        OpSpec("fx_gain", "compositeTOP", (-500, -650),
+               params={**frame, "operand": "multiply"},
+               inputs=[lit, "fx_liftmap"]),
+        OpSpec("fx_level", "compositeTOP", (-400, -400),
+               params={**frame, "operand": "add"}, inputs=[lit, "fx_gain"]),
         OpSpec("fx_bloom", "blurTOP", (-400, -150),
                params={**frame, "size": 0.0}, inputs=["fx_level"]),
         # `add`, then clamped: the glow lifts the type rather than replacing it,
@@ -158,6 +182,39 @@ def build(client, cfg, progress=None) -> dict:
 
 def verify(client, cfg) -> list[str]:
     return check_types(client, network(cfg))
+
+
+def chain_missing(client, cfg) -> list[str]:
+    """Which of the response chain's operators are not in the project.
+
+    The chain's SHAPE depends on the preset -- `fx_r`/`fx_b`/`fx_split` exist
+    only when the split is on -- so switching to a preset that needs them can
+    never work by pushing parameters, however correct those parameters are.
+    `network` is a pure function of the config, so the question is answerable
+    by comparing names.
+    """
+    want = [s.name for s in network(cfg)]
+    got = client.run(
+        "def go():\n"
+        f"    r = op({ROOT!r})\n"
+        "    print(' '.join(sorted(c.name for c in r.children)) if r else '')\n"
+        "go()").strip().split()
+    return [n for n in want if n not in set(got)]
+
+
+def rebuild_chain(client, cfg, progress=None) -> list[str]:
+    """Put the response chain back, without touching the renderer.
+
+    Cheaper than a full provision and enough for a preset whose shape differs:
+    the DATs that hold content are `preserve=True`, so re-creating is safe.
+    """
+    say = progress or (lambda m: None)
+    specs = network(cfg)
+    out = create_ops(client, specs, progress=say, container=ROOT)
+    out += wire_ops(client, specs, progress=say, container=ROOT)
+    out += apply_exprs(client, specs, progress=say, container=ROOT)
+    drop_autocreated(client, specs, progress=say, container=ROOT)
+    return out
 
 
 def _make(client, box: str) -> None:

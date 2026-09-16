@@ -378,7 +378,28 @@ def _push(ctx: Ctx, say) -> dict:
     # Every renderer answers the drums, words or not, so this goes in always.
     from .drums import DrumTable
     drums = DrumTable.load(ws.drums_path)
-    done = attempt(lambda: sync.push_all(ctx.client, cfg, table, drums), say)
+    # Which push this project wants. The Generate button starts the run HERE,
+    # skipping provision, so this is the only chance a re-picked beat preset
+    # gets to reach TouchDesigner -- and `push_all` writes the renderer's half
+    # and nothing else. A project composed since the beat became an effect
+    # needs both halves, and `push_all` would also put the renderer's params in
+    # `/project1/params`, which a renderer living in `/project1/words` does not
+    # read.
+    from . import compose
+
+    if attempt(lambda: sync.is_composed(ctx.client), say):
+        missing = compose.chain_missing(ctx.client, cfg)
+        if missing:
+            # The chain's shape follows the preset -- the split branch exists
+            # only when the split is on -- so a preset that needs operators the
+            # project does not have cannot be pushed into place.
+            say(f"the beat chain is missing {', '.join(missing)}; rebuilding it")
+            attempt(lambda: compose.rebuild_chain(ctx.client, cfg, say), say)
+        done = attempt(lambda: sync.push_composed(ctx.client, cfg, table, drums),
+                       say)
+        attempt(lambda: sync.reset_drive_state(ctx.client), say)
+    else:
+        done = attempt(lambda: sync.push_all(ctx.client, cfg, table, drums), say)
     return {"pushed": done}
 
 

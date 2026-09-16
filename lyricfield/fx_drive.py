@@ -244,18 +244,30 @@ def onCook(scriptOp):
         _setpar('fx_b', 'tx', 0.0)
 
     # ---- bloom: the swell --------------------------------------------------
+    lift = 0.0
     if BLOOM_ON:
         env = _impulse(t, _last(BLOOM_DRIVE, t), BLOOM_DECAY)
         # Only the positive half lifts the glow: a blur radius below rest would
         # mean sharpening, which a Blur TOP cannot do and would clamp anyway.
         up = max(0.0, env)
         _setpar('fx_bloom', 'size', float(BLOOM_AMOUNT) * up)
-        _setpar('fx_level', 'brightness1', 1.0 + float(BLOOM_LIFT) * up)
+        lift = float(BLOOM_LIFT) * up
     else:
         _setpar('fx_bloom', 'size', 0.0)
-        _setpar('fx_level', 'brightness1', 1.0)
 
+    # These sixteen pixels ARE the lift, and the chain multiplies the word
+    # layer by them and adds the result -- `word * (1 + lift)`, which is what
+    # `fx_level.brightness1` used to be set to.
+    #
+    # That it is a signal rather than a parameter write is the point. With no
+    # outputs this operator was in nobody's cook chain and TouchDesigner never
+    # ran it: every render came out untouched while the params, the drum table
+    # and the whole chain beside it were correct. `CookLevel.ALWAYS` says how
+    # OFTEN to cook, not whether anyone is asking.
     out = np.zeros((16, 16, 4), np.float32)
+    out[:, :, 0] = lift
+    out[:, :, 1] = lift
+    out[:, :, 2] = lift
     out[:, :, 3] = 1.0
     scriptOp.copyNumpyArray(np.ascontiguousarray(out))
 

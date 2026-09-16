@@ -567,6 +567,21 @@ def timeline_state(client: TDClient) -> dict:
     return d
 
 
+def is_composed(client: TDClient) -> bool:
+    """Does this project have the beat-response chain in it?
+
+    A project built before compositing has its renderer at the root and no
+    chain; one built since has the renderer in `words` and the chain beside it.
+    The two need different pushes, and pushing the wrong one is silent -- the
+    renderer reads `words/params` and `push_all` writes `params`.
+    """
+    out = client.run(
+        "def go():\n"
+        f"    print(1 if op({dat(ROOT, 'fx_drive')!r}) is not None else 0)\n"
+        "go()").strip()
+    return out.endswith("1")
+
+
 def push_composed(client: TDClient, cfg: Config, table: CueTable | None = None,
                   drums=None) -> list[str]:
     """Fill the word container and the beat response chain.

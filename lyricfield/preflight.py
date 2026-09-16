@@ -67,6 +67,7 @@ def run(client, cfg, workspace=None, covers: float = 0.0,
         ("the pushed field script, and whether it runs", _field_script),
         ("the pushed cue table", _cues),
         ("the pushed drum table", _drums),
+        ("the beat chain, if a preset is picked", _beat_is_driven),
         ("a recorder left behind", _no_stranded_recorder),
     ):
         res.checked.append(name)
@@ -301,6 +302,37 @@ def _cues(client, cfg, ws, covers, repair, res, say):
         res.problems.append(
             f"TouchDesigner holds {len(again.cues)} cues where the song has "
             f"{len(wanted.cues)}; some words would never appear")
+
+
+def _beat_is_driven(client, cfg, ws, covers, repair, res, say):
+    """A picked beat preset that the driver is not actually running.
+
+    The one question the preview path asks and the render path never did.
+    `fx_drive` sets its siblings' parameters as a side effect of cooking, so if
+    nothing cooks it the whole chain passes the word layer through untouched --
+    and every other check here passes, because the network is built, the params
+    are right and the drum table is full. Measured on a real project: a render
+    with `punch` picked came out identical to one with no beat at all.
+
+    `drums_were_read` returns the counts the driver can see, or None when it
+    has never cooked. None is the failure, not the absence of hits: an empty
+    table is `BeatlessPreview`'s question, and this is about whether the thing
+    runs at all.
+    """
+    response = getattr(cfg, "response", None)
+    active = response.active() if response is not None else []
+    if not active:
+        return
+    seen = sync.drums_were_read(client)
+    if seen is None:
+        res.problems.append(
+            f"the beat is set to {', '.join(active)} and the driver has not "
+            f"cooked, so the render would come out with no beat effect at all. "
+            f"Rebuild the project (run from the start) to wire it in.")
+    elif not sum(seen.values()):
+        res.problems.append(
+            f"the beat is set to {', '.join(active)} and the driver can see no "
+            f"drum hits, so nothing would fire. Re-run the analysis stage.")
 
 
 def _no_stranded_recorder(client, cfg, ws, covers, repair, res, say):

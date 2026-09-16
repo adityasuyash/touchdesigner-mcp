@@ -544,3 +544,78 @@ def test_no_two_presets_are_the_same_set_of_numbers():
     seen = {s: asdict(beat.preset(s)) for s, _, _, _ in beat.PRESETS}
     for a, b in itertools.combinations(sorted(seen), 2):
         assert seen[a] != seen[b], f"{a} and {b} are the same preset"
+
+
+# ---------------------------------------- the push a Generate-only run makes
+
+def test_a_composed_project_gets_the_beat_pushed_to_it():
+    """The Generate button starts a run at the `push` stage, skipping
+    provision, so this is the only chance a re-picked preset has to reach
+    TouchDesigner. `push_all` writes the renderer's half and nothing else -- so
+    picking a different preset and pressing Generate silently kept the old one.
+
+    Worse, `push_all` writes the renderer's params to `/project1/params` while
+    a composed project's renderer reads `/project1/words/params`.
+    """
+    from lyricfield import run as run_mod
+    from lyricfield import sync as sync_mod
+    from lyricfield.config import Config
+    from lyricfield.workspace import Workspace
+
+    called = []
+
+    class Stub:
+        def run(self, *a, **k):
+            return ""
+
+    import tempfile
+    from pathlib import Path
+
+    root = Path(tempfile.mkdtemp())
+    ws = Workspace.create("Push Test", root=root, copy_source=False)
+    cfg = ws.load_config()
+    cfg.with_beat("punch")
+    ws.save_config(cfg)
+
+    saved = (sync_mod.is_composed, sync_mod.push_composed, sync_mod.push_all,
+             sync_mod.reset_drive_state)
+    sync_mod.is_composed = lambda c: True
+    sync_mod.push_composed = lambda *a, **k: called.append("composed") or ["ok"]
+    sync_mod.push_all = lambda *a, **k: called.append("all") or ["ok"]
+    sync_mod.reset_drive_state = lambda *a, **k: called.append("reset")
+    from lyricfield import compose as compose_mod
+    was_missing = compose_mod.chain_missing
+    compose_mod.chain_missing = lambda c, cfg: []
+    try:
+        ctx = run_mod.Ctx(client=Stub(), name=ws.name)
+        ctx.workspace = ws
+        run_mod._push(ctx, lambda m: None)
+    finally:
+        (sync_mod.is_composed, sync_mod.push_composed, sync_mod.push_all,
+         sync_mod.reset_drive_state) = saved
+        compose_mod.chain_missing = was_missing
+
+    assert "composed" in called, called
+    assert "all" not in called, "the renderer's params went to the wrong container"
+    assert "reset" in called, (
+        "the driver caches its drum table and clears it only on a params-length "
+        "change; without a reset the push can change nothing")
+
+
+def test_a_preset_whose_chain_is_not_built_rebuilds_rather_than_pushes():
+    """The chain's SHAPE follows the preset: `fx_r`/`fx_b`/`fx_split` exist
+    only when the split is on, so switching to `fracture` cannot work by
+    pushing parameters however correct they are."""
+    from lyricfield import compose
+
+    on = {s.name for s in compose.network(_cfg_with("fracture"))}
+    off = {s.name for s in compose.network(_cfg_with("punch"))}
+    assert "fx_split" in on and "fx_split" not in off, (on - off)
+
+
+def _cfg_with(preset):
+    from lyricfield.config import Config
+
+    cfg = Config()
+    cfg.with_beat(preset)
+    return cfg
