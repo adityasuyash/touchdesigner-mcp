@@ -1719,8 +1719,12 @@ async function confirmDelete(so) {
   if (!confirm(`Move "${so.name}" to the Trash?${what}`
                + `\n\nRecoverable from Finder.`)) return;
   try {
-    await api(`/api/songs/${so.slug}`, {method: 'DELETE'});
-    note(`moved ${so.name} to the Trash`, 'ok');
+    const r = await api(`/api/songs/${so.slug}`, {method: 'DELETE'});
+    // What happened to TouchDesigner matters: the difference between being done
+    // and needing to restart it before the next render.
+    const td = r && r.td && !/not holding|let it go/.test(r.td)
+      ? ` — ${r.td}` : '';
+    note(`moved ${so.name} to the Trash${td}`, td ? 'warn' : 'ok');
     if (CURRENT_SLUG === so.slug) CURRENT_SLUG = '';
     await loadSongs();
   } catch (e) { showErr(e); }

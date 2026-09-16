@@ -35,7 +35,6 @@ from ..td_client import TDClient, TDError, TDUnavailable
 ROOT = Path(__file__).resolve().parents[2]
 DATA = ROOT / "data"
 STYLES_ROOT = ROOT / "styles"
-BACKDROP_ROOT = STYLES_ROOT / "_backdrops"
 
 app = FastAPI(title="lyricfield")
 client = TDClient()
@@ -946,7 +945,51 @@ def delete_song(slug: str):
     global CURRENT
     if CURRENT is not None and CURRENT.slug == slug:
         _select(None)
-    return {"deleted": slug, "via": how}
+
+    # Trashing the folder takes `project.toe` with it, but TouchDesigner may
+    # still be RUNNING that project out of memory -- and `provision` ends with
+    # `save_project`, so a later run would write the deleted song back onto
+    # disk. Hand it the template instead: a project whose only operator is the
+    # MCP server, which is what makes loading it safe at all.
+    #
+    # Bounded, and that matters more than the outcome: deleting files must not
+    # depend on TouchDesigner answering. `select_song` used to block on it and
+    # a wedged TD made a sidebar click hang for two minutes.
+    return {"deleted": slug, "via": how, "td": _release_td(d)}
+
+
+def _release_td(gone: Path) -> str:
+    """Make TouchDesigner let go of a project whose folder has just gone.
+
+    Returns what happened, in words the UI can show: it is the difference
+    between "you are done" and "restart TouchDesigner before you render".
+    """
+    try:
+        live = client.run(
+            "def go():\n"
+            "    import os\n"
+            "    print(os.path.join(project.folder, project.name))\n"
+            "go()", timeout=5.0).strip()
+    except Exception:
+        return "could not reach TouchDesigner; it may still hold the old project"
+    if not live:
+        return "TouchDesigner did not say what it has open"
+    try:
+        held = Path(live).parent.resolve() == gone.resolve()
+    except OSError:
+        held = str(Path(live).parent) == str(gone)
+    if not held:
+        return "TouchDesigner was not holding it"
+
+    template = td_setup.TEMPLATE
+    if not template.exists():
+        return ("TouchDesigner still holds the deleted project and there is no "
+                "template to put it on; restart it before rendering")
+    try:
+        sync.load_project(client, template)
+    except Exception as e:
+        return f"TouchDesigner still holds the deleted project: {e}"
+    return "TouchDesigner let it go"
 
 
 @app.post("/api/td/restart")
@@ -1362,7 +1405,6 @@ STYLES_ROOT.mkdir(parents=True, exist_ok=True)
 # only yields a folder holding a `style.toml`, so this one is invisible to
 # `list_styles` while still being served and still being tracked by the
 # `!styles/**/preview.mp4` negation in .gitignore.
-BACKDROP_ROOT.mkdir(parents=True, exist_ok=True)
 app.mount("/styles", StaticFiles(directory=STYLES_ROOT), name="styles")
 
 _static = Path(__file__).parent / "static"
