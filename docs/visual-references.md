@@ -51,17 +51,50 @@ composited into a render chain. That means:
 **The Chainsmokers, "Closer"** (official lyric video, Rory Kramer, 2016 — the
 most-watched lyric video there is).
 
-**Read it from frames, not from articles.** This reference was rebuilt three
-times from written descriptions and was wrong every time; one look at a still
-settled it. YouTube's page returns only navigation chrome to a fetcher, but its
-generated frames are plain images and can be downloaded and viewed:
+**Watch it. Do not read about it, and do not stop at stills.** This reference
+was rebuilt three times from written descriptions, and a fourth time from four
+still frames — which fixed the look and missed the motion entirely, because a
+still cannot show motion. Every round was wrong, and each was wrong in a way
+the previous evidence could not have caught.
+
+Stills are one download:
 
     https://img.youtube.com/vi/<id>/maxresdefault.jpg    the poster
     https://img.youtube.com/vi/<id>/{1,2,3}.jpg          25% / 50% / 75%
     https://img.youtube.com/vi/<id>/hq{1,2,3}.jpg        the same, larger
 
-What four frames of this one show: thick white marker lettering sitting **flat
-and large** over live-action footage — a couple indoors, a man with a camera in
+The video itself is barely more, and is what actually answers the question:
+
+    yt-dlp -f "bestvideo[height<=480]+bestaudio/best[height<=480]" <url>
+    ffmpeg -ss <t> -i clip.webm -t 3 -vf "fps=8,scale=300:-1,tile=5x4" strip.png
+
+A 5x4 tile at 8fps through one hand-over showed in a single image what four
+stills could not: that the lettering never stops moving, and that phrases
+overlap rather than cut. Track the lettering's centroid over frames to get the
+numbers — `(gray > 235)` on a dark plate is enough to separate white marker
+from footage.
+
+**What the motion is** — the half the stills missed, and the half that makes it
+recognisable:
+
+  * **A phrase never sits still.** It drifts the whole time it is up. Measured
+    by tracking the lettering's centroid across four separate phrases on dark
+    aerial plates: 0.022, 0.031, 0.036 and 0.093 frame-widths per second, with
+    a vertical component of similar size and varying sign.
+  * **Phrases overlap.** For about a quarter of a second the outgoing one is
+    still there, faded, drifting away, while the incoming one comes up. A
+    hand-over, not a cut.
+  * **Each lands somewhere different** — one upper-left, the next centre, the
+    next low. That separation is what makes the overlap legible rather than
+    muddy.
+  * **Rows are stacked ragged**, each about 0.04 of the frame width right of
+    the one above: "that I KNOW" / "you CAN't" / "AFFOrD".
+  * **The face is a cursive brush**, connected and looping. From stills it
+    reads as an upright marker, which is how Marker Felt got picked; the moving
+    frames say Bradley Hand.
+
+What the stills show: thick white lettering sitting **flat and large** over
+live-action footage — a couple indoors, a man with a camera in
 golden grass, a couple silhouetted against a sunset, an aerial of a coastal
 highway. A lyric phrase at a time, filling most of the frame width, stacked in
 two or three rows with generous leading. Unmistakably drawn by hand: mixed caps

@@ -252,14 +252,29 @@ tilt weighting, so `shake.amount` is the peak displacement it says it is.
 
 ### Reading a visual reference
 
-**Get frames of it. Do not read about it.** The Chainsmokers' "Closer" was
-rebuilt three times from written descriptions -- once from the user's own
-passing description -- and was wrong every time; one look at a still settled
-it. YouTube serves generated frames as plain images at
-`img.youtube.com/vi/<id>/{maxresdefault,1,2,3}.jpg`, which are 25%, 50% and 75%
-through. Four of them were worth more than every article about the video.
-`docs/visual-references.md` records what each reference actually shows, and the
-readings that turned out to be wrong.
+**Watch it. Do not read about it, and do not stop at stills.** The
+Chainsmokers' "Closer" was rebuilt three times from written descriptions -- one
+of them the user's own -- and a fourth time from four still frames, which fixed
+the look and missed the motion entirely. A still cannot show motion, and the
+motion was the whole complaint: "the words just appear on screen".
+
+`yt-dlp` the video and tile it. `fps=8,scale=300:-1,tile=5x4` through one
+transition shows in one image what a dozen stills cannot, and tracking the
+bright pixels' centroid frame to frame turns "it drifts" into a number.
+`docs/visual-references.md` records what each reference actually shows, the
+measurements, and the readings that turned out to be wrong.
+
+### A Script TOP with no outputs never runs
+
+`CookLevel.ALWAYS` says how OFTEN an operator cooks when something asks for it,
+not whether anything asks. `fx_drive` was built as "not the picture" -- sixteen
+pixels whose whole job is to set parameters on its siblings -- and with nothing
+downstream it sat outside the cook chain and never ran: a render with a beat
+preset picked came out identical to one with none, while the params, the chain
+and a 963-row drum table beside it were all correct. Make the driver's pixels
+part of the picture, as `monument`'s ground is; a tap that changes nothing
+fixes the cook and invites the next reader to delete it. `test_meta` refuses a
+Script TOP that nothing consumes.
 
 ### What a preset preview has to be
 

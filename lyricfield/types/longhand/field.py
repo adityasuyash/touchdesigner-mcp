@@ -31,17 +31,25 @@ CUE_DAT = 'lyrics'
 PARAMS_DAT = 'params'
 # One Specification DAT per letter size: spec0, spec1, ...
 SPEC_STEM = 'spec'
+# The second bank, for the phrase that is still leaving. A Text TOP has one
+# colour for its whole Specification DAT, so two phrases at two opacities need
+# two sets of them -- the shape `monument` already uses for its ghost.
+WAS_STEM = 'wasspec'
 
 DEFAULTS = {
-    # `dim`, `hue`, `sat`, `lift`, `drift_secs`, `blur`, `ink`, `glow` and
-    # `bloom` are not here: `build.py` bakes them into the plate and lettering
-    # chains, and a key in DEFAULTS is a promise that this script reads it.
+    # `dim`, `hue`, `sat`, `lift`, `drift_secs`, `blur`, `glow` and `bloom` are
+    # not here: `build.py` bakes them into the plate and lettering chains, and a
+    # key in DEFAULTS is a promise that this script reads it. `ink` IS here --
+    # the outgoing phrase's brightness is set per frame against it.
     'width': 720, 'height': 1280, 'size': 112.0,
     'center_x': 0.5, 'center_y': 0.47,
     'max_words': 5, 'max_chars': 26, 'max_seconds': 3.5,
-    'wrap': 0.86, 'leading': 1.30, 'linger': 2.6,
+    'wrap': 0.86, 'leading': 1.30, 'linger': 2.6, 'indent': 0.04,
+    'rate': 0.065, 'rise': 0.55, 'fade': 0.28, 'ghost': 0.45,
+    'place': 0.15,
     'steps': 3, 'spread': 0.11, 'waver': 0.055, 'jitter': 0.05,
     'shout': 0.34, 'tilt': 1.6,
+    'ink': 0.97,
     'kick_lift': 0.05, 'kick_time': 0.22,
     'intro_open': 0.35, 'arrive': 0.88, 'outro': 10.0,
     # measured facts, pushed with the params
@@ -104,6 +112,7 @@ def _apply_params():
             dur = 0.0
     g['TAIL_END'] = dur
     g['SIZES'] = _hand_sizes()
+    g['INK_OF'] = float(g['INK'])
     S.pop('phrases', None)
     return P
 
@@ -131,6 +140,7 @@ except Exception:
         globals()[_k.upper()] = _v
     globals()['TAIL_END'] = 0.0
     globals()['SIZES'] = [99.68, 112.0, 124.32]
+    globals()['INK_OF'] = 0.97
 
 
 def _smooth(a):
@@ -283,38 +293,69 @@ def _rows(words):
     return rows
 
 
-def _spec(phrases, t, gain):
-    """One Specification DAT body per letter size.
+def _span(phrases, i):
+    """When phrase `i` lands and when it is done with the frame."""
+    begins = phrases[i][0][0]
+    ends = (phrases[i + 1][0][0] if i + 1 < len(phrases)
+            else phrases[i][-1][0] + LINGER)
+    return begins, ends
+
+
+def _slide(i, age):
+    """How far phrase `i` has drifted, in pixels, after `age` seconds up.
+
+    The thing that was missing, and the whole of what "the words just appear on
+    screen" meant. In the reference a phrase is never still: it slides slowly
+    the whole time it is up. Measured off the video by tracking the lettering's
+    centroid on dark aerial plates, over four separate phrases -- 0.022, 0.031,
+    0.036 and 0.093 frame-widths per second, with a vertical component of
+    similar size and varying sign.
+
+    The direction is a pure function of the phrase's index, so consecutive
+    phrases do not all slide the same way and a re-render is identical.
+    """
+    ux, uy = _wobble(i, 7.0), _wobble(i, 11.0)
+    n = (ux * ux + uy * uy) ** 0.5 or 1.0
+    reach = RATE * WIDTH * max(0.0, age)
+    # Where this phrase STARTS, as well as where it goes. Without it every
+    # phrase begins where the last one did, so during a hand-over the outgoing
+    # phrase sits directly behind the incoming and the pair reads as mud. In
+    # the reference they land in different parts of the frame and that is what
+    # makes the overlap legible.
+    px = _wobble(i, 13.0) * PLACE * WIDTH
+    py = _wobble(i, 17.0) * PLACE * HEIGHT * 0.5
+    return (px + reach * (ux / n) * (1.0 - RISE),
+            py + reach * (uy / n) * RISE)
+
+
+def _lay(bodies, phrase, i, age, k0=0):
+    """Write one phrase into `bodies`, drifted by how long it has been up.
 
     PIXELS FROM THE LOWER LEFT, and each row's y is a BASELINE -- the Text TOPs
     are bottom-aligned so letters of different sizes sit on one line instead of
     on their own centres.
     """
-    bodies = [[SPEC_HEAD] for _ in SIZES]
-    if not phrases or gain <= 0.0:
-        return ['\n'.join(b) for b in bodies], 0
-
-    i = _at(phrases, t)
-    if i < 0:
-        return ['\n'.join(b) for b in bodies], 0
-    phrase = phrases[i]
-    # Gone if nothing followed it and it has been up too long. One gap in the
-    # benchmark song is 15.4 seconds, and holding through that is a still.
-    ends = (phrases[i + 1][0][0] if i + 1 < len(phrases)
-            else phrase[-1][0] + LINGER)
-    if t >= ends:
-        return ['\n'.join(b) for b in bodies], 0
-
     rows = _rows([c[1] for c in phrase])
     step = SIZE * LEADING
+    sx, sy = _slide(i, age)
     # The block is centred on `center_y`, and y counts up from the bottom.
-    top = HEIGHT * (1.0 - CENTER_Y) + (len(rows) - 1) * step * 0.5
-    drawn, k = 0, 0
+    top = HEIGHT * (1.0 - CENTER_Y) + (len(rows) - 1) * step * 0.5 + sy
+    drawn, k = 0, k0
     for r, words in enumerate(rows):
         text = ' '.join(words)
-        # Laid out at the nominal size, so the row stays centred however the
-        # letters are resized: the variation is a look, not a re-flow.
-        x = WIDTH * CENTER_X - _measure(text) * 0.5
+        # Laid out at the nominal size, so the row keeps its place however the
+        # letters are resized: the variation is a look, not a re-flow. Each row
+        # sits further right than the one above -- the reference stacks them
+        # ragged, by hand, rather than centring them on each other.
+        wide = _measure(text)
+        x = WIDTH * CENTER_X - wide * 0.5 + sx + r * INDENT * WIDTH
+        # The frame is a hard edge. A row placed off-centre and then indented
+        # can otherwise run out of it and lose its last word, which nothing
+        # downstream would report -- the picture would simply be missing a word
+        # and every check would pass.
+        edge = SIZE * 0.12
+        x = max(edge, min(x, WIDTH - edge - wide)) if wide < WIDTH - edge * 2 \
+            else (WIDTH - wide) * 0.5
         base = top - r * step
         for ch in text:
             shown = _shout(ch, k)
@@ -330,7 +371,43 @@ def _spec(phrases, t, gain):
             # came out capitalised is wider than the one it replaced.
             x += _advance(shown) * SIZE
             k += 1
-    return ['\n'.join(b) for b in bodies], drawn
+    return drawn
+
+
+def _spec(phrases, t, gain):
+    """What the two banks of Text TOPs should hold: the phrase arriving, and
+    the one still leaving.
+
+    They OVERLAP. For about a quarter of a second the outgoing phrase is still
+    on screen, faded, drifting away, while the incoming one comes up underneath
+    it -- which is what makes a hand-over rather than a cut, and the difference
+    the whole renderer was missing.
+    """
+    now = [[SPEC_HEAD] for _ in SIZES]
+    was = [[SPEC_HEAD] for _ in SIZES]
+    out = lambda: (['\n'.join(b) for b in now], ['\n'.join(b) for b in was])
+
+    if not phrases or gain <= 0.0:
+        return out() + (0, 0.0)
+
+    i = _at(phrases, t)
+    if i < 0:
+        return out() + (0, 0.0)
+
+    begins, ends = _span(phrases, i)
+    if t >= ends:
+        return out() + (0, 0.0)
+    drawn = _lay(now, phrases[i], i, t - begins)
+
+    # ... and the one before it, while it is still leaving.
+    ghost = 0.0
+    if i > 0 and FADE > 0.0:
+        gone = (t - begins) / FADE
+        if gone < 1.0:
+            prev_begins, _ = _span(phrases, i - 1)
+            _lay(was, phrases[i - 1], i - 1, t - prev_begins, k0=997)
+            ghost = GHOST * (1.0 - _smooth(gone))
+    return out() + (drawn, ghost)
 
 
 def _setpar(path, name, value):
@@ -373,16 +450,27 @@ def onCook(scriptOp):
     gain = _section_gain(t)
 
     if _held(t):
-        bodies, drawn = [SPEC_HEAD for _ in SIZES], 0
+        blank = [SPEC_HEAD for _ in SIZES]
+        now, was, drawn, ghost = blank, blank, 0, 0.0
     else:
-        bodies, drawn = _spec(phrases, t, gain)
-    for k, body in enumerate(bodies):
+        now, was, drawn, ghost = _spec(phrases, t, gain)
+    for k, body in enumerate(now):
         try:
             d = op('%s%d' % (SPEC_STEM, k))
             if d is not None:
                 d.text = body
         except Exception:
             pass
+    for k, body in enumerate(was):
+        try:
+            d = op('%s%d' % (WAS_STEM, k))
+            if d is not None:
+                d.text = body
+        except Exception:
+            pass
+    # How faint the outgoing phrase is. One Text TOP has one colour for its
+    # whole table, which is why there are two banks rather than one.
+    _setpar('lh_ghost', 'brightness1', ghost * INK_OF)
 
     # A hand does not rule a line, so the whole block sits a degree or two off.
     if TILT != 0.0:

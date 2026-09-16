@@ -7,9 +7,11 @@ plate that is either the song's footage or a generated stand-in.
     plate                   moviefileinTOP, or the generated stand-in
     lh_fit (transformTOP)   cover-crop: scale to fill, centre, trim overflow
     lh_dim (levelTOP)       the plate brought down so white marker reads on it
-    spec0..specN (tableDAT) one per letter size
+    spec0..specN (tableDAT) one per letter size, the phrase arriving
     lh_text0..N (textTOP)   the lettering, sizes from `params.hand_sizes`
-    lh_ink (levelTOP)       ... summed and taken to the ink brightness
+    wasspec0..N / lh_was0..N   the same again, for the phrase still leaving
+    lh_now / lh_ghost       the two banks at their own brightnesses
+    lh_ink (compositeTOP)   ... and the two of them together
     lh_over (compositeTOP)  the lettering OVER the plate
     ...bloomed, clamped -> out
 
@@ -154,28 +156,44 @@ def network(cfg) -> list[OpSpec]:
                 "bgcolorr": 0.0, "bgcolorg": 0.0, "bgcolorb": 0.0,
                 "bgalpha": 0.0}
 
-    prev = None
-    for i in range(n):
-        y = -1100 - i * 130
-        specs.append(OpSpec("spec%d" % i, "tableDAT", (-1800, y - 45),
-                            preserve=True))
-        specs.append(OpSpec("lh_text%d" % i, "textTOP", (-1400, y),
-                            params=text_par(sizes[i], "spec%d" % i)))
-        cur = "lh_text%d" % i
-        if prev is None:
-            prev = cur
-        else:
-            name = "lh_sum%d" % i
-            specs.append(OpSpec(name, "compositeTOP", (-1150, y),
-                                params={**frame, "operand": "add"},
-                                inputs=[prev, cur]))
-            prev = name
+    def bank(stem, tops, y0):
+        """One set of Text TOPs, summed. Two of these exist -- the phrase
+        arriving and the one still leaving -- because a Text TOP has ONE colour
+        for its whole Specification DAT and the two are at different
+        opacities. The shape `monument` already uses for its ghost."""
+        prev = None
+        for i in range(n):
+            y = y0 - i * 130
+            specs.append(OpSpec("%s%d" % (stem, i), "tableDAT",
+                                (-1800, y - 45), preserve=True))
+            specs.append(OpSpec("%s%d" % (tops, i), "textTOP", (-1400, y),
+                                params=text_par(sizes[i], "%s%d" % (stem, i))))
+            cur = "%s%d" % (tops, i)
+            if prev is None:
+                prev = cur
+            else:
+                name = "%s_sum%d" % (tops, i)
+                specs.append(OpSpec(name, "compositeTOP", (-1150, y),
+                                    params={**frame, "operand": "add"},
+                                    inputs=[prev, cur]))
+                prev = name
+        return prev
+
+    now = bank("spec", "lh_text", -1100)
+    was = bank("wasspec", "lh_was", -1700)
 
     specs += [
         # After the sum, never before: `add` clamps at white, so scaling the
         # layers first and adding second is what loses the brightness.
-        OpSpec("lh_ink", "levelTOP", (-950, -1100),
-               params={**frame, "brightness1": lk.ink}, inputs=[prev]),
+        OpSpec("lh_now", "levelTOP", (-950, -1100),
+               params={**frame, "brightness1": lk.ink}, inputs=[now]),
+        # The outgoing phrase, whose brightness the field script sets per frame
+        # as it fades out. Starts dark: with nothing leaving, nothing shows.
+        OpSpec("lh_ghost", "levelTOP", (-950, -1700),
+               params={**frame, "brightness1": 0.0}, inputs=[was]),
+        OpSpec("lh_ink", "compositeTOP", (-820, -1400),
+               params={**frame, "operand": "add"},
+               inputs=["lh_now", "lh_ghost"]),
         # The lettering over the plate. `over` is right here -- the text
         # carries alpha and the plate underneath is what is opaque.
         OpSpec("lh_over", "compositeTOP", (-700, -700),

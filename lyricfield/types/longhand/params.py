@@ -32,7 +32,11 @@ class Stage:
     # Marker Felt is the dry marker the reference uses. Bradley Hand -- what
     # this renderer used while it was a different idea -- is thin and cursive;
     # Chalkduster is too textured, SignPainter too clean.
-    font: str = "Marker Felt"
+    # Bradley Hand. Chosen from four still frames, this was Marker Felt; the
+    # moving frames say otherwise -- the reference's lettering is a cursive
+    # brush with connected, looping strokes ("Bite that tattoo on your
+    # shoulder"), not an upright marker with separated letters.
+    font: str = "Bradley Hand"
     # Letter height in pixels, before the per-letter variation. Big: the
     # reference fills most of the frame width with three or four words.
     size: float = 112.0
@@ -62,6 +66,10 @@ class Line:
     # gap in the benchmark song is 15.4 seconds, and holding a phrase through
     # that is a frozen frame rather than a lyric video.
     linger: float = 2.6
+    # How far each row is pushed right of the one above, as a share of the
+    # frame. The reference stacks them ragged, not centred: "that I KNOW" /
+    # "you CAN't" / "AFFOrD" each start about this much right of the last.
+    indent: float = 0.04
 
 
 @dataclass
@@ -85,6 +93,39 @@ class Hand:
     shout: float = 0.34
     # Degrees the block is rotated. A hand does not rule a line.
     tilt: float = 1.6
+
+
+@dataclass
+class Drift:
+    """The thing that was missing, and the whole of what "the words just appear
+    on screen" meant.
+
+    In the reference a phrase is never still: it slides slowly the whole time
+    it is up, and the next one fades in over the top of it while the old one is
+    still drifting away. It does not cut on and cut off.
+    """
+
+    # How far a phrase travels per second, as a share of the frame width.
+    # Measured off the video by tracking the lettering's centroid on dark
+    # aerial plates, over four separate phrases: 0.022, 0.031, 0.036 and 0.093
+    # widths per second, with a vertical component of similar size and varying
+    # sign. Slow -- but never nothing.
+    rate: float = 0.065
+    # How much of that is vertical rather than sideways.
+    rise: float = 0.55
+    # How far a phrase's STARTING place strays from the middle, as a share of
+    # the frame. Without this every phrase begins where the last one did, so
+    # during a hand-over the outgoing one sits directly behind the incoming and
+    # the pair reads as mud. In the reference they land in genuinely different
+    # parts of the frame -- one upper-left, the next centre, the next low --
+    # and that separation is what makes the overlap legible.
+    place: float = 0.15
+    # Seconds the outgoing phrase stays up after the next one lands. They
+    # overlap, both part-faded, which is what makes it a hand-over rather than
+    # a cut -- measured at about a quarter of a second.
+    fade: float = 0.28
+    # How faint the outgoing phrase gets while it leaves.
+    ghost: float = 0.45
 
 
 @dataclass
@@ -135,6 +176,7 @@ class Params:
     stage: Stage = field(default_factory=Stage)
     line: Line = field(default_factory=Line)
     hand: Hand = field(default_factory=Hand)
+    drift: Drift = field(default_factory=Drift)
     ground: Ground = field(default_factory=Ground)
     look: Look = field(default_factory=Look)
     beat: Beat = field(default_factory=Beat)
@@ -143,6 +185,7 @@ class Params:
         out: list[str] = []
         s, ln, h, g, lk, b = (self.stage, self.line, self.hand, self.ground,
                               self.look, self.beat)
+        dr = self.drift
 
         if s.size <= 0:
             out.append("size must be positive; it is a letter height")
@@ -178,6 +221,21 @@ class Params:
                 out.append(f"{name} is a displacement and cannot be negative")
         if not (0.0 <= h.shout <= 1.0):
             out.append(f"shout {h.shout} is a share of letters, 0 to 1")
+
+        if dr.rate < 0:
+            out.append("rate is a speed and cannot be negative")
+        if not (0.0 <= dr.rise <= 1.0):
+            out.append(f"rise {dr.rise} is a share of the drift, 0 to 1")
+        if dr.fade < 0:
+            out.append("fade is a duration and cannot be negative")
+        if dr.fade >= ln.linger:
+            out.append(
+                f"fade {dr.fade} is as long as linger {ln.linger}, so a phrase "
+                "would still be handing over when it is already gone")
+        if dr.place < 0:
+            out.append("place is a distance and cannot be negative")
+        if not (0.0 <= dr.ghost <= 1.0):
+            out.append(f"ghost {dr.ghost} is a brightness share, 0 to 1")
 
         if not (0.0 <= g.dim <= 1.0):
             out.append(f"dim {g.dim} is a share of the plate's brightness")
@@ -241,6 +299,10 @@ RANGES: dict[str, tuple] = {
     "max_words": (1, 12, 1), "max_chars": (6, 60, 1),
     "max_seconds": (0.5, 12.0, 0.1), "wrap": (0.2, 1.0, 0.01),
     "leading": (0.8, 2.5, 0.05), "linger": (0.2, 10.0, 0.1),
+    "indent": (0.0, 0.2, 0.005),
+    "rate": (0.0, 0.3, 0.005), "rise": (0.0, 1.0, 0.01),
+    "fade": (0.0, 2.0, 0.02), "ghost": (0.0, 1.0, 0.01),
+    "place": (0.0, 0.4, 0.01),
     "steps": (1, 5, 1), "spread": (0.0, 0.4, 0.01),
     "waver": (0.0, 0.3, 0.005), "jitter": (0.0, 0.3, 0.005),
     "shout": (0.0, 1.0, 0.01), "tilt": (0.0, 12.0, 0.1),
@@ -272,6 +334,10 @@ CONTROLS: tuple[Control, ...] = (
             "line.max_words", {"line.max_words": (2, 9),
                                "line.max_chars": (14, 44),
                                "line.max_seconds": (1.6, 6.0)}),
+    Control("slide", "Slide",
+            "How fast the lettering drifts across the frame.",
+            "drift.rate", {"drift.rate": (0.0, 0.16),
+                           "drift.place": (0.0, 0.28)}),
     Control("ground", "Ground",
             "How far the footage is brought down behind the words.",
             "ground.dim", {"ground.dim": (0.0, 0.75)}),
@@ -293,6 +359,13 @@ def reconcile(params: "Params") -> None:
     ln.wrap = min(1.0, max(0.2, ln.wrap))
     ln.leading = max(0.1, ln.leading)
     ln.linger = max(0.1, ln.linger)
+    ln.indent = max(0.0, ln.indent)
+    dr = params.drift
+    dr.rate = max(0.0, dr.rate)
+    dr.rise = min(1.0, max(0.0, dr.rise))
+    dr.ghost = min(1.0, max(0.0, dr.ghost))
+    dr.place = max(0.0, dr.place)
+    dr.fade = min(max(0.0, dr.fade), ln.linger * 0.9)
 
     h.steps = max(1, int(h.steps))
     h.spread = max(0.0, h.spread)
