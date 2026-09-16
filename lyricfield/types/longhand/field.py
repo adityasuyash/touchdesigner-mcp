@@ -50,7 +50,7 @@ DEFAULTS = {
     'march': 0.62, 'reach': 9,
     'chase': 1.35, 'standoff': 1.55, 'float_': 0.22, 'float_secs': 11.0,
     'layers': 5,
-    'amount': 14.0, 'ceiling': 40.0,
+    'amount': 0.6, 'ceiling': 40.0,
     'hue': 0.09, 'sat': 0.10, 'floor': 0.03,
     'kick_lift': 0.06, 'kick_time': 0.25,
     'intro_open': 0.35, 'arrive': 0.88, 'outro': 10.0,
@@ -466,7 +466,10 @@ def onCook(scriptOp):
     # still, which between words it never quite is.
     if AMOUNT > 0.0 and not held:
         dx, dy, dz = _smear(cues, laid, t)
-        span = math.sqrt(dx * dx + dy * dy + dz * dz) * (AMOUNT / WIDTH)
+        # `_smear` already answers in pixels of frame movement, so AMOUNT is a
+        # multiple of it rather than a distance. Dividing by the frame width
+        # here made a 20px camera move smear by 0.45 of a pixel.
+        span = math.sqrt(dx * dx + dy * dy + dz * dz) * float(AMOUNT)
         span = min(float(CEILING), span)
         if span > 1e-3:
             mag = math.sqrt(dx * dx + dy * dy) or 1.0

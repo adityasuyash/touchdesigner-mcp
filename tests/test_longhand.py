@@ -352,6 +352,24 @@ def test_distance_costs_light_as_well_as_size():
     assert lvls[-1] < lvls[0] * 0.5, "the far slab is barely dimmer"
 
 
+def test_the_fog_begins_where_the_eye_is_looking():
+    """The word being sung must be at full brightness, and it is not on the
+    nearest slab -- the camera stands `standoff` back from it, two slabs into
+    five. Keying the fog to slab 0 instead dimmed that word to 0.51 of white
+    and a whole preview was refused for never lighting one, at peak 0.61
+    against the 0.78 a lit word has to reach."""
+    p = P.Params()
+    specs = {s.name: s for s in network(Config(type="longhand"))}
+    depths = P.slab_depths(p)
+    focus = min(range(len(depths)),
+                key=lambda i: abs(depths[i] - p.camera.standoff))
+    assert specs[f"lh_lvl{focus}"].params["brightness1"] == pytest.approx(
+        p.look.peak, rel=1e-3), (
+        "the slab the sung word lands on is not at full brightness")
+    # and something is still in the distance
+    assert specs[f"lh_lvl{len(depths) - 1}"].params["brightness1"] < p.look.peak * 0.5
+
+
 def test_the_farthest_slab_is_the_one_out_of_focus():
     """Haze. Blurring every slab equally is a soft render; blurring the near
     one is a broken one."""
@@ -361,13 +379,24 @@ def test_the_farthest_slab_is_the_one_out_of_focus():
     assert specs[f"lh_lvl{n - 1}"].inputs == ["lh_haze"]
 
 
-def test_the_smear_averages_its_taps_rather_than_stacking_them():
-    """Three taps added and then scaled back by a third, so a still frame is
-    exactly as bright as it was before the branch existed. Brightness stacking
-    is a defect this project has fixed three times."""
+def test_the_smear_dims_its_taps_before_adding_them():
+    """Three taps of the same layer average to the layer, but only if the
+    scaling happens FIRST.
+
+    A composite `add` on an 8-bit TOP clamps at white. Adding three copies of a
+    0.93 layer and then scaling by a third gives 1.0/3 = 0.333 -- measured
+    exactly that, with every slab reading 0.9294 one operator upstream, and the
+    renderer came back grey at a peak of 0.59.
+    """
     specs = {s.name: s for s in network(Config(type="longhand"))}
-    assert specs["lh_smear"].params["brightness1"] == pytest.approx(1 / 3, abs=1e-3)
-    assert specs["lh_mix2"].inputs == ["lh_mix1", "lh_tap_b"]
+    assert specs["lh_dim"].params["brightness1"] == pytest.approx(1 / 3, abs=1e-3)
+    for tap in ("lh_tap_a", "lh_tap_b"):
+        assert specs[tap].inputs == ["lh_dim"], (
+            f"{tap} is taken before the dim, so the sum clamps")
+    assert specs["lh_mix1"].inputs == ["lh_dim", "lh_tap_a"]
+    assert specs["lh_smear"].inputs == ["lh_mix1", "lh_tap_b"]
+    assert "brightness1" not in specs["lh_smear"].params, (
+        "a scale after the sum is the version that clamps")
     assert specs["lh_sum1"].inputs[0] == "lh_smear"
 
 

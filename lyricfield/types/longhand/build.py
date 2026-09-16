@@ -10,6 +10,7 @@ possible at all, because a Text TOP has one font size for its whole table.
     lh_haze (blurTOP)       the farthest slab only: distance costs focus
     lh_lvl0..N (levelTOP)   the fog: the farthest slab is dimmest
     ...stacked OVER, farthest first
+    lh_dim (levelTOP)       a third, so the three taps sum to one
     lh_tap_a/b (transform)  the motion blur, two taps either side of centre
     ...bloomed, clamped -> out
 
@@ -31,6 +32,18 @@ from __future__ import annotations
 from .._build import (OpSpec, ROOT, apply_exprs, check_types, create_ops,
                       drop_autocreated, wire_ops)
 from .params import slab_depths
+
+
+def _fog_u(z: float, standoff: float, far: float) -> float:
+    """How far into the fog a slab at depth `z` is, 0 at the eye's focus to 1
+    at the far wall. In log depth, to match the geometric slab spacing."""
+    import math
+
+    near = max(1e-6, standoff)
+    if z <= near:
+        return 0.0
+    span = math.log(max(near * 1.000001, far)) - math.log(near)
+    return min(1.0, max(0.0, (math.log(z) - math.log(near)) / span))
 
 
 def _rgb(h: float, sat: float) -> tuple[float, float, float]:
@@ -101,10 +114,15 @@ def network(cfg) -> list[OpSpec]:
                                 params={**frame, "size": d.haze},
                                 inputs=[src]))
             src = "lh_haze"
-        # Fog: the farthest slab is dimmest. Geometric between 1 and `fog`, to
-        # match the geometric depth spacing -- linear made the near slabs all
-        # look the same brightness.
-        f = d.fog ** (i / max(1, n - 1))
+        # Fog: dimmer with distance, measured from where the EYE is rather
+        # than from the nearest slab. The camera stands `standoff` back from
+        # the word being sung, which is two slabs into a five-slab volume, so
+        # keying the fog to slab 0 dimmed the one word the frame is about to
+        # 0.51 of white -- a whole preview was refused for never lighting a
+        # word, at peak 0.61 against the 0.78 a lit word must reach. Anything
+        # at or in front of the standoff is at full brightness; only what is
+        # further off fades.
+        f = d.fog ** _fog_u(depths[i], cfg.camera.standoff, depths[-1])
         specs.append(OpSpec("lh_lvl%d" % i, "levelTOP", (-1100, y),
                             params={**frame,
                                     "brightness1": round(lk.peak * f, 4)},
@@ -128,24 +146,28 @@ def network(cfg) -> list[OpSpec]:
     # and composite TOPs every renderer here already leans on, and it is a pure
     # function of the timestamp either way.
     if bl.amount > 0:
+        third = round(1.0 / 3.0, 4)
         specs += [
+            # A third BEFORE the sum, not after. A composite `add` on an 8-bit
+            # TOP clamps at white, so adding three copies of a 0.93 layer and
+            # then scaling by a third gives 1.0/3 = 0.333, not 0.93 -- measured
+            # exactly that at `lh_mix1`, and the whole renderer came back grey
+            # at a peak of 0.59 with every slab reading 0.93 just upstream.
+            # Dimming first keeps the sum under one and loses nothing.
+            OpSpec("lh_dim", "levelTOP", (-800, -850),
+                   params={**frame, "brightness1": third}, inputs=[prev]),
             OpSpec("lh_tap_a", "transformTOP", (-700, -700),
                    params={**frame, "tunit": "pixels", "extend": "zero",
-                           "tx": 0.0, "ty": 0.0}, inputs=[prev]),
+                           "tx": 0.0, "ty": 0.0}, inputs=["lh_dim"]),
             OpSpec("lh_tap_b", "transformTOP", (-700, -1000),
                    params={**frame, "tunit": "pixels", "extend": "zero",
-                           "tx": 0.0, "ty": 0.0}, inputs=[prev]),
+                           "tx": 0.0, "ty": 0.0}, inputs=["lh_dim"]),
             OpSpec("lh_mix1", "compositeTOP", (-550, -700),
                    params={**frame, "operand": "add"},
-                   inputs=[prev, "lh_tap_a"]),
-            OpSpec("lh_mix2", "compositeTOP", (-550, -850),
+                   inputs=["lh_dim", "lh_tap_a"]),
+            OpSpec("lh_smear", "compositeTOP", (-550, -850),
                    params={**frame, "operand": "add"},
                    inputs=["lh_mix1", "lh_tap_b"]),
-            # A third of three taps: added and then scaled back, so a still
-            # frame is exactly as bright as it was before the branch existed.
-            OpSpec("lh_smear", "levelTOP", (-550, -1000),
-                   params={**frame, "brightness1": round(1.0 / 3.0, 4)},
-                   inputs=["lh_mix2"]),
         ]
         lit = "lh_smear"
     else:

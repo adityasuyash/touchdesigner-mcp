@@ -275,15 +275,21 @@ PRESETS: tuple[tuple[str, str, str, dict], ...] = (
       "shake.decay": 0.26, "shake.tilt": 0.5,
       "split.on": False}),
 
+    # The violent one, and it has to measure like it. At 0.024 split and 0.022
+    # shake it read 3.06 against the unaffected baseline where the other three
+    # read 8 to 14 -- a tenth of the frame's width of RGB separation shows on
+    # glyph edges and almost nowhere else, so a chromatic effect needs to be
+    # large before it is an effect at all. Measured in RGB rather than luma to
+    # be sure that was not the metric being colour-blind: 3.20, the same.
     ("fracture", "Fracture",
      "the channels tear apart on the snare and the frame kicks",
      {"zoom.on": False,
       "bloom.on": True, "bloom.drive": KICK, "bloom.amount": 8.0,
       "bloom.lift": 0.1, "bloom.decay": 0.25,
-      "shake.on": True, "shake.drive": KICK, "shake.amount": 0.022,
-      "shake.decay": 0.2, "shake.tilt": 0.2,
-      "split.on": True, "split.drive": SNARE, "split.amount": 0.024,
-      "split.decay": 0.26}),
+      "shake.on": True, "shake.drive": KICK, "shake.amount": 0.040,
+      "shake.decay": 0.22, "shake.tilt": 0.25,
+      "split.on": True, "split.drive": SNARE, "split.amount": 0.055,
+      "split.decay": 0.28}),
 )
 
 

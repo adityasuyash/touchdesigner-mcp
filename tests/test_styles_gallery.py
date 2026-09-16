@@ -542,45 +542,94 @@ def test_nothing_pulls_a_still_with_an_input_seek():
     assert not offenders, "\n".join(offenders)
 
 
-# In 0-255 luma. The four previews recorded against an empty drum table -- so
-# that nothing but the zoom's idle breathe was moving -- peaked at 1.27, 0.83,
-# 0.85 and 0.73 away from the word changes. A punch three frames into its
-# response still carries 42% of its envelope, which on a word filling the frame
-# is tens of luma.
+# In 0-255 luma, measured away from the word changes. Recorded against an
+# empty drum table -- nothing but the zoom's idle breathe moving -- the four
+# presets peaked at 1.27, 0.83, 0.85 and 0.73 there. Answering a real beat they
+# peak at 14.21, 9.22, 11.79 and 8.61. Five separates those with room on both
+# sides and is not tuned to either.
 BEAT_SHOWS = 5.0
 
+PREVIEW_FPS = 24        # `capture_preview`'s default, and what the seeder uses
 
-def _settled(baseline, guard: int = 2):
-    """Which frames of a capture are not next to something the baseline did.
 
-    Two recordings of the same four seconds do not place the word transitions
-    on the same frame -- they land one or two apart -- and each mismatch spikes
+def _settled(baseline, seconds: float = 4.0, guard: int = 2):
+    """Which frames of a capture are not a word changing.
+
+    Two recordings of the same four seconds do not place a word transition on
+    the same frame -- they land one or two apart -- and each mismatch spikes
     12-25 luma whether or not anything else is different. Measured, that jitter
-    was the ENTIRE difference between the beat previews: the same spikes at the
-    same indices in all four presets. A check that does not exclude these
-    frames is measuring the recorder.
+    was the ENTIRE difference between the beat previews before they had a beat:
+    the same spikes at the same indices in all four presets. A check that does
+    not exclude these frames is measuring the recorder.
 
-    Taken from the baseline's own frame-to-frame step rather than computed from
-    the cue table, because the two do not agree: `monument` begins a word's
-    crossfade before its cue, by one frame in places and eight in others, so a
-    mask built from cue arithmetic leaves the real transitions half uncovered.
-    The capture is asked where it moved.
+    Neither source of truth works alone, and finding that out cost two wrong
+    versions of this function:
 
-    The cost is that the mask also covers `monument`'s own kick lift, which
-    fires in the baseline too (`kick_lift` 0.10 over `kick_time` 0.20s) -- so a
-    few frames at the very start of each response are spent. It is affordable:
-    the lift is 5 frames at 24fps and the shortest response in `beat.PRESETS`
-    decays over 0.20s more than that, so the back half of every envelope
-    survives the mask. A guard of one frame does not work; at +-1 a leaked
-    transition still read 25.67 for `punch` while every honest frame read under
-    1.3.
+      * The baseline's own frame-to-frame step marks the transitions exactly,
+        wherever the capture actually started -- but `monument` lifts the whole
+        room on a kick (`kick_lift` 0.10 over `kick_time` 0.20s) and the
+        baseline has a real drum table now, so its steps mark the HITS just as
+        loudly. Masking those covers precisely the frames a beat effect shows
+        in: it hid peaks of 10.0, 14.1 and 14.2 and called `punch` 1.64.
+      * The cue table says which frames are words and which are not -- but only
+        if the capture began exactly where `styles.preview_moment` says. On
+        captures made before that was arithmetic the transitions sat up to six
+        frames off, and a mask two frames wide missed them entirely.
+
+    So: find the runs of movement in the baseline, and mask only the ones a cue
+    can be matched to. A run nothing was sung near is a drum, and stays. Whole
+    runs rather than single frames, because `monument` crossfades a word change
+    over as many as six.
     """
     import numpy as np
 
+    from lyricfield import styles as S
+    from lyricfield.cues import CueTable
+
+    at = S.preview_moment(seconds)
+    want = [int(round((c.start - at) * PREVIEW_FPS))
+            for c in CueTable.load(S.PREVIEW_CUES).cues
+            if at <= c.start < at + seconds]
+    assert want, f"no placeholder word is sung in the {seconds:g}s from {at}s"
+
+    # A run begins on a decisive step and continues while the picture is still
+    # unsettled, rather than ending at the first frame under one threshold: a
+    # `monument` crossfade dips mid-way (measured, 24.9 4.7 9.2 4.9 **2.9** 3.8
+    # 10.4), and splitting there left the first half of a transition matched to
+    # nothing and unmasked -- which leaked 25.15 into a preview that was not
+    # moving at all.
     step = np.abs(np.diff(baseline, axis=0)).mean(axis=(1, 2))
-    bad = set()
-    for i in np.where(step > 3.0)[0]:
-        bad.update(range(int(i) - guard, int(i) + guard + 2))
+    runs, cur = [], None
+    for i, v in enumerate(step):
+        if cur is None:
+            if v > 3.0:
+                cur = [i, i]
+        elif v > 1.5:
+            cur[1] = i
+        else:
+            runs.append(cur)
+            cur = None
+    if cur is not None:
+        runs.append(cur)
+
+    # How far a cue may sit from the run it matches. Tight, because a word and
+    # a drum can land three frames apart -- a generous window matched kicks to
+    # words and masked the response along with the transition, leaving 28 of 96
+    # frames to judge on. Two frames is enough: it is the run that is matched,
+    # not its centre, so a six-frame crossfade is covered by its own span.
+    SLIP = 2
+    bad, matched = set(), 0
+    for f in want:
+        near = [r for r in runs if r[0] - SLIP <= f <= r[1] + SLIP]
+        if not near:
+            continue
+        matched += 1
+        for r in near:
+            bad.update(range(r[0] - guard, r[1] + guard + 2))
+    assert matched >= len(want) - 1, (
+        f"only {matched} of {len(want)} placeholder words show as movement in "
+        f"the baseline; the capture was not taken at {at}s, or it is not of "
+        "the words this is measuring against")
     return [i for i in range(len(baseline)) if i not in bad]
 
 
@@ -596,8 +645,8 @@ def test_every_beat_preset_visibly_moves_the_words():
     `_last` returned -1e9 and the only motion left was the zoom's idle breathe,
     the same waveform in all five recordings.
 
-    The difference has to show up where the baseline is holding still. That is
-    the only place it can mean the effect.
+    The difference has to show up away from the word changes. That is the only
+    place it can mean the effect rather than the recorder.
     """
     import numpy as np
 
@@ -610,7 +659,7 @@ def test_every_beat_preset_visibly_moves_the_words():
     b = R._gray_frames(base, 90)
     assert b is not None
     still = _settled(b)
-    assert len(still) > len(b) // 5, (
+    assert len(still) > len(b) // 4, (
         f"only {len(still)} of {len(b)} frames are settled; too thin a sample "
         "to judge an effect on")
 
@@ -627,7 +676,7 @@ def test_every_beat_preset_visibly_moves_the_words():
         d = np.abs(a[:n] - b[:n]).mean(axis=(1, 2))
         peak = max(d[i] for i in still if i < n)
         if peak < BEAT_SHOWS:
-            quiet.append(f"{name}: peaks {peak:.2f} on the settled frames")
+            quiet.append(f"{name}: peaks {peak:.2f} away from the words")
     assert not quiet, (
         "presets that do not show (an empty drum table looks exactly like "
         "this):\n  " + "\n  ".join(quiet))

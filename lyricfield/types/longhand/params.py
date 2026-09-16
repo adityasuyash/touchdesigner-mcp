@@ -121,9 +121,12 @@ class Blur:
     already proved, and it costs two transforms.
     """
 
-    # Pixels of smear per frame-worth of camera movement. Zero switches the
-    # whole branch off.
-    amount: float = 14.0
+    # How far the taps are thrown, as a MULTIPLE of how far the frame moved in
+    # the last frame's worth of time -- 1.0 smears exactly the distance the
+    # camera travelled. Not a distance in pixels: an absolute smear is the same
+    # whether the camera is racing or almost still, which reads as a soft
+    # render rather than as movement. Zero switches the whole branch off.
+    amount: float = 0.6
     # The most it may smear, whatever the camera does. A cut-sized jump would
     # otherwise wash the frame out entirely.
     ceiling: float = 40.0
@@ -217,10 +220,10 @@ class Params:
 
         if bl.amount < 0 or bl.ceiling < 0:
             out.append("a blur distance cannot be negative")
-        if bl.ceiling < bl.amount:
+        if bl.amount > 0 and bl.ceiling <= 0:
             out.append(
-                f"ceiling {bl.ceiling} is below amount {bl.amount}, so the "
-                "smear is clamped before a single frame of movement")
+                "ceiling is the most the smear may reach in pixels; at zero "
+                "the branch is built and then never allowed to do anything")
 
         if lk.floor >= lk.peak:
             out.append("floor must be below peak")
@@ -304,7 +307,7 @@ CONTROLS: tuple[Control, ...] = (
                              "depth.fog": (0.6, 0.12)}),
     Control("smear", "Smear",
             "How much the writing blurs as the camera moves.",
-            "blur.amount", {"blur.amount": (0.0, 34.0)}),
+            "blur.amount", {"blur.amount": (0.0, 1.8)}),
 )
 
 
@@ -338,7 +341,7 @@ def reconcile(params: "Params") -> None:
     d.haze = max(0.0, d.haze)
 
     bl.amount = max(0.0, bl.amount)
-    bl.ceiling = max(bl.amount, max(0.0, bl.ceiling))
+    bl.ceiling = max(1.0, bl.ceiling) if bl.amount > 0 else max(0.0, bl.ceiling)
 
     lk.floor = min(lk.floor, max(0.0, lk.peak - 0.01))
     # In order of what may give way: the kick's lift of the ground, then the
