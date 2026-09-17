@@ -214,6 +214,33 @@ cost real time to discover. None is findable from the Python side.
   1.0 and the Level after them turned that into 0.333, which made a whole
   renderer grey at a peak of 0.59 while every slab read 0.9294 one operator
   upstream. Scale each input BEFORE the sum.
+- **A Script TOP's resolution is whatever its script last wrote.** The
+  resolution parameters are set and then ignored, so `scriptOp.width` answers
+  2x2 on the first cook and a script that sizes its buffer from it writes 2x2
+  for ever. Measured: the `ash` burst drew a 2x2 image stretched over the whole
+  frame, which looked like far too much light rather than like a resolution
+  fault. Size the array from the pushed frame instead.
+- **Two Script TOPs can share one callbacks DAT** and tell themselves apart by
+  `scriptOp.name`. Worth it whenever the alternative is a second pushed script:
+  a Script TOP whose callbacks were never written draws black and reports
+  nothing, and one DAT cannot be half-pushed.
+- **Splat with `np.bincount` on a flat index, never `np.add.at`.** Measured in
+  TouchDesigner's own Python, 40k points into a 360x640 buffer: 0.37ms against
+  3.2ms. And a bincount costs the size of the BUFFER, not the number of points,
+  so concatenate everything and call it once -- fifteen calls (one per kernel
+  tap per trail sample) cost 5.0ms where one costs 0.6ms.
+- **Generate at the size the blur leaves, not at frame size.** A sparse Noise
+  TOP at 720x1280 cost 158ms a frame and was 99% of `longhand`'s entire cook,
+  6.8fps -- and it was blurred by ninety pixels immediately afterwards, so all
+  of that detail was thrown away. At an eighth of the frame, with the blur
+  radius divided by eight and an explicit Level TOP putting it back up, the
+  same network cooks in 7.1ms.
+- **A slow cook does not look slow, it looks static.** The recorder captures
+  what it is given and the encoder duplicates frames to fill a constant rate:
+  at 6.8fps, 28% of the frames in a preview were byte-identical to the one
+  before, and the style whose whole point was its motion read as a stutter.
+  Count duplicate frames (`abs(diff).mean() < 0.01`) before believing that a
+  renderer is not moving.
 - **A map that is linear in x can be computed eight pixels wide.** Interpolating
   it back up to frame width is then exact, not approximate -- `glitch`'s tear
   field is a per-row displacement, so a full-resolution map would be a million
