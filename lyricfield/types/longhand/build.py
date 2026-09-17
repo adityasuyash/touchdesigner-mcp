@@ -50,6 +50,10 @@ def _rgb(h: float, sat: float) -> tuple[float, float, float]:
 
 def network(cfg) -> list[OpSpec]:
     s, ln, g, lk = cfg.stage, cfg.line, cfg.ground, cfg.look
+    # The ink. White at the default -- `_rgb` with no saturation is (1, 1, 1) --
+    # and the lettering's BRIGHTNESS is still `lh_now`'s level, so a tint here
+    # changes the hue without touching how it reads against the plate.
+    ink = _rgb(lk.ink_hue, lk.ink_sat)
     frame = {"outputresolution": "custom", "resolutionw": s.width,
              "resolutionh": s.height, "resmult": False}
     sizes = hand_sizes(cfg.params if hasattr(cfg, "params") else cfg)
@@ -152,7 +156,8 @@ def network(cfg) -> list[OpSpec]:
                 "fontsizexunit": "pixels", "fontsizeyunit": "pixels",
                 "positionunit": "pixels",
                 "fontsizex": round(px, 2), "fontsizey": round(px, 2),
-                "fontcolorr": 1.0, "fontcolorg": 1.0, "fontcolorb": 1.0,
+                "fontcolorr": round(ink[0], 4), "fontcolorg": round(ink[1], 4),
+                "fontcolorb": round(ink[2], 4),
                 "bgcolorr": 0.0, "bgcolorg": 0.0, "bgcolorb": 0.0,
                 "bgalpha": 0.0}
 

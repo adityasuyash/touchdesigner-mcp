@@ -93,32 +93,52 @@ class Hand:
     shout: float = 0.34
     # Degrees the block is rotated. A hand does not rule a line.
     tilt: float = 1.6
+    # How hard one word per phrase is picked out. Two of the references set one
+    # word large and the rest of the phrase small -- at 1 the chosen word is
+    # drawn entirely from the largest step and everything else from the
+    # smallest, at 0 the sizes are the hand's own scatter and nothing is
+    # picked out. Needs `steps` above 1; there is nothing to pick from
+    # otherwise.
+    emphasis: float = 0.0
 
 
 @dataclass
 class Drift:
-    """The thing that was missing, and the whole of what "the words just appear
-    on screen" meant.
+    """The camera. The lettering itself never moves.
 
-    In the reference a phrase is never still: it slides slowly the whole time
-    it is up, and the next one fades in over the top of it while the old one is
-    still drifting away. It does not cut on and cut off.
+    "In closer music video, the words fly in and out of the screen, as if all
+    the words were filmed by an actual camera that was handheld and physically
+    being moved from word to word." That is the model: each phrase is written
+    somewhere on a sheet and a hand-held camera swings between them.
+
+    Two earlier readings of this were wrong -- first a cut, then a smooth
+    constant-velocity slide -- and the second was wrong in KIND rather than in
+    amount. Measured off the video at 25fps (the first measurement sampled at
+    8fps, which is slower than the motion itself), over 353 frame-to-frame
+    steps of the lettering's centroid:
+
+        holding      median 2.09 px/frame on a 320-wide sample = 0.65% of width
+        transits     median 6.33 px/frame, peak 20.1 px = 6.3% of width
+        direction reverses between frames: 55% in x, 40% in y
+
+    A drift never reverses. A hand reverses constantly.
     """
 
-    # How far a phrase travels per second, as a share of the frame width.
-    # Measured off the video by tracking the lettering's centroid on dark
-    # aerial plates, over four separate phrases: 0.022, 0.031, 0.036 and 0.093
-    # widths per second, with a vertical component of similar size and varying
-    # sign. Slow -- but never nothing.
-    rate: float = 0.065
-    # How much of that is vertical rather than sideways.
-    rise: float = 0.55
-    # How far a phrase's STARTING place strays from the middle, as a share of
-    # the frame. Without this every phrase begins where the last one did, so
-    # during a hand-over the outgoing one sits directly behind the incoming and
-    # the pair reads as mud. In the reference they land in genuinely different
-    # parts of the frame -- one upper-left, the next centre, the next low --
-    # and that separation is what makes the overlap legible.
+    # The slow float, and the tremor on top of it, as shares of the frame
+    # width. `field.py` picks the frequency bands; these set how far they
+    # reach. At the shipped values the measured per-frame step is 0.66% of the
+    # width with reversals at 51%/49%, against the 0.65% and 55%/40% above.
+    sway: float = 0.035
+    tremor: float = 0.012
+    # Seconds the camera takes to swing onto the next phrase. It overshoots
+    # slightly and settles, and the outgoing phrase is carried off the edge by
+    # the same move -- which is what "fly in and out" means.
+    whip: float = 0.30
+    # How far a phrase's place on the sheet strays from the middle, as a share
+    # of the frame. This is also how far the camera has to travel at a
+    # hand-over, so it sets how violent the transits are. Without it every
+    # phrase would be written in the same spot, the camera would never move,
+    # and a hand-over would stack the outgoing phrase behind the incoming one.
     place: float = 0.15
     # Seconds the outgoing phrase stays up after the next one lands. They
     # overlap, both part-faded, which is what makes it a hand-over rather than
@@ -155,6 +175,13 @@ class Ground:
 class Look:
     # The lettering. White, near enough -- the reference's is not tinted.
     ink: float = 0.97
+    # ... but the other three references this renderer now carries are: blue
+    # marker on light paper, and a bold sans in one accent colour. `ink_hue`
+    # and `ink_sat` rather than `hue` and `sat`: `Ground` already has those
+    # two, and `Config` flattens every section into one namespace, so two
+    # sections sharing a name keep whichever came last.
+    ink_hue: float = 0.0
+    ink_sat: float = 0.0
     glow: float = 0.18
     bloom: float = 10.0
 
@@ -221,11 +248,28 @@ class Params:
                 out.append(f"{name} is a displacement and cannot be negative")
         if not (0.0 <= h.shout <= 1.0):
             out.append(f"shout {h.shout} is a share of letters, 0 to 1")
+        if not (0.0 <= h.emphasis <= 1.0):
+            out.append(f"emphasis {h.emphasis} is a share, 0 to 1")
+        if h.emphasis > 0 and h.steps < 2:
+            out.append(
+                f"emphasis {h.emphasis} with steps {h.steps} has no larger "
+                "size to draw the picked word at")
+        for name, v in (("ink_hue", lk.ink_hue), ("ink_sat", lk.ink_sat)):
+            if not (0.0 <= v <= 1.0):
+                out.append(f"{name} {v} is a share, 0 to 1")
 
-        if dr.rate < 0:
-            out.append("rate is a speed and cannot be negative")
-        if not (0.0 <= dr.rise <= 1.0):
-            out.append(f"rise {dr.rise} is a share of the drift, 0 to 1")
+        for name, v in (("sway", dr.sway), ("tremor", dr.tremor)):
+            if v < 0:
+                out.append(f"{name} is a distance and cannot be negative")
+        if dr.whip <= 0:
+            out.append(
+                "whip must be positive; a camera that arrives instantly is a "
+                "cut, which is the thing this renderer was missing")
+        if dr.whip > ln.max_seconds:
+            out.append(
+                f"whip {dr.whip} is longer than max_seconds {ln.max_seconds}, "
+                "so the camera would never finish arriving before the next "
+                "phrase pulls it away")
         if dr.fade < 0:
             out.append("fade is a duration and cannot be negative")
         if dr.fade >= ln.linger:
@@ -300,16 +344,19 @@ RANGES: dict[str, tuple] = {
     "max_seconds": (0.5, 12.0, 0.1), "wrap": (0.2, 1.0, 0.01),
     "leading": (0.8, 2.5, 0.05), "linger": (0.2, 10.0, 0.1),
     "indent": (0.0, 0.2, 0.005),
-    "rate": (0.0, 0.3, 0.005), "rise": (0.0, 1.0, 0.01),
+    "sway": (0.0, 0.2, 0.005), "tremor": (0.0, 0.08, 0.001),
+    "whip": (0.05, 1.2, 0.01),
     "fade": (0.0, 2.0, 0.02), "ghost": (0.0, 1.0, 0.01),
     "place": (0.0, 0.4, 0.01),
     "steps": (1, 5, 1), "spread": (0.0, 0.4, 0.01),
     "waver": (0.0, 0.3, 0.005), "jitter": (0.0, 0.3, 0.005),
     "shout": (0.0, 1.0, 0.01), "tilt": (0.0, 12.0, 0.1),
+    "emphasis": (0.0, 1.0, 0.01),
     "dim": (0.0, 1.0, 0.01),
     "hue": (0, 1, 0.01), "sat": (0, 1, 0.01), "lift": (0.0, 1.0, 0.01),
     "drift_secs": (2.0, 60.0, 0.5), "blur": (0.0, 300.0, 1.0),
     "ink": (0.2, 1.0, 0.01), "glow": (0, 1, 0.01), "bloom": (0, 60, 1),
+    "ink_hue": (0.0, 1.0, 0.01), "ink_sat": (0.0, 1.0, 0.01),
     "kick_lift": (0.0, 0.4, 0.01), "kick_time": (0.05, 2.0, 0.05),
     "intro_open": (0.02, 1.0, 0.01), "arrive": (0.1, 1.0, 0.01),
     "outro": (0, 60, 1),
@@ -326,6 +373,9 @@ CONTROLS: tuple[Control, ...] = (
                            "hand.jitter": (0.0, 0.12),
                            "hand.spread": (0.0, 0.22),
                            "hand.tilt": (0.0, 4.0)}),
+    Control("emphasis", "Emphasis",
+            "How hard one word of each phrase is picked out, large.",
+            "hand.emphasis", {"hand.emphasis": (0.0, 1.0)}),
     Control("shout", "Shout",
             "How many letters come out in capitals.",
             "hand.shout", {"hand.shout": (0.0, 0.75)}),
@@ -334,10 +384,12 @@ CONTROLS: tuple[Control, ...] = (
             "line.max_words", {"line.max_words": (2, 9),
                                "line.max_chars": (14, 44),
                                "line.max_seconds": (1.6, 6.0)}),
-    Control("slide", "Slide",
-            "How fast the lettering drifts across the frame.",
-            "drift.rate", {"drift.rate": (0.0, 0.16),
-                           "drift.place": (0.0, 0.28)}),
+    Control("camera", "Camera",
+            "How far the camera swings between phrases, and how hard it "
+            "shakes while it holds.",
+            "drift.place", {"drift.place": (0.0, 0.30),
+                            "drift.sway": (0.0, 0.08),
+                            "drift.tremor": (0.0, 0.03)}),
     Control("ground", "Ground",
             "How far the footage is brought down behind the words.",
             "ground.dim", {"ground.dim": (0.0, 0.75)}),
@@ -361,8 +413,9 @@ def reconcile(params: "Params") -> None:
     ln.linger = max(0.1, ln.linger)
     ln.indent = max(0.0, ln.indent)
     dr = params.drift
-    dr.rate = max(0.0, dr.rate)
-    dr.rise = min(1.0, max(0.0, dr.rise))
+    dr.sway = max(0.0, dr.sway)
+    dr.tremor = max(0.0, dr.tremor)
+    dr.whip = min(max(0.01, dr.whip), ln.max_seconds)
     dr.ghost = min(1.0, max(0.0, dr.ghost))
     dr.place = max(0.0, dr.place)
     dr.fade = min(max(0.0, dr.fade), ln.linger * 0.9)
@@ -375,6 +428,9 @@ def reconcile(params: "Params") -> None:
     h.jitter = max(0.0, h.jitter)
     h.shout = min(1.0, max(0.0, h.shout))
     h.tilt = max(0.0, h.tilt)
+    h.emphasis = min(1.0, max(0.0, h.emphasis))
+    if h.steps < 2:
+        h.emphasis = 0.0
 
     g.dim = min(1.0, max(0.0, g.dim))
     g.drift_secs = max(0.5, g.drift_secs)
@@ -383,6 +439,8 @@ def reconcile(params: "Params") -> None:
     # In order of what may give way: the kick's lift, then the plate. The
     # lettering's own brightness is legibility and stays.
     lk.ink = min(1.0, max(0.2, lk.ink))
+    lk.ink_hue = min(1.0, max(0.0, lk.ink_hue))
+    lk.ink_sat = min(1.0, max(0.0, lk.ink_sat))
     over = ((1.0 - g.dim) + b.kick_lift) - (lk.ink - 0.25)
     if over > 0:
         give = min(over, b.kick_lift)

@@ -17,6 +17,7 @@ import pytest
 from lyricfield import types as types_mod
 from lyricfield.config import Config
 from lyricfield.types.longhand import params as P
+from lyricfield.types.longhand import build as B
 from lyricfield.types.longhand.build import network
 
 CUES = [(1.0, "every", 1), (1.5, "word", 1), (2.2, "finds", 1), (2.6, "its", 1),
@@ -391,14 +392,118 @@ def test_the_field_defaults_agree_with_the_params(lh):
 
 # ---------------------------------------------------------------- the motion
 
-def test_a_phrase_drifts_the_whole_time_it_is_up(lh):
-    """The thing that was missing, and the whole of what "the words just appear
-    on screen" meant.
+def _steps(xy):
+    """Frame-to-frame steps, and how often the direction reverses."""
+    import math
 
-    In the reference a phrase is never still. Measured off the video by
-    tracking the lettering's centroid on dark aerial plates, over four separate
-    phrases: 0.022, 0.031, 0.036 and 0.093 frame-widths per second.
+    dx = [xy[i + 1][0] - xy[i][0] for i in range(len(xy) - 1)]
+    dy = [xy[i + 1][1] - xy[i][1] for i in range(len(xy) - 1)]
+    mag = sorted(math.hypot(a, b) for a, b in zip(dx, dy))
+    rev = lambda d: (sum(1 for i in range(len(d) - 1) if d[i] * d[i + 1] < 0)
+                     / float(len(d) - 1))
+    return mag[len(mag) // 2], mag[-1], rev(dx), rev(dy)
+
+
+def test_the_camera_moves_like_a_hand_rather_than_drifting(lh):
+    """The measurement, not the adjective.
+
+    Two earlier versions of this motion were wrong, and the second was wrong in
+    KIND rather than in amount -- a smooth constant-velocity slide. Tracked off
+    the reference at 25fps over 353 frame-to-frame steps of the lettering's
+    centroid, while holding:
+
+        median step   2.09px on a 320-wide sample = 0.65% of the frame width
+        direction reverses between consecutive frames: 55% in x, 40% in y
+
+    A drift never reverses; that is the whole difference, and it is why this
+    test checks the reversal rate rather than the amplitude alone. The smooth
+    slide is measured here too, so the test's power to tell them apart is
+    demonstrated rather than assumed.
     """
+    here = [lh._handheld(k / 25.0) for k in range(600)]
+    med, peak, rx, ry = _steps(here)
+    assert 0.004 < med / lh.WIDTH < 0.010, (
+        f"median step {med:.2f}px is {med / lh.WIDTH * 100:.2f}% of the width; "
+        "the reference holds at 0.65%")
+    assert peak / lh.WIDTH < 0.03, f"peak step {peak:.1f}px is a jump, not a hand"
+    for name, r in (("x", rx), ("y", ry)):
+        assert 0.35 < r < 0.65, (
+            f"direction reverses {r * 100:.0f}% of frames in {name}; the "
+            "reference is 55% in x and 40% in y, a drift is 0%")
+
+    # ... and what it is not. The motion this replaced, sampled the same way.
+    slide = [(k / 25.0 * 0.065 * lh.WIDTH, k / 25.0 * 0.036 * lh.HEIGHT)
+             for k in range(600)]
+    _m, _p, sx, sy = _steps(slide)
+    assert sx == 0.0 and sy == 0.0, (
+        "a constant-velocity slide reversed, so this test cannot tell the two "
+        "kinds of motion apart and proves nothing")
+
+
+def test_a_phrase_flies_in_and_then_holds(lh):
+    """At the hand-over the camera is still on the last phrase, so the new one
+    is drawn well off its place and arrives over the whip."""
+    i = 4
+    hx, hy = lh._home(i)
+    px, py = lh._home(i - 1)
+    apart = ((px - hx) ** 2 + (py - hy) ** 2) ** 0.5
+    assert apart > lh.WIDTH * 0.05, "the two phrases are written too close to tell"
+
+    ax, ay = lh._slide(i, i, 0.0, 10.0)
+    flew = ((ax - (hx - hx)) ** 2 + (ay - (hy - hy)) ** 2) ** 0.5
+    assert flew > apart * 0.7, (
+        f"the arriving phrase starts {flew:.0f}px out, against {apart:.0f}px "
+        "between the two places -- it did not fly in")
+
+    sx, sy = lh._slide(i, i, lh.WHIP * 1.2, 10.0)
+    assert (sx ** 2 + sy ** 2) ** 0.5 < apart * 0.3, (
+        f"still {(sx ** 2 + sy ** 2) ** 0.5:.0f}px out after the whip")
+
+
+def test_the_outgoing_phrase_is_carried_off_by_the_same_move(lh):
+    """One camera, two phrases on one sheet: the move that brings the new
+    phrase in takes the old one out. "The words fly in and out of the screen."
+    """
+    i = 4
+    near = lh._slide(i - 1, i, 0.0, 10.0)
+    far = lh._slide(i - 1, i, lh.WHIP, 10.0)
+    assert (far[0] ** 2 + far[1] ** 2) ** 0.5 > \
+           (near[0] ** 2 + near[1] ** 2) ** 0.5 * 2.0, (
+        f"the outgoing phrase went from {near} to {far}; it faded where it "
+        "stood rather than leaving")
+
+
+def test_the_camera_overshoots_its_target(lh):
+    """A hand swung onto a phrase arrives slightly past it. A linear move --
+    which is what `_settle` would be without this -- reads as a rail."""
+    over = max(lh._settle(u / 200.0) for u in range(200))
+    assert over > 1.01, f"peaked at {over:.4f}; it eased in rather than landing"
+    assert over < 1.20, f"overshot by {(over - 1) * 100:.0f}%, which is a bounce"
+    assert lh._settle(0.0) == 0.0 and lh._settle(1.0) == 1.0
+    assert lh._settle(-3.0) == 0.0 and lh._settle(4.0) == 1.0
+
+
+def test_the_camera_is_a_pure_function_of_index_age_and_time(lh):
+    assert lh._slide(3, 3, 0.7, 12.0) == lh._slide(3, 3, 0.7, 12.0)
+    assert lh._handheld(4.25) == lh._handheld(4.25)
+    # Two moments of the same phrase differ: it is never still.
+    assert lh._slide(3, 3, 1.0, 12.0) != lh._slide(3, 3, 1.0, 12.5)
+
+
+def test_phrases_are_not_all_written_in_the_same_place(lh):
+    """Without this the camera would have nowhere to move, and a hand-over
+    would stack the outgoing phrase directly behind the incoming one."""
+    starts = {lh._home(i) for i in range(8)}
+    assert len(starts) >= 7, starts
+    spread = max(s[0] for s in starts) - min(s[0] for s in starts)
+    assert spread > lh.WIDTH * 0.1, spread
+    lh.PLACE = 0.0
+    assert lh._home(3) == (0.0, 0.0)
+
+
+def test_a_phrase_is_never_still_on_screen(lh):
+    """The thing that was missing, and the whole of what "the words just appear
+    on screen" meant."""
     ps = lh._phrases(CUES)
     t0 = ps[0][0][0]
     at = []
@@ -409,35 +514,72 @@ def test_a_phrase_drifts_the_whole_time_it_is_up(lh):
         at.append((min(xs), min(ys)))
     assert len({a[0] for a in at}) > 1 or len({a[1] for a in at}) > 1, (
         f"the phrase sat still: {at}")
-    # ... and it goes one way, rather than wobbling in place
-    drift = abs(at[2][0] - at[0][0]) + abs(at[2][1] - at[0][1])
-    assert drift > 8, f"drifted only {drift}px over 1.15s"
 
 
-def test_consecutive_phrases_do_not_slide_the_same_way(lh):
-    """The direction is a pure function of the phrase's index, so the frame
-    does not develop a single prevailing wind."""
-    ways = {tuple(round(v, 2) for v in lh._slide(i, 1.0)) for i in range(8)}
-    assert len(ways) >= 6, ways
+def test_emphasis_picks_one_word_out_large(lh):
+    """Two of the references set one word of a phrase big and the rest small.
+    At 1 the picked word is drawn entirely from the largest step and everything
+    else from the smallest."""
+    lh.EMPHASIS = 1.0
+    words = ["one", "two", "three", "four"]
+    hot = lh._hot_word(2, len(words))
+    assert 0 <= hot < len(words)
+    letters, _w, _k, _wi = lh._set(" ".join(words), 0, 0, hot)
+    steps, wi = {}, 0
+    for _shown, pick, _adv in letters:
+        if pick is None:
+            wi += 1
+        else:
+            steps.setdefault(wi, set()).add(pick)
+    assert steps[hot] == {len(lh.SIZES) - 1}, (
+        f"the picked word came out at steps {steps[hot]}")
+    for w, seen in steps.items():
+        if w != hot:
+            assert seen == {0}, f"word {w} came out at {seen}, not the smallest"
 
 
-def test_the_drift_is_a_pure_function_of_index_and_age(lh):
-    assert lh._slide(3, 0.7) == lh._slide(3, 0.7)
-    # At zero age a phrase is at its OWN starting place, which is not the
-    # centre -- that offset is what keeps a hand-over from stacking the
-    # outgoing phrase directly behind the incoming one.
-    assert lh._slide(3, 0.0) != (0.0, 0.0)
-    lh.PLACE = 0.0
-    assert lh._slide(3, 0.0) == (0.0, 0.0)
+def test_emphasis_off_leaves_the_hand_scatter_alone(lh):
+    """It is a look on top of the lettering, not a replacement for it."""
+    lh.EMPHASIS = 0.0
+    assert lh._hot_word(2, 4) == -1
+    picks = {lh._step_for(k, 0, -1) for k in range(40)}
+    assert len(picks) > 1, "the letters all came out at one size"
 
 
-def test_phrases_do_not_all_start_in_the_same_place(lh):
-    """Without this, during a hand-over the outgoing phrase sits directly
-    behind the incoming one and the pair reads as mud."""
-    starts = {lh._slide(i, 0.0) for i in range(8)}
-    assert len(starts) >= 7, starts
-    spread = max(s[0] for s in starts) - min(s[0] for s in starts)
-    assert spread > lh.WIDTH * 0.1, spread
+def test_a_word_picked_out_large_does_not_run_into_the_next(lh):
+    """The row advances on the size each letter is DRAWN at. Advancing on the
+    nominal size instead puts an emphasised word 11% over the one after it,
+    and the overlap is the kind of thing that looks like a font problem."""
+    lh.EMPHASIS = 1.0
+    letters, wide, _k, _wi = lh._set("alpha beta gamma", 0, 0, 1)
+    assert wide == pytest.approx(sum(a for _s, _p, a in letters))
+    plain, flat, _k, _wi = lh._set("alpha beta gamma", 0, 0, -1)
+    assert wide != pytest.approx(flat), (
+        "the emphasised row set to the same width as the plain one, so the "
+        "sizes are not reaching the layout")
+
+
+def test_the_ink_is_white_until_it_is_tinted():
+    """`_rgb` with no saturation is white, which is what the default is."""
+    p = P.Params()
+    assert (p.look.ink_hue, p.look.ink_sat) == (0.0, 0.0)
+    assert B._rgb(p.look.ink_hue, p.look.ink_sat) == (1.0, 1.0, 1.0)
+    blue = B._rgb(0.6, 0.8)
+    assert blue[2] > blue[0] and blue[2] > blue[1], blue
+
+
+def test_the_ink_colour_reaches_the_text_tops():
+    """A tint that the Text TOPs never see is a knob that reports success and
+    changes nothing -- which is what 45 of this project's first 51 pushed
+    values did."""
+    cfg = Config(type="longhand")
+    cfg.params.look.ink_hue, cfg.params.look.ink_sat = 0.6, 0.8
+    want = B._rgb(0.6, 0.8)
+    texts = [o for o in B.network(cfg) if o.type == "textTOP"]
+    assert texts
+    for o in texts:
+        assert o.params["fontcolorr"] == pytest.approx(round(want[0], 4))
+        assert o.params["fontcolorb"] == pytest.approx(round(want[2], 4))
 
 
 def test_a_row_that_fits_is_kept_inside_however_it_is_placed(lh):
@@ -466,10 +608,11 @@ def test_a_word_too_wide_for_the_frame_overflows_evenly(lh):
     bodies, _w, _n, _g = lh._spec(ps, 0.05, 1.0)
     xs = [int(r.split("\t")[0]) for b in bodies for r in b.split("\n")[1:]]
     assert xs and min(xs) < 0, "a word this wide should overflow"
-    # Centred, so it hangs off both edges by the same amount. Asserted on the
-    # row's own start rather than reconstructed from letter positions -- the
-    # last letter's width is its own advance, not the nominal size.
-    wide = lh._measure("supercalifragilistic")
+    # Centred, so it hangs off both edges by the same amount. Measured through
+    # `_set`, which is what the layout uses: the row's width is the sum of the
+    # advances of the letters as DRAWN -- at their own size steps, and
+    # capitalised where `shout` capitalised them -- not the nominal one.
+    _letters, wide, _k, _wi = lh._set("supercalifragilistic", 0, 0, -1)
     assert min(xs) == pytest.approx((lh.WIDTH - wide) * 0.5, abs=2), (
         f"start {min(xs)}, centred would be {(lh.WIDTH - wide) * 0.5:.0f}")
 
@@ -504,7 +647,7 @@ def test_rows_are_stacked_ragged_rather_than_centred(lh):
     """"that I KNOW" / "you CAN't" / "AFFOrD" each start about 0.04 of the
     frame right of the one above. Hand-placed, not set."""
     lh.JITTER = lh.WAVER = 0.0
-    lh.RATE = 0.0
+    lh.PLACE = lh.SWAY = lh.TREMOR = 0.0          # hold the camera still
     ps = lh._phrases([(0.0, "extraordinarily", 1), (0.3, "long", 1),
                       (0.6, "wordy", 1), (0.9, "phrase", 1)])
     bodies, _w, _n, _g = lh._spec(ps, 0.05, 1.0)
