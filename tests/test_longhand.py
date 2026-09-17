@@ -267,11 +267,28 @@ def test_the_plate_is_brought_down_before_the_lettering_goes_on():
 def test_a_bright_ground_against_pale_ink_is_refused():
     p = P.Params()
     p.ground.dim, p.beat.kick_lift = 0.0, 0.3
-    assert any("read over it" in m for m in p.validate())
+    assert any("past white" in m for m in p.validate())
     P.reconcile(p)
     assert p.validate() == []
     assert p.look.ink == pytest.approx(0.97), (
         "the lettering's brightness gave way; it is legibility, not taste")
+
+
+def test_dark_ink_wants_a_BRIGHT_ground_rather_than_a_darker_one():
+    """The contrast rule asked one way round for as long as the ink was always
+    white. Blue marker on light paper is the same requirement mirrored, and a
+    check that only knows how to darken would answer it by making the page
+    black -- refusing the look rather than settling it."""
+    p = P.Params()
+    p.look.ink_hue, p.look.ink_sat = 0.62, 0.9      # a saturated blue
+    p.ground.dim, p.beat.kick_lift = 0.5, 0.0       # a mid-grey page
+    assert P.ink_luma(p.look) < 0.5, "this test needs dark ink to mean anything"
+    assert any("read against the other" in m for m in p.validate())
+    P.reconcile(p)
+    assert p.validate() == [], p.validate()
+    assert p.ground.dim < 0.5, (
+        f"the page was darkened to {p.ground.dim} behind dark ink, which is "
+        "the wrong direction")
 
 
 # --------------------------------------------------------------- the network

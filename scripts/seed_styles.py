@@ -202,6 +202,66 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       "look.hue": 0.86, "look.sat": 0.35, "look.floor": 0.04,
       "look.glow": 0.22, "look.bloom": 7.0}),
 
+    # ------------------------------------------------------- longhand
+    # One renderer, four references. Three of them are the same machinery in
+    # different clothes -- what separates them is the ink, the ground, the
+    # size and where on the sheet the camera finds the words -- and saying so
+    # is the point: a renderer that carries four looks is worth more than four
+    # renderers that each carry one.
+    ("longhand", "Marker",
+     "thick white marker over your footage, a phrase at a time",
+     {"stage.size": 126.0, "hand.shout": 0.45, "hand.tilt": 2.2,
+      "hand.waver": 0.07, "hand.jitter": 0.06,
+      "line.max_words": 4, "line.max_chars": 22,
+      "drift.place": 0.18, "drift.whip": 0.26,
+      "ground.dim": 0.52, "look.glow": 0.22, "look.bloom": 12.0}),
+
+    ("longhand", "Fieldnote",
+     "a fine script, small and high in the frame, barely over the picture",
+     {"stage.font": "Snell Roundhand", "stage.size": 62.0,
+      "stage.center_y": 0.28, "stage.center_x": 0.42,
+      "hand.steps": 2, "hand.spread": 0.06, "hand.shout": 0.0,
+      "hand.waver": 0.03, "hand.jitter": 0.03, "hand.tilt": 0.8,
+      "line.max_words": 7, "line.max_chars": 34, "line.leading": 1.15,
+      "line.indent": 0.02,
+      "drift.place": 0.10, "drift.sway": 0.02, "drift.tremor": 0.008,
+      "ground.dim": 0.28, "look.ink": 0.92, "look.glow": 0.1,
+      "look.bloom": 6.0}),
+
+    ("longhand", "Sketchbook",
+     "blue marker on light paper, one word of each phrase large",
+     {"stage.size": 104.0,
+      # Dark ink on a light ground, which is the mirror of every other look
+      # here: `reconcile` lifts the page rather than darkening it, because the
+      # contrast rule now asks how far apart the two are and not which is
+      # brighter.
+      "look.ink_hue": 0.62, "look.ink_sat": 0.88, "look.ink": 0.85,
+      "look.glow": 0.04, "look.bloom": 4.0,
+      "ground.dim": 0.0, "ground.lift": 0.9, "ground.hue": 0.11,
+      "ground.sat": 0.16, "ground.blur": 140.0, "ground.drift_secs": 26.0,
+      "hand.steps": 3, "hand.spread": 0.24, "hand.emphasis": 0.85,
+      "hand.shout": 0.2, "hand.waver": 0.05, "hand.jitter": 0.04,
+      "beat.kick_lift": 0.0}),
+
+    ("longhand", "Signal",
+     "bold flat type in one accent colour, set rather than drawn",
+     {"stage.font": "Impact", "stage.size": 118.0, "stage.center_y": 0.5,
+      # The hand switched off entirely. This is the reachable half of the
+      # kinetic-typography reference: the typographic character -- bold, flat,
+      # mixed sizes, one accent colour. Its receding plane and its drawn motifs
+      # (map pins, speech bubbles, landmarks) are illustration, and everything
+      # this project draws is generated, so they are not on offer and the tile
+      # should not promise them.
+      "hand.waver": 0.0, "hand.jitter": 0.0, "hand.tilt": 0.0,
+      "hand.steps": 3, "hand.spread": 0.3, "hand.emphasis": 0.9,
+      "hand.shout": 0.55,
+      "line.max_words": 4, "line.max_chars": 20, "line.leading": 1.05,
+      "line.indent": 0.0,
+      "drift.place": 0.2, "drift.whip": 0.2, "drift.tremor": 0.004,
+      "ground.dim": 0.9, "ground.lift": 0.2, "ground.sat": 0.1,
+      "look.ink_hue": 0.08, "look.ink_sat": 0.85, "look.ink": 1.0,
+      "look.glow": 0.12, "look.bloom": 8.0}),
+
     # ------------------------------------------------------- halftone
 
 

@@ -1,0 +1,65 @@
+# lyricfield style. Reusable across songs; contains no song data.
+
+[meta]
+name = "Sketchbook"
+slug = "sketchbook"
+type = "longhand"
+description = "blue marker on light paper, one word of each phrase large"
+created = "2026-09-17T18:19:46+00:00"
+source_song = ""
+
+[stage]
+width = 720
+height = 1280
+font = "Bradley Hand"
+size = 104.0
+center_x = 0.5
+center_y = 0.47
+
+[line]
+max_words = 5
+max_chars = 26
+max_seconds = 3.5
+wrap = 0.86
+leading = 1.3
+linger = 2.6
+indent = 0.04
+
+[hand]
+steps = 3
+spread = 0.24
+waver = 0.05
+jitter = 0.04
+shout = 0.2
+tilt = 1.6
+emphasis = 0.85
+
+[drift]
+sway = 0.035
+tremor = 0.012
+whip = 0.3
+place = 0.15
+fade = 0.28
+ghost = 0.45
+
+[ground]
+dim = 0.0
+hue = 0.11
+sat = 0.16
+lift = 0.9
+drift_secs = 26.0
+blur = 140.0
+
+[look]
+ink = 0.85
+ink_hue = 0.62
+ink_sat = 0.88
+glow = 0.04
+bloom = 4.0
+
+[beat]
+kick_lift = 0.0
+kick_time = 0.22
+intro_open = 0.35
+arrive = 0.88
+outro = 10.0

@@ -1,0 +1,65 @@
+# lyricfield style. Reusable across songs; contains no song data.
+
+[meta]
+name = "Signal"
+slug = "signal"
+type = "longhand"
+description = "bold flat type in one accent colour, set rather than drawn"
+created = "2026-09-17T18:19:46+00:00"
+source_song = ""
+
+[stage]
+width = 720
+height = 1280
+font = "Impact"
+size = 118.0
+center_x = 0.5
+center_y = 0.5
+
+[line]
+max_words = 4
+max_chars = 20
+max_seconds = 3.5
+wrap = 0.86
+leading = 1.05
+linger = 2.6
+indent = 0.0
+
+[hand]
+steps = 3
+spread = 0.3
+waver = 0.0
+jitter = 0.0
+shout = 0.55
+tilt = 0.0
+emphasis = 0.9
+
+[drift]
+sway = 0.035
+tremor = 0.004
+whip = 0.2
+place = 0.2
+fade = 0.28
+ghost = 0.45
+
+[ground]
+dim = 0.9
+hue = 0.07
+sat = 0.1
+lift = 0.2
+drift_secs = 14.0
+blur = 90.0
+
+[look]
+ink = 1.0
+ink_hue = 0.08
+ink_sat = 0.85
+glow = 0.12
+bloom = 8.0
+
+[beat]
+kick_lift = 0.05
+kick_time = 0.22
+intro_open = 0.35
+arrive = 0.88
+outro = 10.0

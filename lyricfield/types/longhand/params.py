@@ -198,6 +198,24 @@ class Beat:
     outro: float = 10.0
 
 
+def ink_luma(look: "Look") -> float:
+    """How bright the lettering actually comes out, 0..1.
+
+    Its colour matters, not just its level: a saturated blue at full value
+    reads at about a fifth of white. Rec.709 weights, which is what the eye
+    does and what every brightness check in this project measures.
+    """
+    from .build import _rgb
+
+    r, g, b = _rgb(look.ink_hue, look.ink_sat)
+    return look.ink * (0.2126 * r + 0.7152 * g + 0.0722 * b)
+
+
+def ground_level(ground: "Ground", beat: "Beat") -> float:
+    """How bright the plate sits once a kick has lifted it."""
+    return (1.0 - ground.dim) + beat.kick_lift
+
+
 @dataclass
 class Params:
     stage: Stage = field(default_factory=Stage)
@@ -290,17 +308,23 @@ class Params:
 
         # The lettering IS the cued word, so it is allowed to reach white --
         # that is the one thing this project's brightness rule permits. What
-        # has to hold is CONTRAST: the plate behind it, lifted by a kick, must
-        # stay far enough below the ink to read as ground rather than as a
-        # wash. A first version of this check asked that ink plus glow stay
-        # under white, which is the wrong question and refused a legitimate
-        # near-white marker.
-        ground = (1.0 - g.dim) + b.kick_lift
-        if ground > lk.ink - 0.25:
+        # has to hold is CONTRAST, and in EITHER direction. A first version of
+        # this check asked that ink plus glow stay under white, which is the
+        # wrong question and refused a legitimate near-white marker. A second
+        # asked that the ground sit below the ink, which is the right question
+        # asked one way round: this renderer now also has to carry dark ink on
+        # light paper, where the ground is meant to be the brighter of the two.
+        lum, ground = ink_luma(lk), ground_level(g, b)
+        if ground > 1.0:
             out.append(
-                f"the plate sits at {ground:.2f} once a kick lifts it, against "
-                f"ink at {lk.ink} -- white lettering needs the ground further "
-                "down than that to read over it")
+                f"the plate reaches {ground:.2f} once a kick lifts it, which "
+                "is past white -- it clips flat, and lettering of any colour "
+                "goes with it")
+        if abs(lum - ground) < 0.25:
+            out.append(
+                f"the lettering reads at {lum:.2f} and the plate at "
+                f"{ground:.2f} once a kick lifts it -- {abs(lum - ground):.2f} "
+                "apart is not enough for one to read against the other")
         if b.outro <= 0:
             out.append("outro must be positive; it is the length of the ending")
         if not (0.0 < b.intro_open <= 1.0):
@@ -441,12 +465,32 @@ def reconcile(params: "Params") -> None:
     lk.ink = min(1.0, max(0.2, lk.ink))
     lk.ink_hue = min(1.0, max(0.0, lk.ink_hue))
     lk.ink_sat = min(1.0, max(0.0, lk.ink_sat))
-    over = ((1.0 - g.dim) + b.kick_lift) - (lk.ink - 0.25)
+
+    # The ground moves away from the ink, in whichever direction it has room
+    # to go: down for light lettering, up for dark. In order of what may give
+    # way -- the kick's lift, then the plate. The lettering's own brightness is
+    # legibility and stays.
+    lum = ink_luma(lk)
+    # Never past white first, whatever colour the ink is: a plate that clips
+    # flat takes the lettering with it, and the contrast the numbers promise
+    # is not the contrast the frame shows.
+    over = ground_level(g, b) - 1.0
     if over > 0:
         give = min(over, b.kick_lift)
         b.kick_lift, over = b.kick_lift - give, over - give
-    if over > 0:
-        g.dim = min(1.0, g.dim + over)
+        if over > 0:
+            g.dim = min(1.0, g.dim + over)
+    if lum >= 0.5:
+        over = ground_level(g, b) - (lum - 0.25)
+        if over > 0:
+            give = min(over, b.kick_lift)
+            b.kick_lift, over = b.kick_lift - give, over - give
+        if over > 0:
+            g.dim = min(1.0, g.dim + over)
+    else:
+        under = (lum + 0.25) - ground_level(g, b)
+        if under > 0:
+            g.dim = max(0.0, g.dim - under)
     b.intro_open = min(1.0, max(0.02, b.intro_open))
     b.arrive = min(1.0, max(0.1, b.arrive))
     b.outro = max(0.0, b.outro) or 1.0
