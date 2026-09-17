@@ -1006,7 +1006,7 @@
       <div class="morebody">
         <div class="field">
           <label for="lang">Language <span class="hint">blank to detect — setting it is worth more than any audio setting</span></label>
-          <input type="text" id="lang" placeholder="e.g. hi, en, es">
+          <select id="lang"><option value="">Detect automatically</option></select>
         </div>
         <div class="field">
           <label for="prompt">Known lyrics <span class="hint">paste them and they become the words, with the transcription used only for timing</span></label>
@@ -1229,6 +1229,8 @@ let TAKE_FILE = '';        // basename of the take on screen, for Download
 // Which renderer the gallery currently has selected. A style implies one; a
 // built-in tile names one directly.
 let TYPE_SLUG = '';
+// Named controls moved in the creation flow, before the song exists.
+let FLOW_CONTROLS = {};
 // What sits behind the words: a renderer and, optionally, one of its styles.
 // Independent of the word look, and the empty string means "nothing behind".
 let BACK_TYPE = '', BACK_STYLE = '';
@@ -2277,7 +2279,7 @@ function clearForm() {
   TYPE_SLUG = DEFAULT_TYPE; STYLE_SLUG = '';
   BACK_TYPE = ''; BACK_STYLE = '';
   PICKED = false;
-  CFG = {track: {}, __sections: []}; CFG_CONTROLS = [];
+  CFG = {track: {}, __sections: []}; CFG_CONTROLS = []; FLOW_CONTROLS = {};
   for (const id of ['moreWords', 'moreLook'])
     { const el = $('#' + id); if (el) el.open = false; }
   renderGallery();
@@ -2301,6 +2303,7 @@ function runBody(extra) {
     prompt: $('#prompt').value.trim() || null,
     force_separate: $('#fsep').checked,
     force_transcribe: $('#ftra').checked,
+    controls: Object.keys(FLOW_CONTROLS).length ? FLOW_CONTROLS : null,
   }, extra || {}));
 }
 $('#btnPrimary').onclick = () => {
@@ -2536,17 +2539,36 @@ function controls() {
   // Two hosts: the Look pane, and the disclosure in the creation flow. One
   // renderer, so they cannot drift -- and the flow's copy has to be rebuilt
   // when the picked renderer changes, since the controls differ per type.
-  for (const h of document.querySelectorAll('[data-look-host]')) drawControls(h);
-  drawControls($('#lookBody'));
+  //
+  // They differ in one way, and it is the whole point of the flow's copy: the
+  // Look pane tunes the SONG THAT IS LOADED and saves as you go, while the
+  // flow's is a set of choices for the run about to be made. Before a song
+  // exists there is nothing to save to, which is why this panel used to be
+  // empty exactly when it was being asked for.
+  for (const h of document.querySelectorAll('[data-look-host]'))
+    drawControls(h, true);
+  drawControls($('#lookBody'), false);
 }
 
-function drawControls(host) {
+// What the creation flow shows: the picked renderer's own controls, with
+// anything already moved here on top of them. `CFG_CONTROLS` only ever holds a
+// loaded song's, and `/api/types` carries each renderer's at its defaults.
+function flowControls() {
+  const mine = (CFG.__type === TYPE_SLUG || !TYPE_SLUG) ? CFG_CONTROLS : [];
+  const t = TYPES.find(x => x.slug === TYPE_SLUG);
+  const base = mine.length ? mine : ((t && t.controls) || []);
+  return base.map(c => Object.assign({}, c,
+    (c.key in FLOW_CONTROLS) ? {value: FLOW_CONTROLS[c.key]} : {}));
+}
+
+function drawControls(host, flow) {
   if (!host) return;
   host.innerHTML = '';
 
-  if (CFG_CONTROLS.length) {
+  const list = flow ? flowControls() : CFG_CONTROLS;
+  if (list.length) {
     const wrap = document.createElement('div'); wrap.className = 'sliders';
-    for (const c of CFG_CONTROLS) {
+    for (const c of list) {
       const row = document.createElement('div'); row.className = 'slider named';
       const lab = document.createElement('label');
       lab.innerHTML = `<span>${c.label}</span>`;
@@ -2559,6 +2581,15 @@ function drawControls(host) {
       // parameters and saves, and reconciliation can move a value the drag did
       // not touch. Redraw afterwards so what is shown is what was stored.
       sl.onchange = async e => {
+        // In the flow the value is HELD, not saved: there may be no song to
+        // save it to. `runBody` carries these and `run._honour_pick` applies
+        // them, so a slider moved here changes what comes out -- without that
+        // it would move and change nothing, which is worse than not offering
+        // it at all.
+        if (flow) {
+          FLOW_CONTROLS[c.key] = parseFloat(e.target.value);
+          return;
+        }
         const r = await api('/api/control', {method: 'POST',
           body: JSON.stringify({key: c.key, value: parseFloat(e.target.value)})
         }).catch(showErr);
@@ -2574,6 +2605,10 @@ function drawControls(host) {
     host.append(wrap);
   }
 
+  // Every tunable, for the specific fix a named control cannot reach. Only
+  // where there is a config to show: before a song exists this is an empty
+  // disclosure promising settings that are not there.
+  if (!(CFG.__sections || []).length) return;
   const all = document.createElement('details'); all.className = 'allset';
   all.innerHTML = '<summary>All settings</summary>';
   const body = document.createElement('div'); body.className = 'disc-body';
@@ -2624,6 +2659,20 @@ async function loadTypes() {
   // with no renderer chosen and the first Generate falls back to the default
   // without ever having said so.
   DEFAULT_TYPE = d.default || (TYPES[0] || {}).slug || '';
+  // The languages the transcriber takes, owned by the server. A free-text box
+  // asked the user to know the ISO code, and "language is worth more than any
+  // audio setting" -- measured at 43 words against 121 on the same Hindi
+  // track -- so it is the one setting that must not be hard to set.
+  const ls = $('#lang');
+  if (ls && (d.languages || []).length) {
+    const was = ls.value;
+    ls.innerHTML = '';
+    for (const l of d.languages) {
+      const o = document.createElement('option');
+      o.value = l.code; o.textContent = l.name; ls.append(o);
+    }
+    ls.value = was;
+  }
   if (!TYPE_SLUG) TYPE_SLUG = DEFAULT_TYPE;
   const sel = $('#vtype'); if (sel) sel.innerHTML = '';
   for (const t of TYPES) {
@@ -2645,6 +2694,9 @@ async function refreshAll() {
   const c = await api('/api/config').catch(() => null);
   if (!c) return;
   CFG = c.config; CFG.__sections = c.sections; CFG_RANGES = c.ranges || {};
+  // Which renderer the loaded song is, so the flow knows whether the song's
+  // controls are the picked renderer's controls at all.
+  CFG.__type = c.type || '';
   CFG_CONTROLS = c.controls || [];
   const vsel = $('#vtype');
   if (vsel) vsel.value = PICKED ? (TYPE_SLUG || c.type) : c.type;
@@ -2665,7 +2717,19 @@ async function refreshAll() {
   // How this song was transcribed, so a re-run does not revert to auto-detect.
   // The disclosure opens when there is something in it: a stored setting behind
   // a closed summary is the same as no setting.
-  if (CFG.track.language && !$('#lang').value) $('#lang').value = CFG.track.language;
+  if (CFG.track.language && !$('#lang').value) {
+    const ls = $('#lang');
+    ls.value = CFG.track.language;
+    // A <select> silently refuses a value it has no option for, which would
+    // show "Detect automatically" for a song that was transcribed with a code
+    // this list does not carry -- and the next run would then drop it. Keep
+    // the code by giving it an option of its own.
+    if (ls.value !== CFG.track.language) {
+      const o = document.createElement('option');
+      o.value = o.textContent = CFG.track.language;
+      ls.append(o); ls.value = CFG.track.language;
+    }
+  }
   if (CFG.track.lyrics && !$('#prompt').value) $('#prompt').value = CFG.track.lyrics;
   const mw = $('#moreWords');
   if (mw && (CFG.track.language || CFG.track.lyrics)) mw.open = true;

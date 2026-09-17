@@ -303,7 +303,7 @@ def test_one_renderer_draws_the_look_controls_in_both_places():
     """Two hosts, one implementation, so the Look pane and the creation flow
     cannot drift."""
     src = INDEX.read_text()
-    assert "function drawControls(host)" in src
+    assert "function drawControls(host, flow)" in src
     assert "querySelectorAll('[data-look-host]')" in src
 
 
@@ -318,3 +318,84 @@ def test_a_new_song_starts_from_a_blank_form():
         assert id_ in body, f"clearForm leaves #{id_} alone"
     assert "PICKED = false" in body, "the gallery pick survives a new song"
     assert "if (!slug) clearForm();" in src, "clearForm is never called"
+
+
+# ------------------------------------------- the choices made before the song
+
+def test_a_control_moved_in_the_creation_flow_reaches_the_config(song):
+    """"All settings needed in the initial generation that are subjective
+    choices on the user, they should be given the choices at the initial
+    creation flow itself" -- and a slider that moves and changes nothing is
+    worse than one that is not offered."""
+    cfg = song.load_config()
+    vt = cfg.video_type
+    key = vt.controls(cfg.params)[0]["key"]
+    before = dict(vt.control_values(cfg.params)) if hasattr(
+        vt, "control_values") else None
+
+    said = []
+    changed = run_mod._honour_pick(
+        _ctx(song, options={"controls": {key: 0.9}}), said.append)
+    assert changed.get("controls") == 1, said
+
+    after = song.load_config()
+    now = {c["key"]: c["value"] for c in vt.controls(after.params)}
+    assert now[key] == pytest.approx(0.9, abs=0.05), (before, now)
+
+
+def test_a_control_the_renderer_does_not_have_is_reported_not_swallowed(song):
+    said = []
+    changed = run_mod._honour_pick(
+        _ctx(song, options={"controls": {"nonsense": 0.5}}), said.append)
+    assert "controls" not in changed
+    assert any("nonsense" in m for m in said), said
+
+
+def test_every_renderer_offers_its_controls_before_a_song_exists():
+    """The fine-tune panel is filled from a LOADED SONG's config, so after
+    "+ New song" it was empty -- which is exactly when the user is being asked
+    to choose. The call needs no song; it simply was not being made."""
+    from lyricfield.ui import server as srv
+
+    for vt in types_mod.list_types():
+        d = srv.type_payload(vt)
+        assert "controls" in d, vt.slug
+        assert d["controls"] == vt.controls(vt.default_params())
+        for c in d["controls"]:
+            assert {"key", "label", "hint", "value"} <= set(c), (vt.slug, c)
+
+
+def test_the_flow_holds_its_controls_rather_than_saving_them():
+    """In the flow there may be no song to save to, so the values are held and
+    carried on the run. Checked in the page because that is where the two
+    behaviours part company."""
+    src = INDEX.read_text()
+    assert "FLOW_CONTROLS" in src
+    assert re.search(r"controls:\s*Object\.keys\(FLOW_CONTROLS\)", src), (
+        "runBody does not carry the controls moved in the flow")
+    assert re.search(r"if \(flow\) \{\s*\n\s*FLOW_CONTROLS\[c\.key\]", src), (
+        "the flow's sliders still POST to /api/control")
+    assert "FLOW_CONTROLS = {}" in src.split("function clearForm")[1][:900], (
+        '"+ New song" does not clear the controls moved for the last one')
+
+
+def test_the_language_is_chosen_from_a_list_the_server_owns():
+    """It was a free-text box asking the user to know an ISO code, for the one
+    setting that is worth more than any audio setting -- measured at 43 words
+    against 121 on the same Hindi track."""
+    from lyricfield import transcribe as transcribe_mod
+    from lyricfield.ui import server as srv
+
+    src = INDEX.read_text()
+    assert '<select id="lang"' in src, "the language is still a text box"
+
+    payload = srv.list_video_types()
+    assert payload["languages"] == transcribe_mod.language_payload()
+    codes = [l["code"] for l in payload["languages"]]
+    assert codes[0] == "", "auto-detect is not the first choice"
+    assert len(codes) == len(set(codes)), "a language is listed twice"
+    for want in ("en", "hi", "es", "ja"):
+        assert want in codes, want
+    # A code the list does not carry must survive being loaded back, or a
+    # re-run quietly reverts a song to auto-detect.
+    assert "ls.value !== CFG.track.language" in src

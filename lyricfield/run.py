@@ -243,6 +243,27 @@ def _honour_pick(ctx: Ctx, say) -> dict:
         say(f"applied the {st.name} look")
         changed["style"] = st.slug
 
+    # The named controls, moved in the creation flow before this song existed.
+    # After the style, because a style is a starting point and these are the
+    # choices made on top of it -- and applied through the type's own
+    # `apply_control`, which is already pure on a params object and reconciles
+    # after each one. Without this the sliders in the flow would move and
+    # change nothing, which is worse than not offering them.
+    picked = ctx.options.get("controls") or {}
+    if picked:
+        moved = []
+        for key, value in picked.items():
+            try:
+                cfg.video_type.apply_control(cfg.params, key, float(value))
+            except (KeyError, TypeError, ValueError) as e:
+                say(f"{cfg.video_type.name} has no control {key!r}: {e}")
+            else:
+                moved.append(f"{key} {float(value):.2f}")
+        if moved:
+            ws.save_config(cfg)
+            say(f"set {', '.join(moved)}")
+            changed["controls"] = len(moved)
+
     # Footage to letter over. Adopted into the song folder the same way the
     # audio is, and set on an EXISTING song rather than only at create time --
     # which is the whole reason this function exists: a choice that is accepted,

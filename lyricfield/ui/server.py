@@ -108,6 +108,10 @@ class RunIn(BaseModel):
     force_transcribe: bool = False
     length: str | None = None       # "full" renders the whole track
     describe: str | None = None     # words to turn into look settings
+    # Named controls moved before the song exists. Without carrying these the
+    # sliders in the creation flow would move and change nothing, which is
+    # worse than not offering them.
+    controls: dict[str, float] | None = None
 
 
 def _run_job(name: str, fn):
@@ -187,6 +191,7 @@ def start_run(payload: RunIn):
             # the far end with `not in (None, "")`; the value never got there.
             options={k: v for k, v in {
                 "language": payload.language, "prompt": payload.prompt,
+                "controls": payload.controls,
                 "preview_seconds": payload.preview_seconds,
                 "start_seconds": payload.start_seconds,
                 "length": payload.length,
@@ -241,10 +246,16 @@ def _restart_from(from_stage: str | None, carry: run_mod.Run | None):
         run_mod.carry_over(carry, RUN)
     RUN_CTX = run_mod.Ctx(
         client=client, name=args.get("name") or "", source=args.get("source") or "",
+        plate=args.get("plate") or "",
         video_type=args.get("type"), style=args.get("style"),
+        # Dropped outright until now, so a restarted run lost the footage and
+        # the beat preset and reported success -- the same class of defect as
+        # the controls above: a choice accepted, acknowledged and discarded.
+        back_style=args.get("back_style"),
         # Same rule on the restart path, or a resumed run silently moves.
         options={k: v for k, v in {
             "language": args.get("language"), "prompt": args.get("prompt"),
+            "controls": args.get("controls"),
             "preview_seconds": args.get("preview_seconds"),
             "length": args.get("length"), "describe": args.get("describe"),
             "start_seconds": args.get("start_seconds"),
@@ -764,8 +775,14 @@ def list_video_types():
     three renderers and all three had one -- and put eight broken images on the
     screen the moment there were eleven.
     """
+    from .. import transcribe as transcribe_mod
+
+    # The language list rides with the types rather than having an endpoint of
+    # its own: the page asks for this once at boot and both are facts about
+    # what can be chosen before a song exists.
     return {"types": [type_payload(t) for t in types_mod.list_types()],
-            "default": types_mod.DEFAULT_TYPE}
+            "default": types_mod.DEFAULT_TYPE,
+            "languages": transcribe_mod.language_payload()}
 
 
 @app.post("/api/songs/{slug}/type")
@@ -1141,6 +1158,14 @@ def type_payload(t) -> dict:
     d = t.to_dict()
     d["has_preview"] = (STYLES_ROOT / "_builtin" / t.slug / t.slug
                         / "preview.mp4").exists()
+    # The renderer's own controls, at its defaults. The panel used to be filled
+    # only from a LOADED SONG's config, so after "+ New song" it was empty --
+    # which is exactly when the user is being asked to choose. This call needs
+    # no song at all; it simply was not being made.
+    try:
+        d["controls"] = t.controls(t.default_params())
+    except Exception:
+        d["controls"] = []
     return d
 
 

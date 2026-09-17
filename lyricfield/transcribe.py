@@ -57,6 +57,65 @@ class Word:
 KEY_FILE = Path.home() / ".config" / "lyricfield" / "groq.key"
 
 
+# What the model will accept, and what the UI offers. Here rather than in the
+# server because it is a fact about the transcription API, the way
+# `/api/browse` owns its extension sets.
+#
+# "Language is worth more than any audio setting" is measured, not a slogan:
+# auto-detection gave 43 words on a Hindi track where `language="hi"` gave 121,
+# from identical audio. So the likely ones come first, by name, and a typed
+# code still works -- this list is what the dropdown shows, not a gate.
+LANGUAGES: tuple[tuple[str, str], ...] = (
+    ("", "Detect automatically"),
+    ("en", "English"),
+    ("hi", "Hindi"),
+    ("pa", "Punjabi"),
+    ("ur", "Urdu"),
+    ("ta", "Tamil"),
+    ("te", "Telugu"),
+    ("bn", "Bengali"),
+    ("mr", "Marathi"),
+    ("gu", "Gujarati"),
+    ("kn", "Kannada"),
+    ("ml", "Malayalam"),
+    ("es", "Spanish"),
+    ("fr", "French"),
+    ("de", "German"),
+    ("it", "Italian"),
+    ("pt", "Portuguese"),
+    ("nl", "Dutch"),
+    ("ru", "Russian"),
+    ("uk", "Ukrainian"),
+    ("pl", "Polish"),
+    ("tr", "Turkish"),
+    ("ar", "Arabic"),
+    ("fa", "Persian"),
+    ("he", "Hebrew"),
+    ("id", "Indonesian"),
+    ("ms", "Malay"),
+    ("th", "Thai"),
+    ("vi", "Vietnamese"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
+    ("zh", "Chinese"),
+    ("sv", "Swedish"),
+    ("no", "Norwegian"),
+    ("da", "Danish"),
+    ("fi", "Finnish"),
+    ("cs", "Czech"),
+    ("el", "Greek"),
+    ("ro", "Romanian"),
+    ("hu", "Hungarian"),
+    ("sw", "Swahili"),
+    ("af", "Afrikaans"),
+)
+
+
+def language_payload() -> list[dict]:
+    """The list as the UI needs it: code and name, detect first."""
+    return [{"code": c, "name": n} for c, n in LANGUAGES]
+
+
 def store_api_key(key: str, path: Path = KEY_FILE) -> Path:
     """Persist the key once, readable only by its owner.
 
