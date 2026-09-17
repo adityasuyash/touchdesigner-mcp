@@ -325,6 +325,40 @@ def test_the_script_declares_every_number_the_chain_needs(drive):
         assert key in drive.DEFAULTS, f"fx_drive has no default for {key!r}"
 
 
+def test_every_section_of_the_response_reaches_the_driver(drive):
+    """The class, not the instance.
+
+    `test_the_script_declares_every_number_the_chain_needs` walks
+    `compose.drive_params`, which is a hand-written tuple of section names --
+    so a new section that the tuple never learned about passes it. This walks
+    the dataclass instead. A section the driver never heard of would report
+    success and change nothing, which is this project's commonest defect and
+    exactly what adding one invites.
+    """
+    from dataclasses import fields
+
+    missing = []
+    for sec in fields(beat.Response):
+        for f in fields(sec.type if not isinstance(sec.type, str)
+                        else getattr(beat, sec.type)):
+            key = f"{sec.name}_{f.name}"
+            if key not in drive.DEFAULTS:
+                missing.append(key)
+    assert not missing, (
+        f"fx_drive has no default for {missing} -- the effect would run on "
+        "whatever the fallback happens to be and report success")
+
+
+def test_every_section_of_the_response_is_pushed(drive):
+    """The other half: declared in the driver, and actually written to it."""
+    from dataclasses import fields
+
+    pushed = compose.drive_params(Config(type="monument").with_beat("ash"))
+    for sec in fields(beat.Response):
+        assert any(k.startswith(f"{sec.name}_") for k in pushed), (
+            f"nothing from [{sec.name}] is pushed to the driver")
+
+
 def test_the_last_strike_is_found_by_bisection(drive):
     drive.S["drums"] = {"kick": [1.0, 2.0, 3.0], "snare": [], "hat": []}
     assert drive._last("kick", 0.5) < 0
@@ -508,15 +542,12 @@ def test_each_preset_is_one_kind_of_motion():
             continue
         r = beat.preset(slug)
         (glow if r.bloom.on else geometry).append(name)
-        moves = [n for n, on in (("zoom", r.zoom.on), ("bloom", r.bloom.on),
-                                 ("shake", r.shake.on), ("split", r.split.on))
-                 if on]
-        assert moves, f"{name} does nothing at all"
+        assert r.active(), f"{name} does nothing at all"
     assert len(glow) == 1, (
         f"{len(glow)} presets swell the glow ({', '.join(glow)}); brightness is "
         "the one thing they cannot each be, or the row is one effect at "
         "different strengths")
-    assert len(geometry) >= 3, geometry
+    assert len(geometry) >= 4, geometry
 
 
 def test_every_preset_answers_the_same_drum():
@@ -529,7 +560,8 @@ def test_every_preset_answers_the_same_drum():
     """
     for slug, name, _why, _v in beat.PRESETS:
         r = beat.preset(slug)
-        drives = {s.drive for s in (r.zoom, r.bloom, r.shake, r.split) if s.on}
+        drives = {s.drive for s in (r.zoom, r.bloom, r.shake, r.split, r.burst)
+                  if s.on}
         assert drives <= {beat.KICK}, (
             f"{name} answers {', '.join(sorted(drives))}; its signature lands "
             "at a different moment from every other tile's")

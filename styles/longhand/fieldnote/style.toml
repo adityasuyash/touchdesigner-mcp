@@ -47,6 +47,7 @@ dim = 0.33
 hue = 0.07
 sat = 0.42
 lift = 0.52
+grain = 1.0
 drift_secs = 14.0
 blur = 90.0
 

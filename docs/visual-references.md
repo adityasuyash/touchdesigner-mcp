@@ -177,6 +177,40 @@ common lyric-video technique of all, and less a look than a timing discipline
 every lyric renderer here already follows through the cue table.
 → every `lyric` renderer.
 
+### Particles shed off the lettering
+
+Two references, both watched frame by frame rather than read about, and they
+answer different halves of the same question.
+
+**GHOSTS, "loose you"** (`youtube.com/shorts/OOWXM6lqYzM`, 11s, 1080x1920) is
+the texture. Sampled at 180x320 over its 326 frames, threshold 40/255: a frame
+mean of 10-20 of 255 -- 4-8% of white -- with individual pixels at 255, and a
+mass 0.20 of the frame's width by 0.22 of its height. So it is **mostly dark
+with bright cores**: thousands of small points, filaments and strands, a
+vertical rise, additive. It is also a compilation, cutting every 1.5-3s, so
+there is no per-hit envelope to take from it.
+
+**Pablo Torri, "BioCloud Technique | TouchDesigner Study"**
+(`youtu.be/hShVcj3Z3CM`, 59s) is the behaviour, and the frame at t=4s is the
+whole design: a solid form whose SURFACE sheds a spray of small soft dots into
+the dark, dense at the source and thinning outward, each with a faint halo and
+a short trail. Replace the statue with the lettering and that is the effect.
+
+That reading is also the one that keeps the standing rule -- the beat is an
+effect ON the words, not a layer behind them. Every particle starts on a
+glyph's own edge and carries that glyph's colour, so a blue-inked look throws
+blue dust and nothing in the chain knows which renderer drew the frame.
+→ the **`ash`** beat preset (`beat.py`, `fx_drive.py`).
+
+Reachable without the Particle SOP or instancing, which CLAUDE.md rules out:
+position is a closed form in the particle's age, and the whole frame is one
+`bincount` splat. **One honest limitation**: a burst's emitters are sampled
+from the frame at the instant it fires. A linear render -- which is what a
+render is -- reproduces exactly; scrubbing backwards re-seeds bursts already in
+the air, so a scrub can differ from a render for up to one particle lifetime.
+Re-sampling every frame instead makes the particles jump whenever the word
+changes, which is worse and visible.
+
 ## Out of reach, and why
 
 | Reference | Why not |
@@ -185,7 +219,6 @@ every lyric renderer here already follows through the cue table.
 | Icon storytelling (Katy Perry "Roar", Dua Lipa "Levitating") | needs drawn assets, not a generative field |
 | Stop-motion / handmade (Jason Mraz) | the whole point is that it is photographed |
 | Old Hollywood poster (Kelly Clarkson) | type-led but essentially static; a preview has to move |
-| Particle explosions on the drop | instancing, unsupported on some target Macs |
 | Liquid / morphing letterforms | needs glyph outlines; a Text TOP gives pixels |
 
 ## Sources
@@ -196,3 +229,5 @@ every lyric renderer here already follows through the cue table.
 - [Create your own lyric videos](https://www.premiumbeat.com/blog/create-lyric-videos-after-effects/)
 - [Audio reactive visualizers in TouchDesigner](https://derivative.ca/community-post/tutorial/audio-reactive-visualizers-touchdesigner/72251)
 - [Vaporwave — Aesthetics Wiki](https://aesthetics.fandom.com/wiki/Vaporwave)
+- GHOSTS, "loose you" — https://youtube.com/shorts/OOWXM6lqYzM
+- Pablo Torri, "BioCloud Technique | TouchDesigner Study" — https://youtu.be/hShVcj3Z3CM

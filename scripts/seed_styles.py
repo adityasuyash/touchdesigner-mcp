@@ -237,8 +237,9 @@ LOOKS: list[tuple[str, str, str, dict]] = [
       # brighter.
       "look.ink_hue": 0.62, "look.ink_sat": 0.88, "look.ink": 0.85,
       "look.glow": 0.04, "look.bloom": 4.0,
-      "ground.dim": 0.0, "ground.lift": 0.9, "ground.hue": 0.11,
-      "ground.sat": 0.16, "ground.blur": 140.0, "ground.drift_secs": 26.0,
+      "ground.dim": 0.0, "ground.lift": 0.95, "ground.hue": 0.11,
+      "ground.sat": 0.16, "ground.grain": 0.16, "ground.blur": 140.0,
+      "ground.drift_secs": 26.0,
       "hand.steps": 3, "hand.spread": 0.24, "hand.emphasis": 0.85,
       "hand.shout": 0.2, "hand.waver": 0.05, "hand.jitter": 0.04,
       "beat.kick_lift": 0.0}),

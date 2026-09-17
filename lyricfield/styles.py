@@ -377,6 +377,11 @@ def preview_moment(seconds: float = 4.0) -> float:
 # capture counts as having shown a word. The bold layer draws white, so a lit
 # word lands near 1.0 and a field with none tops out around 0.4.
 BOLD_PEAK = 0.78
+# The same question for lettering that is darker than its ground: how far the
+# ink sits BELOW the frame's median. Measured on the shipped looks, a white
+# marker over footage reads 0.11-0.18 here and blue marker on light paper reads
+# 0.44, so the two cases are far apart and either alone is enough.
+BOLD_INK = 0.35
 
 
 class StillPreview(RuntimeError):
@@ -787,11 +792,13 @@ def capture_preview(client, style: Style, at: float = 1.0, seconds: float = 4.0,
         # Motion is not enough for a lyric style: the ambient field drifts on
         # its own, so a capture parked where the placeholder cues are not still
         # moves. The question is whether a word ever reached the bold layer.
-        if wants_words and moved["peak"] < BOLD_PEAK:
+        if wants_words and moved["peak"] < BOLD_PEAK \
+                and moved.get("dark", 0.0) < BOLD_INK:
             raise WordlessPreview(
-                f"the {style.name} preview never lights a word "
-                f"(peak {moved['peak']:.2f} of the bold layer's {BOLD_PEAK}); "
-                f"the {seconds:g}s from {at:.1f}s hold no placeholder cues")
+                f"the {style.name} preview never shows a word (peak "
+                f"{moved['peak']:.2f} of the bold layer's {BOLD_PEAK}, ink "
+                f"{moved.get('dark', 0.0):.2f} of {BOLD_INK}); the "
+                f"{seconds:g}s from {at:.1f}s hold no placeholder cues")
         # There is deliberately no brightness floor here. One was written and
         # then measured away: the seven broken backdrop previews came in at a
         # mean of 0.44-0.46 of 255, and the honest previews of Marquee and

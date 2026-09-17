@@ -108,7 +108,7 @@ def test_measuring_something_that_is_not_a_video_does_not_raise(tmp_path):
     junk.write_bytes(b"not a container")
     assert R.measure_motion(junk) == {
         "frames": 0, "motion": 0.0, "mean": 0.0, "moving": False,
-        "peak": 0.0, "lit": 0.0}
+        "peak": 0.0, "dark": 0.0, "lit": 0.0}
 
 
 # -------------------------------------------------- choosing the moment
@@ -239,9 +239,14 @@ def test_a_lyric_preview_actually_lights_a_word(st):
     if not video.exists():
         pytest.skip(f"{st.slug} has no preview recorded")
     m = R.measure_motion(video, peak_width=240)
-    assert m["peak"] >= S.BOLD_PEAK, (
+    # Either way round: lettering lighter than its ground reaches the bold
+    # layer, lettering darker than its ground sits that far below the frame's
+    # median. One of the longhand looks is blue marker on light paper, whose
+    # brightest pixel is the PAPER.
+    assert m["peak"] >= S.BOLD_PEAK or m["dark"] >= S.BOLD_INK, (
         f"{st.slug}: peak {m['peak']:.2f} never reaches the bold layer's "
-        f"{S.BOLD_PEAK}; re-record with scripts/seed_styles.py --preview")
+        f"{S.BOLD_PEAK} and its ink is only {m['dark']:.2f} below the median "
+        f"(needs {S.BOLD_INK}); re-record with scripts/seed_styles.py --preview")
 
 
 def test_a_preview_parked_away_from_the_words_is_refused_before_rendering():
@@ -627,6 +632,48 @@ def test_every_beat_preset_visibly_moves_the_words():
     assert not quiet, (
         "presets that do not show (an empty drum table looks exactly like "
         "this):\n  " + "\n  ".join(quiet))
+
+
+@pytest.mark.ffmpeg
+def test_ash_puts_light_where_the_type_is_NOT():
+    """The check a brightness measurement cannot make.
+
+    Every other test in this file asks whether a preset differs from the
+    baseline, and a frame that merely got brighter passes all of them. What
+    says the particles are real is light OUTSIDE the word's own silhouette,
+    arriving on the kick and gone before the next one.
+
+    The silhouette is taken from the unaffected baseline, which is the same
+    word in the same place -- so "outside" means outside the type, not outside
+    a box drawn by hand.
+    """
+    import numpy as np
+
+    from lyricfield import beat as beat_mod
+
+    root = ROOT / beat_mod.PREVIEW_DIR / beat_mod.REFERENCE
+    if not (root / "ash" / "preview.mp4").exists():
+        pytest.skip("the beat previews are not recorded on this machine")
+    a = R._gray_frames(root / "ash" / "preview.mp4", 180)
+    b = R._gray_frames(root / "none" / "preview.mp4", 180)
+    assert a is not None and b is not None
+    n = min(len(a), len(b))
+
+    # Where the type is, generously: anything the unaffected capture ever lit.
+    type_mask = b[:n].max(axis=0) > 60
+    off = a[:n][:, ~type_mask].mean(axis=1)
+    base = b[:n][:, ~type_mask].mean(axis=1)
+    lift = off - base
+
+    assert lift.max() > 4.0, (
+        f"the dust never left the lettering: at most {lift.max():.2f} of 255 "
+        "outside the type, against the same word doing nothing")
+    # ... and it is an EVENT, not a wash: the quietest quarter of the clip has
+    # to be far below the loudest, or this is a haze that is always on.
+    quiet = float(np.percentile(lift, 25))
+    assert quiet < lift.max() * 0.5, (
+        f"the dust sits at {quiet:.2f} between hits against a peak of "
+        f"{lift.max():.2f}; that is a fog rather than a burst")
 
 
 @pytest.mark.ffmpeg

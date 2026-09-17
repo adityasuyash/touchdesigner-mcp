@@ -111,9 +111,14 @@ def network(cfg) -> list[OpSpec]:
             # And `tz` is an EXPRESSION -- assigning a string to a numeric
             # parameter errors rather than evaluating, so it goes through
             # `exprs`, which `apply_exprs` sets as `.expr` after creation.
+            # The noise's swing is `grain`, and its offset keeps the TOP of
+            # the range at white rather than the middle of it -- so turning the
+            # texture down gives clean paper instead of flat grey, and turning
+            # it off gives paper with nothing on it at all.
             OpSpec("plate", "noiseTOP", (-1800, -700),
                    params={**frame, "type": "sparse", "period": 3.2,
-                           "harmon": 2, "amp": 0.5, "offset": 0.5,
+                           "harmon": 2, "amp": round(0.5 * g.grain, 4),
+                           "offset": round(1.0 - 0.5 * g.grain, 4),
                            "mono": True},
                    exprs={"tz": "me.time.seconds/%g" % max(0.5, g.drift_secs)}),
             OpSpec("lh_soft", "blurTOP", (-1650, -700),

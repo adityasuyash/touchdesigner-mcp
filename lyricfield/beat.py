@@ -44,6 +44,40 @@ DRIVES = (KICK, SNARE, HAT)
 # and at 60fps anything under about two frames is a step.
 ATTACK = 0.04
 
+# The light one particle carries, before its kernel spreads it.
+#
+# Calibrated against recordings, not picked, and it took four of them. What the
+# numbers had to answer for, in the order the recordings found it:
+#
+#   1. The splat kernel multiplied the light by 3.4 and the trail by another
+#      1.83, neither normalised. Both are normalised now, so `size` changes how
+#      soft a particle is and the trail how long, and neither changes how much
+#      light a burst puts on the frame.
+#   2. Every particle left on the frame of the hit, so the whole count sat on
+#      the lettering at once and the word vanished. See `STAGGER`.
+#   3. The buffer was sized from `scriptOp.width`, which is 2x2 until the
+#      script writes something -- so the dust was a 2x2 image stretched over
+#      the frame. That was most of the slab, and no amount of dimming would
+#      have found it.
+#
+# With those three answered, the arithmetic model said a frame mean of 1.3%.
+# Recorded, that was a faint fog: the model is right about the light and says
+# nothing about whether it READS. Measured off the capture against the
+# unaffected baseline, this value puts the dust across about 20% of the frame
+# in the 0.05-0.6 band while the word itself stays at 4% above 0.6 -- "mostly
+# dark with bright cores", which is what both references show.
+SPARK = 22.0
+
+# How long a burst goes on shedding, as a share of a particle's life.
+#
+# A burst is not an instant. With every particle leaving on the same frame the
+# whole count sits on the lettering at once and the word vanishes under a white
+# slab -- which is what the first two recordings did, and no amount of dimming
+# fixes it, because the fault is that the light is in one place at one moment
+# rather than that there is too much of it. With this, and with a particle dark
+# until it is off the letters, the type stays legible through its own burst.
+STAGGER = 0.25
+
 
 def _ease(x: float) -> float:
     """Smoothstep, clamped. The one shape every field script already has."""
@@ -132,6 +166,120 @@ def shake_offset(t: float, env: float, span: float, tilt: float,
     return (reach * wx / m, reach * wy / m)
 
 
+def _hash(i, k):
+    """A repeatable 0..1 per particle index. Whole-array, and not a random
+    number: the same burst has to come out the same on every machine and on
+    every re-render."""
+    import numpy as np
+
+    x = np.sin(i * 12.9898 + k * 78.233) * 43758.5453
+    return x - np.floor(x)
+
+
+def burst_points(count, age, life, reach, rise, swirl, span, seed=0.0):
+    """Where a burst's particles have got to, `age` seconds after the strike.
+
+    Returns `(dx, dy, bright)` in pixels from each particle's own emitter, with
+    y counting UP -- TouchDesigner's arrays are bottom-up and the splat goes in
+    the same way round.
+
+    Nothing integrates: position is a closed form in the age, so a dropped
+    frame or a seek draws exactly what a clean playthrough would. That is the
+    rule CLAUDE.md sets for anything with a choice, and it is why this is not
+    the Particle SOP.
+
+    The shape comes off the two references. Speed is an ease-OUT -- fast off
+    the strike, then slowing -- because a spray leaves a struck surface and
+    then hangs; `rise` carries it upward the way both clips do; and `swirl`
+    bends the paths apart over time, which is what turns a spray of dots into
+    the strands they actually show.
+    """
+    import numpy as np
+
+    life = max(1e-6, float(life))
+    count = int(max(0, count))
+    if count == 0 or age < 0.0 or age >= life * (1.0 + STAGGER):
+        z = np.zeros(0, np.float32)
+        return z, z, z
+
+    i = np.arange(count, dtype=np.float64)
+    r1, r2, r3 = _hash(i, 1.0 + seed), _hash(i, 2.0 + seed), _hash(i, 3.0 + seed)
+    r4 = _hash(i, 4.0 + seed)
+
+    # Not every particle leaves at the instant of the strike. Without this they
+    # all sit on the lettering together for the first few frames and the word
+    # disappears under a white slab -- which is what the first recording of
+    # this did, and no amount of dimming fixes it, because the problem is that
+    # the light is in one place at one moment rather than that there is too
+    # much of it.
+    u = (float(age) / life) - r4 * STAGGER
+    live = (u >= 0.0) & (u < 1.0)
+    u = np.clip(u, 0.0, 1.0)
+
+    ang = r1 * (math.pi * 2.0)
+    far = float(reach) * float(span) * (0.35 + 0.65 * r2)
+    # Ease-out: (1 - (1-u)^2) is 0 at the strike, steep immediately after, flat
+    # by the end of the life.
+    d = far * (1.0 - (1.0 - u) ** 2)
+
+    dx = np.cos(ang) * d
+    # Sideways is squashed and the rise is added on top, so the cloud is taller
+    # than it is wide -- measured on the GHOSTS clip at 0.20 of the width
+    # against 0.22 of the height, on a frame twice as tall as it is wide.
+    dy = np.sin(ang) * d * 0.8 + float(rise) * float(reach) * float(span) * (u ** 1.6)
+
+    w = float(swirl) * float(span) * 0.05 * (u ** 1.5)
+    dx += w * np.sin(r3 * (math.pi * 2.0) + 3.1 * u)
+    dy += w * np.cos(r2 * (math.pi * 2.0) + 2.3 * u)
+
+    # Dark until it is off the letters, so the type stays legible through its
+    # own burst: `u^0.45` is nearly zero for the first frames of a particle's
+    # life and full by a fifth of the way through.
+    bright = ((1.0 - u) ** 1.7) * (0.45 + 0.55 * r3) * (u ** 0.45) * live
+    return (dx.astype(np.float32), dy.astype(np.float32),
+            bright.astype(np.float32))
+
+
+def taps(size):
+    """The kernel one particle is splatted through, as (dx, dy, weight).
+
+    A single pixel at 360x640 upscales to a hard two-pixel square, which reads
+    as noise rather than as dust. The references' particles are soft round dots
+    with a faint halo, so a particle is a centre and as much of a ring as
+    `size` asks for.
+    """
+    out = [(0, 0, 1.0)]
+    size = float(size)
+    if size > 1.0:
+        e = min(1.0, size - 1.0)
+        out += [(1, 0, e), (-1, 0, e), (0, 1, e), (0, -1, e)]
+    if size > 2.0:
+        e = min(1.0, size - 2.0) * 0.7
+        out += [(1, 1, e), (1, -1, e), (-1, 1, e), (-1, -1, e)]
+    return tuple(out)
+
+
+def major(drums, struck, kind, window=0.06):
+    """Whether a hit had another drum land with it -- a "major hit".
+
+    The drum table is kind and time with no strength column, so loudness is not
+    available and inventing one would be a lie. What IS available is a real
+    musical event: a kick and a snare struck together. Those get the bigger
+    burst, which is what gives the row of hits the size variation both
+    references show.
+    """
+    for other, times in (drums or {}).items():
+        # Hats do not count. They play continuously -- in the shipped preview
+        # table there is one on every kick -- so "a hat landed with it" is true
+        # of every hit there is, and every burst came out the bigger size.
+        if other == kind or other == HAT:
+            continue
+        for t in times:
+            if abs(t - struck) <= window:
+                return True
+    return False
+
+
 @dataclass
 class Zoom:
     """The layer scales on the hit and settles back."""
@@ -186,16 +334,57 @@ class Split:
 
 
 @dataclass
+class Burst:
+    """The lettering sheds on the hit and the dust drifts away.
+
+    The one effect here that needs operators of its own rather than only
+    numbers -- a Script TOP that draws the particles and a level that scales
+    them into the frame -- and it is still an effect ON the words rather than a
+    picture behind them: every particle starts on a glyph's own edge and
+    carries that glyph's colour, so it works with every word look for free.
+
+    From two references, both watched rather than read about: GHOSTS' "loose
+    you", which gives the texture (thousands of small points, filaments, a
+    vertical rise -- measured at a frame mean of 4-8% of white with pixels at
+    255), and Pablo Torri's BioCloud study, which gives the behaviour: a solid
+    form whose surface sheds a spray of soft dots into the dark, dense at the
+    source and thinning outward.
+    """
+
+    on: bool = False
+    drive: str = KICK
+    # Particles per burst, in THOUSANDS -- `RANGES` is keyed by field name and
+    # `amount` is shared with the zoom's scale, so a count in the tens of
+    # thousands would need a range that makes no sense for the others.
+    amount: float = 1.6
+    # How long a particle lives.
+    decay: float = 0.75
+    # How far it gets by then, as a share of the frame's smaller side.
+    reach: float = 0.38
+    # How much of that is upward. Smoke rises; so does this.
+    rise: float = 0.35
+    # How far the paths bend apart on the way out. This is what makes strands
+    # rather than a uniform spray.
+    swirl: float = 0.5
+    # The dot, in buffer pixels: 1 is a hard point, 3 a soft one with a halo.
+    size: float = 1.6
+    # How much bigger a burst is when another drum lands with this one.
+    swell: float = 1.6
+
+
+@dataclass
 class Response:
     zoom: Zoom = field(default_factory=Zoom)
     bloom: Bloom = field(default_factory=Bloom)
     shake: Shake = field(default_factory=Shake)
     split: Split = field(default_factory=Split)
+    burst: Burst = field(default_factory=Burst)
 
     def validate(self) -> list[str]:
         out: list[str] = []
         for name, sec in (("zoom", self.zoom), ("bloom", self.bloom),
-                          ("shake", self.shake), ("split", self.split)):
+                          ("shake", self.shake), ("split", self.split),
+                          ("burst", self.burst)):
             if sec.drive not in DRIVES:
                 out.append(f"{name}.drive {sec.drive!r} is not one of "
                            f"{', '.join(DRIVES)}")
@@ -221,6 +410,25 @@ class Response:
             out.append("bloom.amount is a blur radius and cannot be negative")
         # Brightness stacks at the output, which this project has been bitten by
         # three times. The bloom's lift is the only term here that adds light.
+        b = self.burst
+        if b.amount < 0:
+            out.append("burst.amount is a count of particles, in thousands")
+        if b.amount > 40:
+            out.append(
+                f"burst.amount {b.amount} is {b.amount * 1000:.0f} particles a "
+                "burst, which is a cook time rather than a look")
+        if b.reach < 0 or b.swirl < 0:
+            out.append("burst.reach and burst.swirl are distances")
+        if not (0.0 <= b.rise <= 2.0):
+            out.append(f"burst.rise {b.rise} is a share of the reach, 0 to 2")
+        if b.size < 0.5:
+            out.append(
+                f"burst.size {b.size} is smaller than the one pixel a particle "
+                "is drawn into, so it would draw nothing")
+        if b.swell < 1.0:
+            out.append(
+                f"burst.swell {b.swell} would make a hit with another drum on "
+                "it SMALLER than one on its own")
         if self.bloom.lift > 0.5:
             out.append(
                 f"bloom.lift {self.bloom.lift} on top of a word already at its "
@@ -230,7 +438,8 @@ class Response:
     def active(self) -> list[str]:
         """Which effects are switched on, for the UI and for the log."""
         return [n for n, s in (("zoom", self.zoom), ("bloom", self.bloom),
-                               ("shake", self.shake), ("split", self.split))
+                               ("shake", self.shake), ("split", self.split),
+                               ("burst", self.burst))
                 if s.on]
 
 
@@ -241,12 +450,15 @@ RANGES: dict[str, tuple] = {
     "lift": (0.0, 0.5, 0.01),
     "tilt": (0.0, 1.0, 0.01),
     "on": (0, 1, 1),
+    "reach": (0.0, 1.0, 0.005), "rise": (0.0, 2.0, 0.01),
+    "swirl": (0.0, 3.0, 0.01), "size": (0.5, 4.0, 0.1),
+    "swell": (1.0, 3.0, 0.05),
 }
 
 
 def reconcile(r: "Response") -> None:
     """Settle the relationships `validate()` insists on."""
-    for sec in (r.zoom, r.bloom, r.shake, r.split):
+    for sec in (r.zoom, r.bloom, r.shake, r.split, r.burst):
         if sec.drive not in DRIVES:
             sec.drive = KICK
         sec.decay = max(ATTACK + 0.01, float(sec.decay))
@@ -257,6 +469,12 @@ def reconcile(r: "Response") -> None:
     r.split.amount = max(0.0, r.split.amount)
     r.bloom.amount = max(0.0, r.bloom.amount)
     r.bloom.lift = min(0.5, max(0.0, r.bloom.lift))
+    r.burst.amount = min(40.0, max(0.0, r.burst.amount))
+    r.burst.reach = max(0.0, r.burst.reach)
+    r.burst.rise = min(2.0, max(0.0, r.burst.rise))
+    r.burst.swirl = max(0.0, r.burst.swirl)
+    r.burst.size = min(4.0, max(0.5, r.burst.size))
+    r.burst.swell = min(3.0, max(1.0, r.burst.swell))
 
 
 # ------------------------------------------------------------------ presets
@@ -337,6 +555,14 @@ PRESETS: tuple[tuple[str, str, str, dict], ...] = (
       "shake.on": True, "shake.drive": KICK, "shake.amount": 0.060,
       "shake.decay": 0.26, "shake.tilt": 0.45,
       "split.on": False}),
+
+    ("ash", "Ash",
+     "the letters shed on every kick and the dust drifts away",
+     {"zoom.on": False, "bloom.on": False, "shake.on": False,
+      "split.on": False,
+      "burst.on": True, "burst.drive": KICK, "burst.amount": 1.6,
+      "burst.decay": 0.75, "burst.reach": 0.38, "burst.rise": 0.35,
+      "burst.swirl": 0.5, "burst.size": 1.6, "burst.swell": 1.6}),
 
     ("fracture", "Fracture",
      "the colour channels tear apart and snap back",

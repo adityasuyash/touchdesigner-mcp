@@ -531,12 +531,12 @@ def measure_motion(video: str | Path, width: int = 96,
     w = int(stream.get("width") or 0)
     if not (raw and h and w):
         return {"frames": 0, "motion": 0.0, "mean": 0.0, "moving": False,
-                "peak": 0.0, "lit": 0.0}
+                "peak": 0.0, "dark": 0.0, "lit": 0.0}
     height = max(1, round(width * h / w / 2) * 2)
     n = len(raw) // (width * height)
     if n < 2:
         return {"frames": n, "motion": 0.0, "mean": 0.0, "moving": False,
-                "peak": 0.0, "lit": 0.0}
+                "peak": 0.0, "dark": 0.0, "lit": 0.0}
     a = (np.frombuffer(raw, np.uint8)[:n * width * height]
          .reshape(n, height, width).astype(np.float32))
     motion = float(np.abs(np.diff(a, axis=0)).mean())
@@ -550,10 +550,20 @@ def measure_motion(video: str | Path, width: int = 96,
         b = _gray_frames(video, peak_width)
         if b is None:
             b = a
+    # `dark` is `peak` for lettering that is DARKER than what it sits on --
+    # blue marker on light paper, which one of the longhand looks is. A peak
+    # measure alone answers "did a word appear" only while every renderer draws
+    # light on dark, and it refused that look outright: its brightest pixel is
+    # the paper at 0.73, under the bold layer's 0.78, while its INK reads 0.44
+    # below the frame's median. Taken at the 0.2nd percentile rather than the
+    # minimum, so it is a region of a few hundred pixels and not one dark
+    # pixel of noise.
+    mid = float(np.median(b))
     return {"frames": n, "motion": round(motion, 4),
             "mean": round(float(a.mean()), 3),
             "moving": motion > 0.005,
             "peak": round(float(b.max()) / 255.0, 4),
+            "dark": round(max(0.0, mid - float(np.percentile(b, 0.2))) / 255.0, 4),
             "lit": round(float((b >= LIT_LUMA).mean()), 6)}
 
 

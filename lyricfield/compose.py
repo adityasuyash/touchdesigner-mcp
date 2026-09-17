@@ -7,10 +7,11 @@ what `render` records and what every check measures.
 
     words/out -> fx_in (select) -> fx_shake -> fx_zoom
               -> fx_r / fx_g / fx_b -> fx_split      (the fringe)
-              -> fx_level -> fx_bloom -> fx_add -> fx_clamp -> out
-                   ^                ^
-                   |          fx_drive (16px script) sets the rest
+              -> fx_level -> fx_spark_add -> fx_bloom -> fx_add -> fx_clamp
+                   ^              ^
+                   |        fx_seed -> fx_burst -> fx_sparks   (the dust)
               fx_liftmap <- fx_drive's own pixels ARE the lift
+                            fx_drive (16px script) sets the rest
 
 Why a chain rather than code inside each renderer: there are eight word
 renderers and the beat means the same thing to all of them. A preset is then a
@@ -111,6 +112,41 @@ def network(cfg) -> list[OpSpec]:
     else:
         lit = "fx_zoom"
 
+    # ---- the burst: particles shed off the type ----------------------------
+    # Two operators and a tap, always created whatever the preset is on. With
+    # `burst.on` false the script writes zeros and the add below is free; a
+    # chain whose SHAPE follows the preset is a chain `verify` has to reason
+    # about, and `fx_split` is already as much of that as this file wants.
+    #
+    # `fx_burst` shares `fx_drive`'s callbacks DAT and tells itself apart by
+    # `scriptOp.name`. Deliberately: a second pushed script is a second thing
+    # that can be stale or never written, and a Script TOP whose callbacks are
+    # empty draws black and reports nothing -- which is the silent success this
+    # project has now been bitten by three times. One DAT also means
+    # `sync.reset_drive_state` keeps working untouched, since both operators
+    # are one module with one `S`.
+    burst_w, burst_h = frame["resolutionw"] // 2, frame["resolutionh"] // 2
+    seed_w, seed_h = frame["resolutionw"] // 4, frame["resolutionh"] // 4
+    specs += [
+        # What the particles come OFF: the type as it appears after the other
+        # effects, at a quarter resolution. Measured in TouchDesigner, a
+        # numpyArray readback costs 2.03ms a frame at 720x1280 and 0.17ms at
+        # 180x320 -- and the emitters are jittered inside their cell anyway, so
+        # the resolution buys nothing.
+        OpSpec("fx_seed", "levelTOP", (-600, -100),
+               params={"outputresolution": "custom", "resolutionw": seed_w,
+                       "resolutionh": seed_h, "resmult": False,
+                       "fillmode": "fill"}, inputs=[lit]),
+        OpSpec("fx_burst", "scriptTOP", (-450, -100),
+               params={"callbacks": "fx_drive_callbacks",
+                       "outputresolution": "custom",
+                       "resolutionw": burst_w, "resolutionh": burst_h,
+                       "resmult": False, "format": "rgba32float"},
+               inputs=["fx_seed"]),
+        OpSpec("fx_sparks", "levelTOP", (-300, -100),
+               params={**frame, "fillmode": "fill"}, inputs=["fx_burst"]),
+    ]
+
     specs += [
         # The lift, as a SIGNAL rather than as a parameter write -- and that is
         # the whole reason these three operators exist.
@@ -137,14 +173,19 @@ def network(cfg) -> list[OpSpec]:
                inputs=[lit, "fx_liftmap"]),
         OpSpec("fx_level", "compositeTOP", (-400, -400),
                params={**frame, "operand": "add"}, inputs=[lit, "fx_gain"]),
+        # The dust goes in BEFORE the bloom, so it glows with everything else
+        # rather than sitting on top as a separate hard layer.
+        OpSpec("fx_spark_add", "compositeTOP", (-300, -400),
+               params={**frame, "operand": "add"},
+               inputs=["fx_level", "fx_sparks"]),
         OpSpec("fx_bloom", "blurTOP", (-400, -150),
-               params={**frame, "size": 0.0}, inputs=["fx_level"]),
+               params={**frame, "size": 0.0}, inputs=["fx_spark_add"]),
         # `add`, then clamped: the glow lifts the type rather than replacing it,
         # and a Level TOP remaps rather than clamps, so white is held by a
         # minimum against a constant.
         OpSpec("fx_add", "compositeTOP", (-200, -400),
                params={**frame, "operand": "add"},
-               inputs=["fx_level", "fx_bloom"]),
+               inputs=["fx_spark_add", "fx_bloom"]),
         OpSpec("fx_white", "constantTOP", (-200, -650), params=frame),
         OpSpec("fx_clamp", "compositeTOP", (0, -400),
                params={**frame, "operand": "minimum"},
@@ -248,7 +289,7 @@ def drive_source() -> str:
 def drive_params(cfg) -> dict:
     """The flat dict `fx_drive` reads, named the way its DEFAULTS are."""
     out = {}
-    for section in ("zoom", "bloom", "shake", "split"):
+    for section in ("zoom", "bloom", "shake", "split", "burst"):
         sec = getattr(cfg.response, section)
         for k, v in vars(sec).items():
             out[f"{section}_{k}"] = v

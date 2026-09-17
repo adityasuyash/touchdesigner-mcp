@@ -165,6 +165,11 @@ class Ground:
     hue: float = 0.07
     sat: float = 0.42
     lift: float = 0.52
+    # How much texture it has. At 1 the noise swings from black to white, which
+    # is right for something standing in for footage and wrong for paper: the
+    # first Sketchbook recording had a black hole the size of a fist in the
+    # middle of the page. At 0 the stand-in is flat.
+    grain: float = 1.0
     drift_secs: float = 14.0
     # Softness of the stand-in, in pixels. Large: it stands in for something
     # shot at a wide aperture.
@@ -301,6 +306,8 @@ class Params:
 
         if not (0.0 <= g.dim <= 1.0):
             out.append(f"dim {g.dim} is a share of the plate's brightness")
+        if not (0.0 <= g.grain <= 1.0):
+            out.append(f"grain {g.grain} is a share of the texture, 0 to 1")
         if g.drift_secs <= 0:
             out.append("drift_secs must be positive; it is a period")
         if g.blur < 0:
@@ -378,6 +385,7 @@ RANGES: dict[str, tuple] = {
     "emphasis": (0.0, 1.0, 0.01),
     "dim": (0.0, 1.0, 0.01),
     "hue": (0, 1, 0.01), "sat": (0, 1, 0.01), "lift": (0.0, 1.0, 0.01),
+    "grain": (0.0, 1.0, 0.01),
     "drift_secs": (2.0, 60.0, 0.5), "blur": (0.0, 300.0, 1.0),
     "ink": (0.2, 1.0, 0.01), "glow": (0, 1, 0.01), "bloom": (0, 60, 1),
     "ink_hue": (0.0, 1.0, 0.01), "ink_sat": (0.0, 1.0, 0.01),
@@ -457,6 +465,7 @@ def reconcile(params: "Params") -> None:
         h.emphasis = 0.0
 
     g.dim = min(1.0, max(0.0, g.dim))
+    g.grain = min(1.0, max(0.0, g.grain))
     g.drift_secs = max(0.5, g.drift_secs)
     g.blur = max(0.0, g.blur)
 
