@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+import re
 import os
 import subprocess
 import tempfile
@@ -25,9 +26,14 @@ import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 
 from .cues import Cue, CueTable
+
+# What counts as a word in the lyrics someone types. Letters and digits in any
+# script, plus the apostrophes and hyphens that live inside words.
+_WORDS = re.compile(r"[^\s]+")
 
 GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 USER_AGENT = "lyricfield/0.1 (+https://github.com/adityasuyash/touchdesigner-mcp)"
@@ -193,6 +199,13 @@ def transcribe_words(audio: str | Path, key: str | None = None,
             ("response_format", "verbose_json"),
             ("timestamp_granularities[]", "word"),
             ("timestamp_granularities[]", "segment"),
+            # Greedy, not sampled. Whisper's failure mode on a passage it
+            # cannot make out is to repeat the last phrase it was sure of, and
+            # sampling is what lets that run away: one song came back with
+            # "आपको इस परिवार का प्रभाव करते हैं" transcribed twice at 0.02s
+            # per word, 16 of its 121 cues invented inside 2.1 seconds. Nothing
+            # downstream looked, so they shipped into the render.
+            ("temperature", "0"),
         ]
         if language:
             fields.append(("language", language))
@@ -248,10 +261,207 @@ def transcribe_words(audio: str | Path, key: str | None = None,
     return words, spans
 
 
+# ------------------------------------------------- the words you already have
+
+# Devanagari consonants to a rough Latin skeleton. This is NOT transliteration
+# and is never displayed -- honest romanisation needs schwa deletion and would
+# read wrong ("suna re piyaa"). It exists only so a sequence matcher can see
+# that "सुन" and "sun" are the same word, which is a far lower bar.
+_SKELETON = {
+    'क': 'k', 'ख': 'k', 'ग': 'g', 'घ': 'g', 'ङ': 'n',
+    'च': 'c', 'छ': 'c', 'ज': 'j', 'झ': 'j', 'ञ': 'n',
+    'ट': 't', 'ठ': 't', 'ड': 'd', 'ढ': 'd', 'ण': 'n',
+    'त': 't', 'थ': 't', 'द': 'd', 'ध': 'd', 'न': 'n',
+    'प': 'p', 'फ': 'f', 'ब': 'b', 'भ': 'b', 'म': 'm',
+    'य': 'y', 'र': 'r', 'ल': 'l', 'व': 'v', 'ळ': 'l',
+    'श': 's', 'ष': 's', 'स': 's', 'ह': 'h',
+    'क़': 'k', 'ख़': 'k', 'ग़': 'g', 'ज़': 'j', 'ड़': 'd', 'ढ़': 'd', 'फ़': 'f',
+    'अ': 'a', 'आ': 'a', 'इ': 'i', 'ई': 'i', 'उ': 'u', 'ऊ': 'u',
+    'ए': 'e', 'ऐ': 'e', 'ओ': 'o', 'औ': 'o', 'ऋ': 'r',
+    # Anusvara and chandrabindu. A nasal is a consonant and carries real
+    # information -- without these "कहाँ" reduces to 'k' while "kahaan"
+    # reduces to 'kn', and two spellings of one word stop matching.
+    'ं': 'n', 'ँ': 'n',
+}
+
+# Romanisations of the same sound that have to reduce alike. The aspirated
+# digraphs pair with the single Devanagari letters above -- "bh" with भ, "ph"
+# with फ -- and the rest are the ambiguities every Hinglish speaker spells both
+# ways: saanwariya/saanvariya, zara/jara.
+_DIGRAPHS = (("chh", "c"), ("ph", "f"), ("ch", "c"), ("sh", "s"), ("th", "t"),
+             ("kh", "k"), ("gh", "g"), ("bh", "b"), ("dh", "d"), ("jh", "j"),
+             ("ck", "k"), ("x", "ks"), ("w", "v"), ("z", "j"), ("q", "k"))
+
+# Latin letters that carry no information for matching across a transliteration.
+_THIN = str.maketrans("", "", "aeiouāīūʼ'`h")
+
+
+def match_key(word: str) -> str:
+    """A rough consonant skeleton, for lining two word sequences up.
+
+    Used to compare a Devanagari transcript against romanised lyrics. Vowels go
+    because transliteration disagrees about them constantly -- "piya"/"piyaa",
+    "sun"/"sunn" -- while consonants survive. Never shown to anyone.
+    """
+    w = word.lower()
+    # Digraphs first: they have to fold before `h` is stripped, or "bhai" and
+    # "भाई" reduce differently.
+    for a, b in _DIGRAPHS:
+        w = w.replace(a, b)
+    out = []
+    for ch in w:
+        if ch in _SKELETON:
+            out.append(_SKELETON[ch])
+        elif ch.isalnum() and ch.isascii():
+            out.append(ch)
+        # combining vowel signs, virama, punctuation and everything else drop
+    key = "".join(out).translate(_THIN)
+    # "sunn" and "sun" are one word spelled twice.
+    squashed = "".join(c for i, c in enumerate(key) if i == 0 or c != key[i - 1])
+    return squashed or word.lower()
+
+
+def align_to_known(words: list[Word], known: str,
+                   line_span: float = 3.0) -> CueTable:
+    """The user's words, on the transcript's timings.
+
+    Whisper is reliable about WHEN something is sung and unreliable about WHAT
+    -- measured across three songs, its cues land within 0.07s of actual
+    singing while inventing whole phrases. So take the timing from it and the
+    text from the person who knows the song.
+
+    Matched runs keep their transcribed time. Words the transcript missed are
+    spread evenly between the anchors either side, which is the same thing
+    `cues.cues_from_lines` does for a line. Lines come from the user's own
+    breaks, which is strictly better than Whisper's segments: those are sung
+    phrases and come back as one 32-word line on a sustained passage.
+    """
+    lines = [ln.strip() for ln in (known or "").splitlines()]
+    lines = [ln for ln in lines if ln and not ln.startswith("#")]
+    if not lines:
+        raise TranscribeError("no known lyrics to align to")
+
+    want: list[tuple[str, int]] = []
+    for n, ln in enumerate(lines, 1):
+        for w in _WORDS.findall(ln):
+            want.append((w, n))
+    if not want:
+        raise TranscribeError("the known lyrics have no words in them")
+
+    got = [w for w in words]
+    a = [match_key(w) for w, _ in want]
+    b = [match_key(w.word) for w in got]
+
+    # Where the two sequences agree, take the transcript's clock.
+    at: list[float | None] = [None] * len(want)
+    for block in SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks():
+        for k in range(block.size):
+            at[block.a + k] = got[block.b + k].start
+
+    anchors = [i for i, t in enumerate(at) if t is not None]
+    if not anchors:
+        raise TranscribeError(
+            "none of the known lyrics could be matched to the transcription. "
+            "Check they are the right song, and that the language setting "
+            "matches what was sung.")
+
+    # ... and spread the rest between them. Before the first anchor and after
+    # the last, keep going at the local pace rather than piling words onto one
+    # instant.
+    first, last = anchors[0], anchors[-1]
+    step = _pace(at, anchors, line_span)
+    for i in range(first - 1, -1, -1):
+        at[i] = max(0.0, at[i + 1] - step)
+    for i in range(last + 1, len(at)):
+        at[i] = at[i - 1] + step
+    for lo, hi in zip(anchors, anchors[1:]):
+        if hi - lo < 2:
+            continue
+        gap = (at[hi] - at[lo]) / (hi - lo)
+        for k in range(lo + 1, hi):
+            at[k] = at[lo] + gap * (k - lo)
+
+    return CueTable([Cue(w, round(float(t), 2), n)
+                     for (w, n), t in zip(want, at)])
+
+
+def _pace(at, anchors, fallback: float) -> float:
+    """Seconds per word, from the anchors that exist."""
+    if len(anchors) < 2:
+        return fallback / 3.0
+    span = at[anchors[-1]] - at[anchors[0]]
+    return max(0.08, span / max(1, anchors[-1] - anchors[0]))
+
+
+# Nobody sings faster than this. A run of words closer together than this is a
+# decoder collapsing, not a vocal.
+COLLAPSED = 0.05
+COLLAPSED_RUN = 4
+
+
+def drop_collapsed(words: list[Word],
+                   closer_than: float = COLLAPSED,
+                   run: int = COLLAPSED_RUN) -> list[Word]:
+    """Throw away runs of words too close together to have been sung.
+
+    Whisper answers a passage it cannot make out by repeating the last phrase
+    it was sure of, and it stamps the repeat with whatever timestamps are
+    left -- so the giveaway is not the words but the spacing. Measured on a
+    real song: sixteen words inside 2.1 seconds, most of them 0.02s apart,
+    which is fifty words a second.
+
+    Dropping them rather than keeping them is right even though it loses
+    whatever real word was there: an invented line is drawn on screen with
+    total confidence, and a missing one leaves a gap the second pass can go
+    back for.
+    """
+    if not words:
+        return []
+    out: list[Word] = []
+    i, n = 0, len(words)
+    while i < n:
+        j = i + 1
+        while j < n and words[j].start - words[j - 1].start < closer_than:
+            j += 1
+        if j - i >= run:
+            i = j                       # the whole run goes
+            continue
+        out.append(words[i])
+        i += 1
+    return out
+
+
+def drop_repeats(words: list[Word], longest: int = 12,
+                 shortest: int = 3) -> list[Word]:
+    """Throw away a phrase immediately repeated word for word.
+
+    The other half of the same failure. Checked longest-first so the whole loop
+    goes rather than its tail, and only back-to-back -- a chorus repeating
+    later in the song is a chorus, and legitimate.
+    """
+    out = [w.word.strip().strip(".,!?;:\u0964\u2014-").lower() for w in words]
+    i = 0
+    keep = [True] * len(words)
+    while i < len(words):
+        cut = 0
+        for size in range(min(longest, (len(words) - i) // 2), shortest - 1, -1):
+            if out[i:i + size] == out[i + size:i + 2 * size]:
+                cut = size
+                break
+        if cut:
+            for k in range(i + cut, i + 2 * cut):
+                keep[k] = False
+            i += 2 * cut
+        else:
+            i += 1
+    return [w for w, k in zip(words, keep) if k]
+
+
 def words_to_cues(words: list[Word], spans: list[tuple[float, float]],
                   gap_break: float = 0.9) -> CueTable:
     """Assign line numbers. Whisper's segments track sung phrases, so prefer them;
     fall back to splitting on inter-word gaps when segments are absent."""
+    words = drop_repeats(drop_collapsed(words))
     cues: list[Cue] = []
     if spans:
         for w in words:
@@ -280,9 +490,20 @@ def words_to_cues(words: list[Word], spans: list[tuple[float, float]],
 
 def transcribe_to_cues(audio: str | Path, key: str | None = None,
                        model: str = DEFAULT_MODEL, language: str | None = None,
-                       prompt: str | None = None) -> CueTable:
+                       prompt: str | None = None,
+                       known: str | None = None) -> CueTable:
+    """Words and timings for a vocal stem.
+
+    With `known` -- the lyrics as the user typed them -- the transcription is
+    used only for its CLOCK and the text comes from them. Measured across three
+    songs, Whisper's cues land within 0.07s of actual singing while inventing
+    whole phrases, so that split plays to what it is good at. Without `known`
+    the transcription is all there is.
+    """
     words, spans = transcribe_words(audio, key=key, model=model,
                                     language=language, prompt=prompt)
+    if known and known.strip():
+        return align_to_known(drop_repeats(drop_collapsed(words)), known)
     return words_to_cues(words, spans)
 
 

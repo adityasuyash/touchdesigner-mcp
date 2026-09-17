@@ -221,9 +221,19 @@ def prepare(track: str | Path,
             raise ValueError(
                 "this video type asks for cues but not for stems; transcription "
                 "needs an isolated vocal")
+        # The lyrics the user typed are ground truth when there are any, not a
+        # thousand-character spelling hint. Whisper is reliable about WHEN a
+        # word is sung and unreliable about WHAT it was; this takes the clock
+        # from it and the words from the person who knows the song, and the
+        # line breaks with them -- which is how a 32-word "line" stops
+        # happening.
+        known = (prompt or "").strip()
+        if known:
+            say(f"transcribing for timing, lettering {len(known.split())} "
+                f"known words over it")
         table = transcribe_mod.transcribe_to_cues(
             stems.vocals, key=groq_key, model=groq_model,
-            language=language, prompt=prompt)
+            language=language, prompt=prompt, known=known or None)
         table.save(cues_path)
         say(f"{len(table.cues)} words across {len(table.lines)} lines")
 
