@@ -562,6 +562,44 @@ def words_to_cues(words: list[Word], spans: list[tuple[float, float]],
     return CueTable([Cue(c.word, c.start, order[c.line]) for c in cues])
 
 
+# What counts as "sung, with nothing cued against it" -- the same number the
+# pipeline warns on. It lives here because the filler and the warner MUST agree:
+# a hole the run reports afterwards is a hole the second pass should have been
+# sent to first, and for as long as the two had their own thresholds it was not.
+# Measured on one song: three holes reported, one of which the filler had
+# proposed and two of which it had never looked at, because a single cued word
+# counts as covering four seconds of stem.
+WORTH_ASKING = 2.5
+
+
+def worth_asking(vocals, starts, least: float = WORTH_ASKING, fps_mask=None
+                 ) -> list[tuple[float, float]]:
+    """Every stretch worth sending transcription back to, merged.
+
+    The union of two views of the same question, which used to be asked by two
+    functions with two thresholds and no relationship: `voiced_gaps` looks at
+    the frame mask and knows WHERE inside a long gap the singing sits, and
+    `analysis.missed_windows` looks cue-to-cue and catches the shorter holes
+    that the filler's four-second coverage rule swallows.
+    """
+    from . import analysis
+
+    mask = fps_mask if fps_mask is not None else analysis.voiced_frames(vocals)
+    spans = list(voiced_gaps(vocals, starts, fps_mask=mask))
+    spans += [(a, b) for a, b, _sung in
+              analysis.missed_windows(vocals, starts, min_voiced=least,
+                                      fps_mask=mask)]
+    if not spans:
+        return []
+    out = []
+    for lo, hi in sorted(spans):
+        if out and lo <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], hi))
+        else:
+            out.append((lo, hi))
+    return out
+
+
 def voiced_gaps(vocals, starts, fps_mask=None, pad: float = 1.0,
                 join: float = 2.5, least: float = 1.5,
                 most: float = 25.0, hold: float = 4.0
@@ -645,7 +683,7 @@ def fill_gaps(audio, words: list[Word], key: str | None = None,
     to 26 seconds.
     """
     say = progress or (lambda m: None)
-    spans = voiced_gaps(audio, [w.start for w in words])
+    spans = worth_asking(audio, [w.start for w in words])
     if not spans:
         return words
 

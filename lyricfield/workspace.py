@@ -149,20 +149,61 @@ class Workspace:
 
     # ---------- takes ----------
 
-    def write_take(self, export: Path, ready: bool = False) -> Path:
+    def write_take(self, export: Path, ready: bool = False,
+                   start: float | None = None,
+                   seconds: float | None = None) -> Path:
         """Record what produced an export, beside it.
 
         `export_path` versions the filename but not the settings, so a take
         could not be identified, compared or returned to. The config and cues
         are small text files with serialisers already, which makes a take a
         thing the system can act on rather than just a file someone kept.
+
+        `start` is WHERE IN THE SONG the take begins. Without it an export
+        cannot be measured against its own cue table after the fact -- every
+        "does the picture follow the words" check needs it, and it lived only
+        in the memory of the run that made the file. Recovering it afterwards
+        meant sliding the cue mask over the clip hunting for a correlation
+        peak, on a file whose settings were sitting right beside it.
+
+        Written as a `[take]` block appended to the config rather than as
+        fields on `Track`: `Config.as_params` merges the whole of Track into
+        the flat dict every field script reads, so a name there is reserved
+        repo-wide, and where a take starts is a fact about the export rather
+        than about the song. `Config.load` ignores sections it does not know.
         """
         export = Path(export)
-        self.load_config().save(export.with_suffix(".toml"))
+        settings = export.with_suffix(".toml")
+        self.load_config().save(settings)
+        if start is not None or seconds is not None:
+            block = ["", "# Where in the song this take is, so it can be",
+                     "# measured against its own cue table later.", "[take]"]
+            if start is not None:
+                block.append(f"start = {float(start):.3f}")
+            if seconds is not None:
+                block.append(f"seconds = {float(seconds):.3f}")
+            with settings.open("a", encoding="utf-8") as fh:
+                fh.write("\n".join(block) + "\n")
         CueTable.load(self.cues_path).save(export.with_suffix(".tsv"))
         if ready:
             export.with_suffix(".ready").write_text("verified with no problems\n")
         return export.with_suffix(".toml")
+
+    @staticmethod
+    def take_window(export: Path | str) -> tuple[float, float] | None:
+        """Where in the song an export is, from the settings beside it."""
+        import tomllib
+
+        settings = Path(export).with_suffix(".toml")
+        if not settings.exists():
+            return None
+        try:
+            blk = tomllib.loads(settings.read_text(encoding="utf-8")).get("take")
+        except Exception:
+            return None
+        if not isinstance(blk, dict) or "start" not in blk:
+            return None
+        return float(blk["start"]), float(blk.get("seconds") or 0.0)
 
     def takes(self) -> list[dict]:
         """Every export that has its settings recorded, newest first."""

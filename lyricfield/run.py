@@ -613,28 +613,48 @@ def _verify(ctx: Ctx, say) -> dict:
 
     if match.get("checked"):
         ratio, follows = match.get("ratio"), match.get("follows_words")
+        # TWO signals, and one weak one is not a verdict.
+        #
+        # The ratio asks whether there is more lettering during a word than
+        # between words, which is exactly right for a renderer that lights one
+        # word at a time and wrong for one that holds a PHRASE: longhand keeps
+        # its lettering up across the gaps inside a phrase, so a correct render
+        # of it measures 1.2 where the grid renderers measure 10 to 40. Judged
+        # on the ratio alone it was called untrustworthy.
+        #
+        # The correlation asks whether the picture tracks how many words are
+        # active, which holds for both. The render that prompted all of this --
+        # thirty seconds of entirely the wrong part of the song -- fails both,
+        # at a ratio of 0.49, and that is the case worth catching.
         if ratio is not None:
-            say(f"lit {match['bright_in_cue']:.0f} px during words against "
-                f"{match['bright_outside']:.0f} px between them")
-            if ratio < 1.5:
-                problems.append(
-                    f"the picture does not follow the words: "
-                    f"{match['bright_in_cue']:.0f} lit pixels while a word is "
-                    f"being sung against {match['bright_outside']:.0f} between "
-                    f"words. The render is probably showing a different part of "
-                    f"the song than the audio.")
+            say(f"inked {match['bright_in_cue']:.0f} px during words against "
+                f"{match['bright_outside']:.0f} px between them"
+                + (f", tracking the words at {follows:+.2f}"
+                   if follows is not None else ""))
         elif follows is not None:
-            # Densely sung, so there are no frames between words to compare
-            # against. How many words are lit still varies, and the picture
-            # should track that.
-            say(f"brightness tracks the words at {follows:+.2f}")
-            if follows < 0.1:
-                problems.append(
-                    f"the picture does not follow the words: brightness tracks "
-                    f"how many words are being sung at only {follows:+.2f}, "
-                    f"where a render of this song scores well above zero. It is "
-                    f"probably showing a different part of the song than the "
-                    f"audio.")
+            say(f"the lettering tracks the words at {follows:+.2f}")
+
+        weak_ratio = ratio is not None and ratio < 1.15
+        weak_follow = follows is not None and follows < 0.1
+        no_ratio = ratio is None
+        if (weak_ratio or no_ratio) and weak_follow:
+            detail = (f"{match['bright_in_cue']:.0f} inked pixels while a word "
+                      f"is being sung against {match['bright_outside']:.0f} "
+                      f"between words" if ratio is not None else
+                      "there are no frames between words to compare")
+            problems.append(
+                f"the picture does not follow the words: {detail}, and the "
+                f"lettering tracks how many words are being sung at only "
+                f"{follows:+.2f}. The render is probably showing a different "
+                f"part of the song than the audio.")
+        elif weak_ratio and follows is None:
+            problems.append(
+                f"the picture does not follow the words: "
+                f"{match['bright_in_cue']:.0f} inked pixels while a word is "
+                f"being sung against {match['bright_outside']:.0f} between "
+                f"words, and the lettering could not be correlated against the "
+                f"cues. The render may be showing a different part of the song "
+                f"than the audio.")
 
         black = match.get("black_fraction", 0.0)
         if black > 0.02:
@@ -696,7 +716,8 @@ def _verify(ctx: Ctx, say) -> dict:
     if earlier and not problems:
         say(f"not marking this take verified: {len(earlier)} earlier problem(s)")
     try:
-        ws.write_take(Path(prev), ready=ready)
+        ws.write_take(Path(prev), ready=ready, start=start,
+                      seconds=float(prev_detail.get("duration") or 0.0))
     except Exception as e:
         say(f"could not record the take: {e}")
 

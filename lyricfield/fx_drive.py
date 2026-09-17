@@ -11,6 +11,7 @@ What it drives:
     fx_zoom    transformTOP   sx, sy        the punch
     fx_split   reorderTOP     (via fx_r/fx_b transforms) the fringe
     fx_bloom   blurTOP        size          the swell
+    fx_glow    levelTOP       brightness1   ... and how much of it is added
     fx_level   levelTOP       brightness1   the lift that rides with it
 
 Nothing here knows which renderer drew the frame it is moving, which is the
@@ -521,9 +522,17 @@ def onCook(scriptOp):
         # mean sharpening, which a Blur TOP cannot do and would clamp anyway.
         up = max(0.0, env)
         _setpar('fx_bloom', 'size', float(BLOOM_AMOUNT) * up)
+        # The glow's level follows the same envelope, and it has to: a Blur TOP
+        # at size 0 is a COPY, so a glow branch added at full strength doubles
+        # the frame at every moment the swell is at rest. Black doubled is
+        # black, which is why this survived as long as every renderer drew
+        # light on dark -- and why the first render on light paper came out 99%
+        # pure white.
+        _setpar('fx_glow', 'brightness1', up)
         lift = float(BLOOM_LIFT) * up
     else:
         _setpar('fx_bloom', 'size', 0.0)
+        _setpar('fx_glow', 'brightness1', 0.0)
 
     # These sixteen pixels ARE the lift, and the chain multiplies the word
     # layer by them and adds the result -- `word * (1 + lift)`, which is what

@@ -359,6 +359,82 @@ def test_every_section_of_the_response_is_pushed(drive):
             f"nothing from [{sec.name}] is pushed to the driver")
 
 
+def _driven(drive, t, drums=None, **params):
+    """What `onCook` writes to its neighbours at one moment.
+
+    `fx_drive` reaches for the TouchDesigner globals `op` and `me`, so both are
+    stubbed and every `_setpar` is recorded instead of applied.
+    """
+    wrote = {}
+    drive.DEFAULTS.update(params)
+    drive._apply_params()
+    drive.S.clear()
+    # `onCook` re-applies the params when the stamp moves, and `_apply_params`
+    # clears `S` on its way past -- which would take the drums with it and
+    # leave the test measuring a song with no beat in it.
+    drive.S["stamp"] = 0
+    drive.S["drums"] = drums or {"kick": [1.0], "snare": [], "hat": []}
+    drive.__dict__["me"] = type("M", (), {
+        "time": type("T", (), {"seconds": t})()})()
+    drive.__dict__["op"] = lambda p: None
+    drive.__dict__["CookLevel"] = type("C", (), {"ALWAYS": 1})
+    drive.__dict__["_setpar"] = lambda path, name, v: wrote.__setitem__(
+        (path, name), v)
+
+    class _TOP:
+        name, width, height = "fx_drive", 16, 16
+
+        def copyNumpyArray(self, a):
+            self.written = np.array(a)
+
+    top = _TOP()
+    drive.onCook(top)
+    return wrote, top
+
+
+def test_the_glow_is_not_added_while_it_is_at_rest(drive):
+    """A Blur TOP at size 0 is a COPY of its input, so a glow branch added at
+    full strength doubles the whole frame whenever the swell is at rest --
+    which is most of the time, and every moment of every preset that has the
+    bloom switched off.
+
+    Black doubled is black, so this was invisible for as long as every renderer
+    drew light on dark. On the first render of blue marker on light paper it
+    put 99% of the frame at pure 255: the page blown out, the lettering the
+    only thing left, and the verifier reporting that the picture did not follow
+    the words -- of a render whose lettering was perfectly correct.
+    """
+    wrote, _top = _driven(drive, 8.0, bloom_on=True, bloom_amount=40.0,
+                          bloom_decay=0.5)     # long after the only kick
+    assert wrote[("fx_bloom", "size")] == pytest.approx(0.0)
+    assert wrote[("fx_glow", "brightness1")] == pytest.approx(0.0), (
+        "the glow is still being added at rest, so the frame is doubled")
+
+    off, _ = _driven(drive, 1.2, bloom_on=False)
+    assert off[("fx_glow", "brightness1")] == pytest.approx(0.0)
+
+
+def test_the_glow_follows_the_swell_it_belongs_to(drive):
+    """On the hit it is there; the blur radius and the level move together, or
+    the glow is a hard copy of the frame rather than a halo."""
+    on, _ = _driven(drive, 1.05, bloom_on=True, bloom_amount=40.0,
+                    bloom_decay=0.6)
+    assert on[("fx_glow", "brightness1")] > 0.5
+    assert on[("fx_bloom", "size")] > 10.0
+
+
+def test_the_glow_has_a_level_of_its_own_in_the_chain():
+    """... and it sits between the blur and the add, or there is nothing to
+    turn down."""
+    specs = {s.name: s for s in compose.network(
+        Config(type="monument").with_beat("pulse"))}
+    assert specs["fx_glow"].inputs == ["fx_bloom"]
+    assert specs["fx_glow"].params["brightness1"] == 0.0
+    assert "fx_glow" in specs["fx_add"].inputs
+    assert "fx_bloom" not in specs["fx_add"].inputs, (
+        "the blur is still added directly, so it is added whole")
+
+
 def test_the_last_strike_is_found_by_bisection(drive):
     drive.S["drums"] = {"kick": [1.0, 2.0, 3.0], "snare": [], "hat": []}
     assert drive._last("kick", 0.5) < 0

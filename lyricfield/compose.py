@@ -7,7 +7,7 @@ what `render` records and what every check measures.
 
     words/out -> fx_in (select) -> fx_shake -> fx_zoom
               -> fx_r / fx_g / fx_b -> fx_split      (the fringe)
-              -> fx_level -> fx_spark_add -> fx_bloom -> fx_add -> fx_clamp
+              -> fx_level -> fx_spark_add -> fx_bloom -> fx_glow -> fx_add
                    ^              ^
                    |        fx_seed -> fx_burst -> fx_sparks   (the dust)
               fx_liftmap <- fx_drive's own pixels ARE the lift
@@ -180,12 +180,23 @@ def network(cfg) -> list[OpSpec]:
                inputs=["fx_level", "fx_sparks"]),
         OpSpec("fx_bloom", "blurTOP", (-400, -150),
                params={**frame, "size": 0.0}, inputs=["fx_spark_add"]),
+        # The glow's own level, and it is load-bearing. A Blur TOP at size 0 is
+        # a COPY of its input, so adding it below was adding the whole frame to
+        # itself whenever the bloom was off or its envelope was at rest -- every
+        # preset, most of the time. On a dark ground that is invisible (black
+        # doubled is black, white stays white) and it went unnoticed for as
+        # long as every renderer drew light on dark. Measured on the first
+        # render of blue marker on light paper: 99% of the frame at pure 255,
+        # the page blown out and the verifier reporting that the picture did
+        # not follow the words, because at that point nothing did.
+        OpSpec("fx_glow", "levelTOP", (-300, -150),
+               params={**frame, "brightness1": 0.0}, inputs=["fx_bloom"]),
         # `add`, then clamped: the glow lifts the type rather than replacing it,
         # and a Level TOP remaps rather than clamps, so white is held by a
         # minimum against a constant.
         OpSpec("fx_add", "compositeTOP", (-200, -400),
                params={**frame, "operand": "add"},
-               inputs=["fx_spark_add", "fx_bloom"]),
+               inputs=["fx_spark_add", "fx_glow"]),
         OpSpec("fx_white", "constantTOP", (-200, -650), params=frame),
         OpSpec("fx_clamp", "compositeTOP", (0, -400),
                params={**frame, "operand": "minimum"},

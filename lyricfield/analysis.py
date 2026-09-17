@@ -252,7 +252,8 @@ def voiced_frames(vocals: str | Path, fps: float = 50.0,
 
 def missed_windows(vocals: str | Path, starts: Sequence[float],
                    min_voiced: float = 2.5,
-                   fps: float = 50.0) -> list[tuple[float, float, float]]:
+                   fps: float = 50.0,
+                   fps_mask=None) -> list[tuple[float, float, float]]:
     """Stretches where the stem is singing but no word is cued.
 
     Transcription can drop lines without ever failing -- on one song it lost the
@@ -266,8 +267,12 @@ def missed_windows(vocals: str | Path, starts: Sequence[float],
     front or lost in the middle.
 
     Returns `(start, end, voiced_seconds)` per suspect gap, worst first.
+
+    `fps_mask` takes an already-measured `(mask, fps)` pair, so a caller asking
+    this and `transcribe.voiced_gaps` about the same stem decodes it once
+    rather than twice -- and can ask both with no file at all.
     """
-    voiced, fps = voiced_frames(vocals, fps)
+    voiced, fps = fps_mask if fps_mask is not None else voiced_frames(vocals, fps)
     if not len(voiced):
         return []
     dur = len(voiced) / fps

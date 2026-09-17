@@ -569,7 +569,8 @@ def measure_motion(video: str | Path, width: int = 96,
 
 def measure_output(video: str | Path, cue_times, start: float,
                    fps: float = 10.0, lit: int = 200, ink: int = 8,
-                   plateau: tuple[float, float] = (0.12, 0.92)) -> dict:
+                   plateau: tuple[float, float] = (0.12, 0.92),
+                   contrast: int = 45) -> dict:
     """Measure a finished render against the song it is supposed to be.
 
     This exists because a 30-second render of *entirely the wrong part of the
@@ -580,10 +581,27 @@ def measure_output(video: str | Path, cue_times, start: float,
 
     Three things are measured in one decode:
 
-      * **does the picture follow the words** -- bright pixels during a cued
-        word's plateau against bright pixels between words. When the picture is
-        the song, light only happens on cue. The failing render measured *more*
-        light between words than during them.
+      * **does the picture follow the words** -- INKED pixels during a cued
+        word's plateau against inked pixels between words. When the picture is
+        the song, lettering only happens on cue. The failing render measured
+        *more* light between words than during them.
+
+        Inked means "far from what this CLIP mostly looks like", not
+        "bright". A brightness count answers the question only while every
+        renderer draws light on dark: on blue marker over light paper it
+        counted the PAPER, so it measured 916,340 pixels during words against
+        917,316 between them -- a ratio of 1.00 out of a 921,600-pixel frame --
+        and called a render that was fine one showing the wrong part of the
+        song.
+
+        Against the CLIP's median rather than each frame's, and that
+        distinction is the whole of it: a frame-relative measure is blind to
+        anything that moves the whole frame at once, which is exactly what the
+        synthesised flash fixture does. A 256-bin histogram of a strided sample
+        per frame is a kilobyte, so the clip median can be found at the end and
+        every frame's count recovered exactly without keeping any pixels --
+        buffering the decode held 2.4GB for a four-minute track, which is why
+        this function streams in the first place.
       * **is the frame filled** -- how much of the frame's height has anything
         drawn in it. This is what catches geometry drift: a lost text
         calibration dropped the row pitch from 53px to 40px, so the grid drew
@@ -611,6 +629,7 @@ def measure_output(video: str | Path, cue_times, start: float,
         stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
     )
     bright: list[int] = []
+    hist: list = []
     dark: list[bool] = []
     rows_seen = np.zeros(h, dtype=bool)
     try:
@@ -620,6 +639,10 @@ def measure_output(video: str | Path, cue_times, start: float,
                 break
             f = np.frombuffer(buf, dtype=np.uint8).reshape(h, w)
             bright.append(int((f > lit).sum()))
+            # Every eighth row and column: the question is how much of the
+            # frame differs from the clip's ground, and a stride answers it to
+            # within a pixel for a sixty-fourth of the work.
+            hist.append(np.bincount(f[::8, ::8].ravel(), minlength=256))
             dark.append(bool(f.max() < 2))
             rows_seen |= (f > ink).any(axis=1)
     finally:
@@ -643,8 +666,21 @@ def measure_output(video: str | Path, cue_times, start: float,
     used = np.flatnonzero(rows_seen)
     out["frame_fill"] = round(float(used[-1] - used[0]) / h, 3) if len(used) > 1 else 0.0
 
+    # What this clip mostly looks like, and how much of each frame is not that.
+    hs = np.asarray(hist, dtype=np.int64)
+    total = hs.sum(axis=0)
+    ground = int(np.searchsorted(np.cumsum(total), total.sum() / 2.0))
+    lo, hi = max(0, ground - contrast), min(255, ground + contrast)
+    inked = hs[:, :lo].sum(axis=1) + hs[:, hi + 1:].sum(axis=1)
+    out["ground_luma"] = ground
+    out["inked_mean"] = round(float(inked.mean()), 1)
+
     if times:
-        b = np.array(bright, float)
+        # The inked count is the one the cue comparison uses; the bright count
+        # is still reported, because a change in it is what a reader of these
+        # numbers has been looking at for as long as they have existed.
+        b = inked.astype(float)
+        out["bright_mean"] = round(float(np.mean(bright)), 1)
         t = float(start) + np.arange(n) / fps
         # When a word is at full brightness, taken from the configuration rather
         # than assumed. Hardcoding it meant that lengthening `hold` moved real

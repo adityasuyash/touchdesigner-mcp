@@ -266,6 +266,51 @@ def test_the_windows_to_ask_again_about_are_the_holes():
     assert 34 < hi < 37, gaps
 
 
+def test_the_filler_is_sent_to_every_hole_the_run_will_warn_about():
+    """The two halves of one question, which used to be asked by two functions
+    with two thresholds and no relationship.
+
+    `voiced_gaps` treats a cued word as covering four seconds of stem, which is
+    deliberate -- a tighter rule proposes re-transcribing most of the song. But
+    the run's own warning uses a different rule, so a hole could be reported to
+    the user that the second pass had never been shown. Measured on one song:
+    three holes warned about, one proposed, and the two that were never asked
+    about held "sunflower, you're the sunflower" and "sunflower" -- real words,
+    recovered as soon as the window was sent.
+    """
+    import numpy as np
+
+    from lyricfield import analysis as A
+
+    fps = 50.0
+    voiced = np.ones(int(60 * fps), dtype=bool)
+    # Cued throughout, except a three-second hole at 30s -- short enough that
+    # the four-second hold swallows it.
+    starts = [t / 2 for t in range(0, 60)] + [t / 2 for t in range(66, 120)]
+    mask = (voiced, fps)
+
+    warned = A.missed_windows(None, starts, min_voiced=T.WORTH_ASKING,
+                              fps_mask=mask)
+    assert warned, "the fixture has no hole to find"
+    asked = T.worth_asking(None, starts, fps_mask=mask)
+    for a, b, _sung in warned:
+        assert any(lo < b and a < hi for lo, hi in asked), (
+            f"the run would warn about {a:.1f}-{b:.1f}s, which the second "
+            f"pass was never sent to: {asked}")
+
+
+def test_the_windows_asked_about_do_not_overlap_each_other():
+    """Two views of the same hole is two uploads of the same audio."""
+    import numpy as np
+
+    fps = 50.0
+    voiced = np.ones(int(60 * fps), dtype=bool)
+    starts = [t / 2 for t in range(0, 40)] + [t / 2 for t in range(80, 120)]
+    spans = T.worth_asking(None, starts, fps_mask=(voiced, fps))
+    for (a, b), (c, d) in zip(spans, spans[1:]):
+        assert b <= c, spans
+
+
 def test_a_stem_that_is_fully_cued_asks_nothing():
     import numpy as np
 

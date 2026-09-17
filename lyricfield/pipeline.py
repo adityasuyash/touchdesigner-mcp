@@ -32,7 +32,10 @@ from .drums import DrumTable
 # How far a first cue may trail the first singing before it counts as a lost
 # opening line. Generous enough for a held breath or an ad-lib the transcriber
 # reasonably skipped; august's gap was 5.9s.
-LATE_CUE_GAP = 2.5
+# The same number `transcribe.worth_asking` uses to decide what to send
+# transcription back to, so the warner cannot report a hole the filler
+# was never shown.
+LATE_CUE_GAP = transcribe_mod.WORTH_ASKING
 
 
 @dataclass
@@ -260,12 +263,35 @@ def prepare(track: str | Path,
                                                min_voiced=LATE_CUE_GAP)
         except Exception:      # a measurement, never a reason to fail the run
             gaps = []
+        # Which of those windows transcription has ALREADY been sent back to.
+        # `transcribe_to_cues` runs a second pass over exactly these spans, so
+        # a hole that is still here after it is a hole the model was asked
+        # about twice -- usually a hum, an "ooh" or an instrument left in the
+        # stem rather than a dropped line. Telling the user to re-run
+        # transcription in that case is sending them to redo work the system
+        # has already done, and it is the kind of advice that costs trust.
+        try:
+            retried = transcribe_mod.worth_asking(out.vocals, starts,
+                                                  least=LATE_CUE_GAP)
+        except Exception:
+            retried = []
         for a, b, sung in gaps[:3]:
             where = "before the first cued word" if a == 0.0 else f"from {a:.1f}s"
-            out.warnings.append(
-                f"{sung:.1f}s of singing {where} (to {b:.1f}s) has no words "
-                f"cued against it -- transcription probably dropped a line; "
-                f"add the words to cues.tsv or re-run transcription")
+            asked = any(lo < b and a < hi for lo, hi in retried)
+            if asked:
+                out.warnings.append(
+                    f"{sung:.1f}s of singing {where} (to {b:.1f}s) has no "
+                    f"words cued against it. Transcription was sent back over "
+                    f"that window on its own and came back with nothing, so it "
+                    f"is more likely a hum, an \"ooh\" or an instrument left in "
+                    f"the vocal stem than a dropped line -- but if there are "
+                    f"words there, add them to cues.tsv")
+            else:
+                out.warnings.append(
+                    f"{sung:.1f}s of singing {where} (to {b:.1f}s) has no "
+                    f"words cued against it -- transcription probably dropped "
+                    f"a line; add the words to cues.tsv or re-run "
+                    f"transcription")
 
     say("prepared")
     return out
