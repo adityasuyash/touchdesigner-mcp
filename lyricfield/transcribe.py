@@ -667,6 +667,20 @@ def voiced_gaps(vocals, starts, fps_mask=None, pad: float = 1.0,
     return spans
 
 
+# How close two starts have to be to be the same word heard twice. The cue
+# table warns at 0.10s that words "will overlap heavily", so anything inside
+# that is not two words.
+SAME_WORD = 0.12
+
+
+def _already(starts: list[float], t: float, window: float = SAME_WORD) -> bool:
+    """Is there already a word at this moment? `starts` must be sorted."""
+    from bisect import bisect_left
+
+    i = bisect_left(starts, t - window)
+    return i < len(starts) and starts[i] <= t + window
+
+
 def fill_gaps(audio, words: list[Word], key: str | None = None,
               model: str = DEFAULT_MODEL, language: str | None = None,
               prompt: str | None = None, progress=None) -> list[Word]:
@@ -699,7 +713,15 @@ def fill_gaps(audio, words: list[Word], key: str | None = None,
             continue
         # Only what lands inside the hole. A window carries context either
         # side and the decoder will happily re-report words already cued.
-        fresh = [w for w in more if lo <= w.start <= hi]
+        #
+        # And not on top of a word already there: a hole's edge is where the
+        # cued words are, so the re-ask returns the boundary word too and the
+        # table ends up with two of it at one timestamp. Measured on one song,
+        # the first run of this produced three duplicate timestamps and four
+        # more sub-0.1s gaps, both of which the run then warned about.
+        near = sorted(w.start for w in got)
+        fresh = [w for w in more if lo <= w.start <= hi
+                 and not _already(near, w.start)]
         say(f"  {lo:.0f}-{hi:.0f}s: {len(fresh)} more")
         got += fresh
     got.sort(key=lambda w: w.start)

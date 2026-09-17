@@ -311,6 +311,16 @@ def test_the_windows_asked_about_do_not_overlap_each_other():
         assert b <= c, spans
 
 
+def test_a_re_asked_window_does_not_re_cue_the_words_at_its_edges():
+    """A hole's edges are where the cued words are, so the re-ask returns the
+    boundary word too. Measured on one song, the first version of this put
+    three words at timestamps that already had one, and the run warned about
+    both the duplicates and the sub-0.1s gaps they created."""
+    near = [1.0, 2.0, 5.5]
+    assert T._already(near, 1.0) and T._already(near, 2.08)
+    assert not T._already(near, 1.4) and not T._already(near, 9.0)
+
+
 def test_a_stem_that_is_fully_cued_asks_nothing():
     import numpy as np
 
