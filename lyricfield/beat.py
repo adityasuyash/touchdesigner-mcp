@@ -349,6 +349,14 @@ class Burst:
     255), and Pablo Torri's BioCloud study, which gives the behaviour: a solid
     form whose surface sheds a spray of soft dots into the dark, dense at the
     source and thinning outward.
+
+    **It wants a dark ground.** The dust is ADDED, so on a look like
+    Sketchbook -- blue marker on light paper -- it can only brighten a page
+    that is already near white, and it reads as a bleach across the paper
+    rather than as something thrown off the letters. Nothing is broken there
+    and the numbers are the same; it is what additive light does on a bright
+    ground. Every other word look in the project draws on dark, which is where
+    this belongs.
     """
 
     on: bool = False
