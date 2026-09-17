@@ -49,6 +49,15 @@ class Track:
     # field script reads, so this name is reserved repo-wide -- no type may
     # declare a tunable called `plate`. `test_meta` enforces that.
     plate: str = ""
+    # How the words were transcribed, kept so a re-run does not quietly revert.
+    # Neither of these was persisted: the UI read the fields and never wrote
+    # them back, so every re-transcribe fell to auto-detect -- which is how one
+    # song ended up 36 words of romanised English and then 85 of Devanagari,
+    # the script changing mid-track at 14.7s.
+    language: str = ""
+    # The lyrics as the user typed them. Ground truth when present: the
+    # transcription supplies the clock and these supply the words.
+    lyrics: str = ""
     vocals: str = ""
     instrumental: str = ""
     # The isolated drums, when separation produced one. What the beat is

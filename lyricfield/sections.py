@@ -20,7 +20,16 @@ def toml_value(v) -> str:
     if isinstance(v, (int, float)):
         return repr(v)
     if isinstance(v, str):
-        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+        # Control characters have to be escaped, not passed through. A
+        # newline inside a basic TOML string is a parse error, so a single
+        # multi-line value -- a block of lyrics, say -- made the whole
+        # config unreadable the next time it was loaded. Every string field
+        # was one newline away from that.
+        out = v.replace("\\", "\\\\").replace('"', '\\"')
+        for ch, esc in (("\n", "\\n"), ("\r", "\\r"), ("\t", "\\t"),
+                        ("\b", "\\b"), ("\f", "\\f")):
+            out = out.replace(ch, esc)
+        return '"' + out + '"'
     if isinstance(v, (list, tuple)):
         return "[" + ", ".join(toml_value(x) for x in v) + "]"
     raise TypeError(f"cannot serialise {type(v)}")

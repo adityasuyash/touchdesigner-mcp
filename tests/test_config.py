@@ -263,3 +263,28 @@ def test_no_type_may_declare_a_tunable_called_plate():
             assert "plate" not in getattr(p, section).__dataclass_fields__, (
                 f"{vt.slug}.{section} declares `plate`, which collides with the "
                 "song's own")
+
+
+def test_a_block_of_lyrics_survives_the_round_trip(tmp_path):
+    """A newline inside a basic TOML string is a parse error, so one multi-line
+    value made the whole config unreadable on the next load. Every string field
+    was one newline away from that."""
+    from lyricfield.config import Config
+
+    c = Config()
+    c.track.lyrics = 'sun re piya\ngum hai kahaan\tsaid "x"\\y'
+    c.track.language = "hi"
+    c.save(tmp_path / "config.toml")
+    back = Config.load(tmp_path / "config.toml")
+    assert back.track.lyrics == c.track.lyrics
+    assert back.track.language == "hi"
+
+
+def test_how_the_words_were_transcribed_is_remembered(tmp_path):
+    """Neither was persisted: the UI read the fields and never wrote them back,
+    so every re-transcribe fell to auto-detect -- which is how one song came
+    out 36 words of romanised English and then 85 of Devanagari."""
+    from lyricfield.config import Config
+
+    c = Config()
+    assert hasattr(c.track, "language") and hasattr(c.track, "lyrics")

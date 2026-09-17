@@ -250,3 +250,26 @@ def test_the_picker_asks_for_the_kind_of_file_it_is_filling():
     src = INDEX.read_text()
     assert "BROWSE_FOR" in src and "kind: 'plate'" in src
     assert "kind: want.kind" in src or "kind: want.kind" in src or "want.kind" in src
+
+
+def test_the_language_and_lyrics_are_remembered_on_the_song(song):
+    """So a re-run with the fields untouched does not revert to auto-detect."""
+    run_mod._honour_pick(
+        _ctx(song, options={"language": "hi", "prompt": "sun re piya"}),
+        lambda m: None)
+    cfg = song.load_config()
+    assert cfg.track.language == "hi"
+    assert cfg.track.lyrics == "sun re piya"
+
+
+def test_what_the_run_carries_beats_what_the_song_remembers(song):
+    run_mod._honour_pick(_ctx(song, options={"language": "hi"}), lambda m: None)
+    run_mod._honour_pick(_ctx(song, options={"language": "ur"}), lambda m: None)
+    assert song.load_config().track.language == "ur"
+
+
+def test_an_empty_field_does_not_wipe_what_was_stored(song):
+    """Leaving the box blank on a re-run means "as before", not "forget"."""
+    run_mod._honour_pick(_ctx(song, options={"language": "hi"}), lambda m: None)
+    run_mod._honour_pick(_ctx(song, options={"language": ""}), lambda m: None)
+    assert song.load_config().track.language == "hi"

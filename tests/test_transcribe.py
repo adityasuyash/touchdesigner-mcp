@@ -241,3 +241,72 @@ def test_a_transcript_aligned_to_itself_is_unchanged():
     for a, b in zip(table.cues, real):
         assert a.word == b.word
         assert a.start == pytest.approx(b.start, abs=0.01)
+
+
+# ------------------------------------------------------ going back for more
+
+def test_the_windows_to_ask_again_about_are_the_holes():
+    """One upload of a whole track is one chance for the decoder to lose the
+    thread, and when it does it loses a REGION: one song came back with nothing
+    at all in its first 28 seconds of 162."""
+    import numpy as np
+
+    fps = 50.0
+    voiced = np.ones(int(60 * fps), dtype=bool)      # singing throughout
+    # cues everywhere except 20-35s
+    starts = [t / 2 for t in range(0, 40)] + [t / 2 for t in range(70, 120)]
+    gaps = T.voiced_gaps(None, starts, fps_mask=(voiced, fps))
+    assert len(gaps) == 1, gaps
+    lo, hi = gaps[0]
+    # The last cue before the hole is at 19.5s and a word is taken to be sung
+    # for up to `hold` (4s) after its cue, so the hole proper starts at 23.5
+    # and the pad opens it a second earlier. Being generous here is deliberate:
+    # a tighter hold finds more "holes" that are only the tail of a held word.
+    assert 22 < lo < 24, gaps
+    assert 34 < hi < 37, gaps
+
+
+def test_a_stem_that_is_fully_cued_asks_nothing():
+    import numpy as np
+
+    fps = 50.0
+    voiced = np.ones(int(30 * fps), dtype=bool)
+    starts = [t / 2 for t in range(0, 60)]
+    assert T.voiced_gaps(None, starts, fps_mask=(voiced, fps)) == []
+
+
+def test_silence_is_not_a_hole():
+    """Only stretches that are SUNG and uncued. An instrumental break has no
+    words because there are none to have."""
+    import numpy as np
+
+    fps = 50.0
+    voiced = np.zeros(int(30 * fps), dtype=bool)
+    voiced[:int(5 * fps)] = True
+    starts = [t / 2 for t in range(0, 10)]
+    assert T.voiced_gaps(None, starts, fps_mask=(voiced, fps)) == []
+
+
+def test_a_word_covers_the_time_until_the_next_word():
+    """Treating a cue as a moment leaves an uncovered sliver between every pair
+    of them, and merging those slivers proposes re-transcribing the whole song
+    -- measured, 80 of 91 seconds."""
+    import numpy as np
+
+    fps = 50.0
+    voiced = np.ones(int(40 * fps), dtype=bool)
+    # words a second apart: dense enough that nothing is missing
+    starts = [float(t) for t in range(0, 38)]
+    assert T.voiced_gaps(None, starts, fps_mask=(voiced, fps)) == []
+
+
+def test_a_very_long_hole_is_asked_about_in_pieces():
+    """The point of asking again is to give the decoder less to lose track of,
+    not the same problem twice."""
+    import numpy as np
+
+    fps = 50.0
+    voiced = np.ones(int(200 * fps), dtype=bool)
+    gaps = T.voiced_gaps(None, [0.0], fps_mask=(voiced, fps))
+    assert len(gaps) > 1
+    assert all(b - a <= 25.5 for a, b in gaps), gaps

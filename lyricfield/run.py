@@ -253,6 +253,16 @@ def _honour_pick(ctx: Ctx, say) -> dict:
         say(f"lettering over {Path(cfg.track.plate).name}")
         changed["plate"] = cfg.track.plate
 
+    # How the words were transcribed, kept so a re-run does not quietly revert
+    # to auto-detect -- which is how one song came out 36 words of romanised
+    # English and then 85 of Devanagari, the script changing at 14.7s.
+    for name, key in (("language", "language"), ("lyrics", "prompt")):
+        val = (ctx.options.get(key) or "").strip()
+        if val and val != getattr(cfg.track, name, ""):
+            setattr(cfg.track, name, val)
+            ws.save_config(cfg)
+            changed[name] = True
+
     # What sits behind the words, applied last so it overrides whatever the
     # style brought with it -- the style is the word look, this is the choice
     # made on top of it.
@@ -302,8 +312,11 @@ def _ingest(ctx: Ctx, say) -> dict:
         stem_root=ws.stems_dir,
         needs=vt.needs,
         groq_key=ctx.options.get("api_key"),
-        language=ctx.options.get("language"),
-        prompt=ctx.options.get("prompt"),
+        # What the run carries wins; what the song remembers is the fallback.
+        # Without the fallback a re-run with the fields untouched silently
+        # transcribed on auto-detect again.
+        language=ctx.options.get("language") or cfg.track.language or None,
+        prompt=ctx.options.get("prompt") or cfg.track.lyrics or None,
         force_separate=bool(ctx.options.get("force_separate")),
         force_transcribe=bool(ctx.options.get("force_transcribe")),
         should_stop=ctx.should_stop,

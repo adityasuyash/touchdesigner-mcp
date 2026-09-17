@@ -27,6 +27,8 @@ import urllib.request
 import uuid
 from dataclasses import dataclass
 from difflib import SequenceMatcher
+
+import numpy as np
 from pathlib import Path
 
 from .cues import Cue, CueTable
@@ -124,7 +126,8 @@ def _upload_start(path: Path) -> float:
     return round(max(0.0, entry - LEAD_IN), 2) if entry >= MIN_TRIM else 0.0
 
 
-def _compress(path: Path, start: float = 0.0) -> Path:
+def _compress(path: Path, start: float = 0.0,
+              seconds: float | None = None) -> Path:
     """Whisper only needs 16kHz mono, so the upload stays small.
 
     The bitrate is generous rather than minimal: a four-minute 16kHz mono file
@@ -140,8 +143,9 @@ def _compress(path: Path, start: float = 0.0) -> Path:
     """
     out = Path(tempfile.gettempdir()) / f"lyricfield_{uuid.uuid4().hex}.mp3"
     seek = ["-ss", f"{start}"] if start else []
+    span = ["-t", f"{seconds}"] if seconds else []
     subprocess.run(
-        ["ffmpeg", "-v", "error", "-y", *seek, "-i", str(path),
+        ["ffmpeg", "-v", "error", "-y", *seek, *span, "-i", str(path),
          "-ac", "1", "-ar", "16000", "-b:a", "128k", str(out)],
         check=True,
     )
@@ -173,16 +177,27 @@ def transcribe_words(audio: str | Path, key: str | None = None,
                      model: str = DEFAULT_MODEL,
                      language: str | None = None,
                      prompt: str | None = None,
-                     timeout: float = 300.0) -> tuple[list[Word], list[tuple[float, float]]]:
-    """Returns (words, segment_spans). Segment spans become line boundaries."""
+                     timeout: float = 300.0,
+                     window: tuple[float, float] | None = None,
+                     ) -> tuple[list[Word], list[tuple[float, float]]]:
+    """Returns (words, segment_spans). Segment spans become line boundaries.
+
+    `window` transcribes one stretch of the file instead of all of it. The
+    offset machinery below was already adding the lead-in trim back to every
+    timestamp, so a window costs nothing more than a different seek.
+    """
     src = Path(audio)
     if not src.exists():
         raise TranscribeError(f"no such file: {src}")
 
     # Always re-encode, so the lead-in trim is applied consistently and the
     # offset below is always the right one to add back.
-    offset = _upload_start(src)
-    tmp = _compress(src, offset)
+    if window:
+        offset, span = float(window[0]), float(window[1]) - float(window[0])
+        tmp = _compress(src, offset, seconds=span)
+    else:
+        offset = _upload_start(src)
+        tmp = _compress(src, offset)
     src = tmp
     # MAX_UPLOAD_MB was declared and never consulted, so an over-long track got
     # a raw HTTP error from Groq instead of a sentence explaining it.
@@ -488,10 +503,118 @@ def words_to_cues(words: list[Word], spans: list[tuple[float, float]],
     return CueTable([Cue(c.word, c.start, order[c.line]) for c in cues])
 
 
+def voiced_gaps(vocals, starts, fps_mask=None, pad: float = 1.0,
+                join: float = 2.5, least: float = 1.5,
+                most: float = 25.0, hold: float = 4.0
+                ) -> list[tuple[float, float]]:
+    """Stretches where the stem is singing and the cue table has nothing.
+
+    `analysis.voiced_frames` already answers "is someone singing at this
+    moment" at 50fps, and `missed_windows` already turns that into a warning --
+    which is all anything did with it. This turns it into the windows to go
+    back and ask about, which is the only thing that recovers a region Whisper
+    dropped whole: one song had no cues at all in its first 28 seconds or its
+    last 18, of 162.
+
+    Taken from the frame mask rather than from `missed_windows`, whose triples
+    are cue-to-cue and cannot say WHERE inside a long gap the singing sits.
+    """
+    from . import analysis
+
+    voiced, fps = fps_mask if fps_mask is not None else analysis.voiced_frames(vocals)
+    if not len(voiced):
+        return []
+    # A cued word covers the stem until the NEXT cued word, not a fixed half
+    # second. Treating it as a moment leaves an uncovered sliver between every
+    # pair of cues, and merging those slivers proposes re-transcribing the
+    # whole song -- measured, 80 of 91 seconds.
+    covered = np.zeros(len(voiced), dtype=bool)
+    heard = sorted(starts)
+    for k, t in enumerate(heard):
+        nxt = heard[k + 1] if k + 1 < len(heard) else t + hold
+        lo = max(0, int((t - 0.2) * fps))
+        covered[lo:int(min(nxt, t + hold) * fps)] = True
+
+    out, run = [], None
+    for i, sung in enumerate(voiced & ~covered):
+        if sung:
+            run = [i, i] if run is None else [run[0], i]
+        elif run is not None:
+            out.append(run)
+            run = None
+    if run is not None:
+        out.append(run)
+
+    # Padded, then merged. Padding alone leaves windows overlapping each
+    # other, and a run of them a second apart is one hole with breaths in it --
+    # asking about each separately is more uploads for less context, and
+    # context is most of what the decoder has to work with.
+    merged: list[list[float]] = []
+    for a, b in out:
+        lo, hi = max(0.0, a / fps - pad), b / fps + pad
+        if merged and lo <= merged[-1][1] + join:
+            merged[-1][1] = max(merged[-1][1], hi)
+        else:
+            merged.append([lo, hi])
+
+    spans = []
+    for lo, hi in merged:
+        if hi - lo < least:
+            continue
+        # Long holes go back in pieces: the point of asking again is to give
+        # the decoder less to lose track of, not the same problem twice.
+        while hi - lo > most:
+            spans.append((round(lo, 2), round(lo + most, 2)))
+            lo += most - pad
+        spans.append((round(lo, 2), round(hi, 2)))
+    return spans
+
+
+def fill_gaps(audio, words: list[Word], key: str | None = None,
+              model: str = DEFAULT_MODEL, language: str | None = None,
+              prompt: str | None = None, progress=None) -> list[Word]:
+    """Ask again about the stretches that are sung and have no words.
+
+    One upload of the whole track is one chance for the decoder to lose the
+    thread, and when it does it loses a region rather than a word: one song
+    came back with nothing at all in its first 28 seconds of 162. Cutting that
+    window out and asking about it alone recovered words the whole-file pass
+    had found none of.
+
+    Only the holes, so this is one or two short uploads rather than a second
+    full pass -- measured across three songs, 1, 1 and 2 windows totalling 12
+    to 26 seconds.
+    """
+    say = progress or (lambda m: None)
+    spans = voiced_gaps(audio, [w.start for w in words])
+    if not spans:
+        return words
+
+    say(f"{len(spans)} stretch(es) sung with no words; asking again")
+    got = list(words)
+    for lo, hi in spans:
+        try:
+            more, _ = transcribe_words(audio, key=key, model=model,
+                                       language=language, prompt=prompt,
+                                       window=(lo, hi))
+        except TranscribeError as e:
+            say(f"  {lo:.0f}-{hi:.0f}s: {e}")
+            continue
+        # Only what lands inside the hole. A window carries context either
+        # side and the decoder will happily re-report words already cued.
+        fresh = [w for w in more if lo <= w.start <= hi]
+        say(f"  {lo:.0f}-{hi:.0f}s: {len(fresh)} more")
+        got += fresh
+    got.sort(key=lambda w: w.start)
+    return drop_repeats(drop_collapsed(got))
+
+
 def transcribe_to_cues(audio: str | Path, key: str | None = None,
                        model: str = DEFAULT_MODEL, language: str | None = None,
                        prompt: str | None = None,
-                       known: str | None = None) -> CueTable:
+                       known: str | None = None,
+                       second_pass: bool = True,
+                       progress=None) -> CueTable:
     """Words and timings for a vocal stem.
 
     With `known` -- the lyrics as the user typed them -- the transcription is
@@ -500,10 +623,15 @@ def transcribe_to_cues(audio: str | Path, key: str | None = None,
     whole phrases, so that split plays to what it is good at. Without `known`
     the transcription is all there is.
     """
+    say = progress or (lambda m: None)
     words, spans = transcribe_words(audio, key=key, model=model,
                                     language=language, prompt=prompt)
+    words = drop_repeats(drop_collapsed(words))
+    if second_pass:
+        words = fill_gaps(audio, words, key=key, model=model,
+                          language=language, prompt=prompt, progress=say)
     if known and known.strip():
-        return align_to_known(drop_repeats(drop_collapsed(words)), known)
+        return align_to_known(words, known)
     return words_to_cues(words, spans)
 
 

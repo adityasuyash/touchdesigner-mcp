@@ -233,7 +233,8 @@ def prepare(track: str | Path,
                 f"known words over it")
         table = transcribe_mod.transcribe_to_cues(
             stems.vocals, key=groq_key, model=groq_model,
-            language=language, prompt=prompt, known=known or None)
+            language=language, prompt=prompt, known=known or None,
+            progress=say)
         table.save(cues_path)
         say(f"{len(table.cues)} words across {len(table.lines)} lines")
 
