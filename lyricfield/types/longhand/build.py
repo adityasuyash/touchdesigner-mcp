@@ -104,6 +104,15 @@ def network(cfg) -> list[OpSpec]:
         # what every style preview records against, since a preview carries
         # nothing of the song that happens to be loaded.
         warm = _rgb(g.hue, g.sat)
+        # An EIGHTH of the frame. Sparse noise is expensive and this one is
+        # blurred by a hundred pixels immediately afterwards, so every bit of
+        # that detail is thrown away -- measured in TouchDesigner at 720x1280,
+        # the Noise TOP cost 158ms a frame and was 99% of the renderer's whole
+        # cook. At 6.8fps the recorder duplicates three frames in four, which
+        # is what turned the handheld camera into a stutter in the gallery.
+        small = {"outputresolution": "custom",
+                 "resolutionw": max(16, s.width // 8),
+                 "resolutionh": max(16, s.height // 8), "resmult": False}
         specs += [
             # `harmon` and `mono`, not `harmonics` and `monochrome`: asked
             # TouchDesigner rather than inferred, which is the rule here and
@@ -111,18 +120,22 @@ def network(cfg) -> list[OpSpec]:
             # And `tz` is an EXPRESSION -- assigning a string to a numeric
             # parameter errors rather than evaluating, so it goes through
             # `exprs`, which `apply_exprs` sets as `.expr` after creation.
-            # The noise's swing is `grain`, and its offset keeps the TOP of
-            # the range at white rather than the middle of it -- so turning the
-            # texture down gives clean paper instead of flat grey, and turning
-            # it off gives paper with nothing on it at all.
             OpSpec("plate", "noiseTOP", (-1800, -700),
-                   params={**frame, "type": "sparse", "period": 3.2,
+                   params={**small, "type": "sparse", "period": 3.2,
                            "harmon": 2, "amp": round(0.5 * g.grain, 4),
                            "offset": round(1.0 - 0.5 * g.grain, 4),
                            "mono": True},
                    exprs={"tz": "me.time.seconds/%g" % max(0.5, g.drift_secs)}),
+            # Blurred at the small size, by an eighth of the radius -- the
+            # radius is in pixels, so the same number on a frame an eighth as
+            # wide is eight times the smear.
             OpSpec("lh_soft", "blurTOP", (-1650, -700),
-                   params={**frame, "size": g.blur}, inputs=["plate"]),
+                   params={**small, "size": round(g.blur / 8.0, 3)},
+                   inputs=["plate"]),
+            # ... and back up to the frame, explicitly. A Composite TOP given
+            # two inputs of different sizes is one more thing to be wrong about.
+            OpSpec("lh_up", "levelTOP", (-1500, -700),
+                   params={**frame, "fillmode": "fill"}, inputs=["lh_soft"]),
             # A Level TOP has no per-channel multiplier -- asked TouchDesigner,
             # and there is nothing like `redm` on it -- so the warmth comes
             # from a constant multiplied in, which is two operators and cannot
@@ -130,10 +143,10 @@ def network(cfg) -> list[OpSpec]:
             OpSpec("lh_warm", "constantTOP", (-1650, -900), params={
                 **frame, "colorr": round(warm[0], 4),
                 "colorg": round(warm[1], 4), "colorb": round(warm[2], 4)}),
-            OpSpec("lh_tint", "compositeTOP", (-1500, -700),
+            OpSpec("lh_tint", "compositeTOP", (-1400, -700),
                    params={**frame, "operand": "multiply"},
-                   inputs=["lh_soft", "lh_warm"]),
-            OpSpec("lh_fit", "levelTOP", (-1350, -700),
+                   inputs=["lh_up", "lh_warm"]),
+            OpSpec("lh_fit", "levelTOP", (-1250, -700),
                    params={**frame, "brightness1": g.lift, "gamma1": 1.6},
                    inputs=["lh_tint"]),
         ]

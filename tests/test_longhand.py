@@ -254,6 +254,33 @@ def test_a_song_with_no_footage_gets_a_generated_stand_in():
     assert "lh_soft" in specs, "the stand-in is not defocused"
 
 
+def test_the_generated_ground_is_not_drawn_at_frame_size():
+    """It is blurred by a hundred pixels immediately afterwards, so the detail
+    is thrown away -- and sparse noise is expensive. Measured in TouchDesigner
+    at 720x1280 the Noise TOP cost 158ms a frame and was 99% of this
+    renderer's whole cook: 6.8fps, at which the recorder duplicated three
+    frames in four and the handheld camera came out as a stutter. At an eighth
+    of the frame the same network cooks in 7.1ms.
+    """
+    cfg = Config(type="longhand")
+    specs = {s.name: s for s in network(cfg)}
+    w, h = cfg.params.stage.width, cfg.params.stage.height
+    noise = specs["plate"]
+    assert noise.type == "noiseTOP", "this song has footage; the test needs none"
+    assert noise.params["resolutionw"] * noise.params["resolutionh"] \
+        <= (w * h) / 16, (
+        f"the stand-in is drawn at {noise.params['resolutionw']}x"
+        f"{noise.params['resolutionh']} against a {w}x{h} frame")
+    # ... and the blur has to come down with it, or the same number of pixels
+    # on a smaller image is eight times the smear.
+    assert specs["lh_soft"].params["size"] < cfg.params.ground.blur
+    assert specs["lh_soft"].params["resolutionw"] == noise.params["resolutionw"]
+    # ... and something has to put it back up to the frame.
+    up = specs["lh_up"]
+    assert up.params["resolutionw"] == w and up.params["fillmode"] == "fill"
+    assert up.inputs == ["lh_soft"]
+
+
 def test_the_plate_is_brought_down_before_the_lettering_goes_on():
     """White marker over a bright sky needs the sky darkened. The reference
     does that rather than outlining the type, which would stop it looking
