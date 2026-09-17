@@ -572,6 +572,23 @@
                          color-mix(in srgb, var(--accent) 34%, transparent); }
   .scard.custom:hover .thumb { background: var(--accent-tint-2); }
   .scard.custom .noprev { color: var(--accent); font-size: var(--t-sm); font-weight: 540; }
+  /* A disclosure, in the grouped-list idiom the rest of this uses: a hairline
+     above it, no box around it, the summary carrying its own aside. */
+  .more { margin-top: var(--s-5); border-top: 1px solid var(--line); }
+  .more > summary { list-style: none; cursor: pointer; padding: var(--s-4) 0;
+                    font-size: var(--t-md); font-weight: 560;
+                    letter-spacing: -.006em; display: flex; gap: .5em;
+                    align-items: baseline; }
+  .more > summary::-webkit-details-marker { display: none; }
+  .more > summary::before { content: "\203a"; color: var(--dim);
+                            display: inline-block; font-weight: 400;
+                            transition: transform .15s ease; }
+  .more[open] > summary::before { transform: rotate(90deg); }
+  .more > summary .hint { display: inline; margin: 0; font-weight: 400;
+                          letter-spacing: 0; }
+  .morebody { padding: 0 0 var(--s-4) calc(.5em + 1ch); }
+  .morebody textarea { min-height: 7em; resize: vertical; }
+
   .recipe { margin-top: var(--s-5); padding: var(--s-3) var(--s-4);
             background: var(--bg-3); border-radius: var(--r-s);
             box-shadow: inset 0 0 0 1px var(--line-1); }
@@ -980,6 +997,29 @@
       <div class="recipe"><span class="hint" id="styleNote"></span></div>
     </div>
 
+    <!-- Every choice that is the user's to make lives in the creation flow,
+         because deciding once up front is the whole shape of this thing. Not
+         as a wall of inputs, though: these open closed, so the pane still
+         reads as name, look, beat, go. -->
+    <details class="more" id="moreWords">
+      <summary>Words and language <span class="hint">what is sung, and in what</span></summary>
+      <div class="morebody">
+        <div class="field">
+          <label for="lang">Language <span class="hint">blank to detect — setting it is worth more than any audio setting</span></label>
+          <input type="text" id="lang" placeholder="e.g. hi, en, es">
+        </div>
+        <div class="field">
+          <label for="prompt">Known lyrics <span class="hint">paste them and they become the words, with the transcription used only for timing</span></label>
+          <textarea id="prompt" rows="5" placeholder="one line per line of the song"></textarea>
+        </div>
+      </div>
+    </details>
+
+    <details class="more" id="moreLook">
+      <summary>Fine-tune the look <span class="hint">the picked style's own controls</span></summary>
+      <div class="morebody"><div data-look-host></div></div>
+    </details>
+
     <div class="row nowrap">
       <button class="btn primary block" id="btnPrimary">Make the video</button>
       <button class="btn" id="btnSecondary" data-run-lock hidden>Restart</button>
@@ -1088,10 +1128,8 @@
         <table><thead><tr><th>line</th><th>word</th><th>start</th><th></th></tr></thead>
           <tbody id="cuebody"></tbody></table>
       </div>
-      <div class="field" style="margin-top:var(--s-4)">
-        <label for="lang">Language</label>
-        <input type="text" id="lang" placeholder="auto — set it if the song is not English">
-      </div>
+      <!-- Language moved into the creation flow: it is a choice about the
+           video, not a repair to make after one exists. -->
     </div></div>
   </section>
 
@@ -1126,10 +1164,8 @@
         <label class="lenopt"><input type="checkbox" id="ftra"> Transcribe again</label>
       </div>
       <span class="hint">Both are slow, so they are skipped unless asked for.</span>
-      <div class="field" style="margin-top:var(--s-4)">
-        <label for="prompt">Known lyrics</label>
-        <textarea id="prompt" placeholder="optional — improves spelling and proper nouns"></textarea>
-      </div>
+      <!-- Known lyrics moved into the creation flow, and they are ground
+           truth there rather than a spelling hint. -->
       <div class="field" id="typeField" hidden>
         <label for="vtype">Video type</label>
         <select id="vtype"></select>
@@ -1201,6 +1237,7 @@ let BACK_TYPE = '', BACK_STYLE = '';
 // server every time -- so picking a tile and then choosing a song silently put
 // the tile back. A pick is now the more recent truth until the page reloads.
 let PICKED = false;
+let DEFAULT_TYPE = '';
 let STALE_SAID = false;
 // Which of the three start buttons is lit. "begin" is the default on purpose:
 // the old field defaulted to an invisible auto-pick that landed on the busiest
@@ -1651,6 +1688,7 @@ function renderSongList() {
     // only assigned after the select call returns -- so a slow call left the
     // click looking like it had done nothing at all.
     CURRENT_SLUG = slug;
+    if (!slug) clearForm();
     renderSongList();
     const sel = $('#song'); if (!sel) return;
     sel.value = slug;
@@ -1991,6 +2029,9 @@ function setPick(fam, type, style) {
   }
   PICKED = true;
   renderGallery();
+  // The controls differ per renderer, so the flow's copy is rebuilt on a pick
+  // rather than left showing the last renderer's.
+  controls();
 }
 
 function noneCard(fam) {
@@ -2226,6 +2267,23 @@ function showStyleNote() {
 }
 
 // -------------------------------------------------------------------- runs
+function clearForm() {
+  // "+ New song" used to switch pane and leave the last song's name, paths and
+  // lyrics sitting in the form, ready to be submitted against a different
+  // song. `refreshAll` only ever prefills a field that is EMPTY, so nothing
+  // downstream was going to overwrite them -- the reset has to be explicit.
+  for (const id of ['runName', 'runSource', 'runPlate', 'lang', 'prompt', 'startAt'])
+    { const el = $('#' + id); if (el) el.value = ''; }
+  TYPE_SLUG = DEFAULT_TYPE; STYLE_SLUG = '';
+  BACK_TYPE = ''; BACK_STYLE = '';
+  PICKED = false;
+  CFG = {track: {}, __sections: []}; CFG_CONTROLS = [];
+  for (const id of ['moreWords', 'moreLook'])
+    { const el = $('#' + id); if (el) el.open = false; }
+  renderGallery();
+  controls();
+}
+
 function runBody(extra) {
   return JSON.stringify(Object.assign({
     name: songName(),
@@ -2475,7 +2533,15 @@ $('#btnAddCue').onclick = () => { CUES.push({word:'', start:0, line:1}); renderC
 // reachable below them -- a specific fix sometimes needs a specific number --
 // but it is no longer what the panel opens with.
 function controls() {
-  const host = $('#lookBody'); if (!host) return;
+  // Two hosts: the Look pane, and the disclosure in the creation flow. One
+  // renderer, so they cannot drift -- and the flow's copy has to be rebuilt
+  // when the picked renderer changes, since the controls differ per type.
+  for (const h of document.querySelectorAll('[data-look-host]')) drawControls(h);
+  drawControls($('#lookBody'));
+}
+
+function drawControls(host) {
+  if (!host) return;
   host.innerHTML = '';
 
   if (CFG_CONTROLS.length) {
@@ -2557,7 +2623,8 @@ async function loadTypes() {
   // Something has to be selected before a song exists, or the gallery opens
   // with no renderer chosen and the first Generate falls back to the default
   // without ever having said so.
-  if (!TYPE_SLUG) TYPE_SLUG = d.default || (TYPES[0] || {}).slug || '';
+  DEFAULT_TYPE = d.default || (TYPES[0] || {}).slug || '';
+  if (!TYPE_SLUG) TYPE_SLUG = DEFAULT_TYPE;
   const sel = $('#vtype'); if (sel) sel.innerHTML = '';
   for (const t of TYPES) {
     if (!sel) break;
@@ -2595,6 +2662,13 @@ async function refreshAll() {
   $('#typeField').hidden = TYPES.length < 2;
   if (CFG.track.source && !$('#runSource').value) $('#runSource').value = CFG.track.source;
   if (CFG.track.plate && !$('#runPlate').value) $('#runPlate').value = CFG.track.plate;
+  // How this song was transcribed, so a re-run does not revert to auto-detect.
+  // The disclosure opens when there is something in it: a stored setting behind
+  // a closed summary is the same as no setting.
+  if (CFG.track.language && !$('#lang').value) $('#lang').value = CFG.track.language;
+  if (CFG.track.lyrics && !$('#prompt').value) $('#prompt').value = CFG.track.lyrics;
+  const mw = $('#moreWords');
+  if (mw && (CFG.track.language || CFG.track.lyrics)) mw.open = true;
   if (CFG.track.duration) {
     const m = Math.floor(CFG.track.duration/60), s = Math.round(CFG.track.duration%60);
     $('#fullLabel').textContent = `Full track ${m}:${String(s).padStart(2,'0')}`;

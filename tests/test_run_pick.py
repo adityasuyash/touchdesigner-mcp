@@ -273,3 +273,48 @@ def test_an_empty_field_does_not_wipe_what_was_stored(song):
     run_mod._honour_pick(_ctx(song, options={"language": "hi"}), lambda m: None)
     run_mod._honour_pick(_ctx(song, options={"language": ""}), lambda m: None)
     assert song.load_config().track.language == "hi"
+
+
+# ------------------------------------------- every choice, in one place
+
+def test_the_creation_flow_carries_every_subjective_choice():
+    """A setting the user has an opinion about belongs where they are already
+    looking, not behind a pane they have to know to visit. Language lived in
+    the Words pane and the known lyrics in Song setup, so neither was available
+    when the first video was made."""
+    src = INDEX.read_text()
+    make = src[src.index('id="view-make"'):src.index('id="view-preview"')]
+    for want in ('id="lang"', 'id="prompt"', 'data-look-host',
+                 'id="runName"', 'id="runSource"', 'id="runPlate"'):
+        assert want in make, f"{want} is not in the creation flow"
+
+
+def test_the_extra_choices_open_closed():
+    """Progressive disclosure: the pane still has to read as name, look, beat,
+    go. A wall of inputs is the thing this is not."""
+    src = INDEX.read_text()
+    for panel in ('id="moreWords"', 'id="moreLook"'):
+        i = src.index(panel)
+        tag = src[src.rindex('<details', 0, i):i]
+        assert 'open' not in tag, f"{panel} starts expanded"
+
+
+def test_one_renderer_draws_the_look_controls_in_both_places():
+    """Two hosts, one implementation, so the Look pane and the creation flow
+    cannot drift."""
+    src = INDEX.read_text()
+    assert "function drawControls(host)" in src
+    assert "querySelectorAll('[data-look-host]')" in src
+
+
+def test_a_new_song_starts_from_a_blank_form():
+    """It used to switch pane and leave the last song's name and paths sitting
+    there, ready to be submitted against a different song. `refreshAll` only
+    prefills a field that is EMPTY, so nothing was going to overwrite them."""
+    src = INDEX.read_text()
+    assert "function clearForm()" in src
+    body = re.search(r"function clearForm\(\) \{(.+?)\n\}", src, re.S).group(1)
+    for id_ in ("runName", "runSource", "runPlate", "lang", "prompt"):
+        assert id_ in body, f"clearForm leaves #{id_} alone"
+    assert "PICKED = false" in body, "the gallery pick survives a new song"
+    assert "if (!slug) clearForm();" in src, "clearForm is never called"
